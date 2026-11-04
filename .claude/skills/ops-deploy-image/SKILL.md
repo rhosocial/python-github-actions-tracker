@@ -34,7 +34,14 @@ for day-two work.
 5. **Never write a secret to a file that will be committed.** PATs go to
    `docker/secrets/citracker-pat` (git-ignored) and are referenced by `--token-file`.
 
-## Step 0 — Can this machine reach the registries?
+## Step 0 — Pick the runtime, then check reachability
+
+Ask the operator which of the two they want; every later step is the same, only the
+"start it" step differs.
+
+**A. Container** (what the image is built for): needs Docker, and the registry it will
+pull from must be reachable. The two registries carry the same build — if Docker Hub is
+slow from this network, pull the Aliyun one instead:
 
 ```bash
 docker version >/dev/null && echo "docker ok"
@@ -43,9 +50,27 @@ docker pull registry.cn-shanghai.aliyuncs.com/vistart_public/citracker:latest >/
 docker pull docker.io/vistart/citracker:latest >/dev/null && echo "docker hub reachable"
 ```
 
-If Docker Hub is slow from this network, pull from Aliyun instead — the two images are
-byte-identical (same manifest digest). Record which registry was used; it becomes
-`CITRACKER_IMAGE`.
+Record which registry was used; it becomes `CITRACKER_IMAGE`.
+
+**B. Native Python** (no Docker at all): needs Python 3.10 or newer (3.15 is what CI and
+the image run), pip, and a route to the package — PyPI, or a local checkout to install
+from:
+
+```bash
+python --version                       # 3.10+; 3.15 is what CI runs
+pip install rhosocial-github-ci-tracker
+rhosocial-github-ci-tracker --help     # both CLIs arrive from the same wheel
+rhosocial-github-ci-tracker-db --help
+```
+
+Both entry points read the same `CITRACKER_*` environment variables the compose file would
+have carried, so the answers collected in steps 1–5 feed either runtime unchanged.
+Windows works: the CLI installs the selector event loop psycopg's async mode needs on
+that platform. Validate the environment:
+
+```bash
+python .claude/skills/ops-deploy-image/scripts/check_native_env.py
+```
 
 ## Step 1 — Where is PostgreSQL?
 
@@ -206,12 +231,40 @@ them.
 
 ## Step 6 — Start it, then prove it started
 
+**A. Container.**
+
 ```bash
 docker compose --env-file docker/stack.env up -d
 python .claude/skills/ops-deploy-image/scripts/check_deployment.py \
   --base-url http://127.0.0.1:8001 --api-key "<CITRACKER_API_KEY>" \
   --webhook-url http://127.0.0.1:18080 --expect-revision <short sha of the image>
 ```
+
+**B. Native Python.** There is no `init.d` runner here: the same two operations are two
+CLI calls, and the long-running parts are two foreground processes (each in its own
+terminal, or under your service manager — systemd, NSSM, Task Scheduler, whatever the
+platform offers):
+
+```bash
+# 1) schema — creates the database too when the user may; --no-create-database
+#    for managed services where it may not:
+rhosocial-github-ci-tracker-db init
+
+# 2) credential — what 20-pat.sh did in the container; token from a file, so it
+#    never reaches the process list:
+rhosocial-github-ci-tracker credential pat ensure \
+  --name default --token-file docker/secrets/citracker-pat --probe-repo owner/repo
+
+# 3) the two long-running processes:
+rhosocial-github-ci-tracker serve all    # REST :8000 + webhook :18080
+rhosocial-github-ci-tracker serve mcp    # MCP :8001, its own process
+```
+
+Then the same script as path A. It cannot tell a container from a native process, and
+that is the point: the probes are about the service, not the packaging. The one
+difference worth noticing: on the native path `/metrics`, `/readyz` and the MCP endpoint
+are only up while the processes run — there is no restart policy to bring them back, so
+the service manager is part of the deployment, not an optional extra.
 
 The script checks, in order: `/livez` (zero I/O, must answer), which scheme the MCP
 listener actually answers on, `/readyz` (one database round trip plus the schema state),
@@ -232,9 +285,11 @@ not finished, however green its probes are.
 ## Done means
 
 - every script exited `0`, and the ones that warned did so in words the operator has read;
-- `docker/stack.env` holds the whole configuration and no secret that belongs in
-  `docker/secrets/`;
-- `/readyz` reports the revision of the image that was pulled, not an older one;
+- the whole configuration lives in one place — `docker/stack.env` on the container path,
+  an environment file or service unit on the native path — and no secret that belongs in
+  `docker/secrets/` (or a token file) sits anywhere else;
+- `/readyz` reports the revision of the build that was pulled or installed, not an older
+  one;
 - one webhook delivery has been received, or the operator has said the push channel will
   be armed later.
 
@@ -244,8 +299,16 @@ not finished, however green its probes are.
 |---|---|
 | `init` exited non-zero | its log; the database user usually cannot create the database |
 | containers `Up` but every request 500s | `readyz` says `database` — the credentials or the host, not the app |
-| `pool` shows `available: 0` with timeouts | restart the containers; the hint naming lost permits is about the process, not the data |
+| native: `serve` starts, then every request 500s | same answer: `readyz` says `database`; the env vars the two processes see must match what `db init` was given |
+| `pool` shows `available: 0` with timeouts | restart the processes; the hint naming lost permits is about the process, not the data |
 | webhook never arrives | the URL scheme (must be https), the secret match, and whether the repo is subscribed |
 
-Rollback is a tag change: point `CITRACKER_IMAGE` at the previous `sha-` tag and `up -d`.
-The database is not touched, and the schema is never altered in place.
+Rollback depends on the path, and both keep the database untouched (the schema is never
+altered in place):
+
+- **Container**: point `CITRACKER_IMAGE` at an older build and `up -d`. `sha-` tags no
+  longer exist, so "an older build" means the registry digest of a previous `latest`
+  (record it when you publish), or simply a re-run of the publish workflow at the older
+  commit.
+- **Native**: `pip install rhosocial-github-ci-tracker==<older version>` (or check out the
+  older commit and install from it), then restart the two `serve` processes.

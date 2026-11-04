@@ -4,12 +4,87 @@ Three shapes: the CLI alone, one container, or two containers with compose.
 
 ## From PyPI / source
 
+Docker is not required. The service is a Python package with two console scripts, and a
+native install is the same service with the same behaviour — only the first-boot runner
+and the process supervision differ.
+
 ```bash
 pip install rhosocial-github-ci-tracker
 ```
 
 The image and the CI both run **Python 3.15**. `requires-python` stays at 3.10 for
 anyone installing the package; the runtime we build and test is 3.15.
+
+### The native deployment, in four commands
+
+```bash
+# 1. schema (also creates the database when the user may; --no-create-database otherwise)
+rhosocial-github-ci-tracker-db init
+
+# 2. the credential — the same step 20-pat.sh performs in the container:
+rhosocial-github-ci-tracker credential pat ensure \
+  --name default --token-file /path/to/citracker-pat --probe-repo owner/repo
+
+# 3. the two long-running processes (one terminal each, or under your service manager):
+rhosocial-github-ci-tracker serve all    # REST :8000 + webhook :18080
+rhosocial-github-ci-tracker serve mcp    # MCP :8001
+```
+
+Everything the compose file's `environment:` block carries comes from `CITRACKER_*`
+environment variables, read by both entry points — the database coordinates, the API key,
+the webhook secret, the TLS paths, the PAT name. Nothing else is needed: no config file,
+no init directory, no volume. `docker/stack.env.example` is a ready-made list of what to
+set, even when nothing will run in a container.
+
+Two things the container did for you, and what to do instead:
+
+| In the container | Natively |
+|---|---|
+| `init` runs once, before `web` and `mcp` start | run `db init` before starting either process |
+| `restart: unless-stopped` brings the containers back | supervise the two `serve` processes: systemd, NSSM, Task Scheduler, or a process manager of your choice |
+
+Check the environment before anything else:
+
+```bash
+python .claude/skills/ops-deploy-image/scripts/check_native_env.py
+```
+
+It reports the interpreter (3.10+ accepted, 3.15 is what CI runs), whether both entry
+points are installed, whether psycopg 3 is importable, and the Windows event-loop caveat
+below. Exit `0` ready, `2` usable with warnings, `1` cannot run.
+
+**Windows**: psycopg's async mode needs `asyncio.SelectorEventLoop`, and the CLI installs
+it for its own processes. Anything else driving the controllers (a custom runner, an IDE
+test harness) must do the same:
+
+```python
+import asyncio, selectors
+asyncio.set_event_loop(asyncio.SelectorEventLoop(selectors.SelectSelector()))
+```
+
+### As a service
+
+The two processes are independent and can be supervised separately; neither needs the
+other. A unit per role is the honest shape:
+
+```ini
+# /etc/systemd/system/citracker-web.service
+[Unit]
+Description=citracker — REST and webhook
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/citracker/env
+ExecStart=/opt/citracker/venv/bin/rhosocial-github-ci-tracker serve all
+Restart=unless-stopped
+
+[Install]
+WantedBy=multi-user.target
+```
+
+and the same file with `serve mcp` for the MCP listener. `EnvironmentFile` is where the
+`CITRACKER_*` values live — the native equivalent of `docker/stack.env`, and it belongs
+in the same "not committed" category.
 
 ## The image
 

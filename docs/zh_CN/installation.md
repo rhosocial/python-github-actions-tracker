@@ -2,6 +2,78 @@
 
 三种形态：本地 CLI、单容器、compose 双容器。
 
+**不需要 Docker。** 它是一个带两个命令行入口的 Python 包，原生安装就是同一套服务、同样的
+行为——差别只在首次初始化由谁触发、进程由谁守护。
+
+```bash
+pip install rhosocial-github-ci-tracker
+```
+
+### 原生部署：四条命令
+
+```bash
+# 1. 建库建表（用户有建库权限时会顺手建库，托管服务用 --no-create-database）
+rhosocial-github-ci-tracker-db init
+
+# 2. 登记凭据——等价于容器里 20-pat.sh 做的事：
+rhosocial-github-ci-tracker credential pat ensure \
+  --name default --token-file /path/to/citracker-pat --probe-repo owner/repo
+
+# 3. 两个常驻进程（各开一个终端，或交给服务管理器）：
+rhosocial-github-ci-tracker serve all    # REST :8000 + webhook :18080
+rhosocial-github-ci-tracker serve mcp    # MCP :8001
+```
+
+compose 文件里 `environment:` 的那些项，原生部署一律来自 `CITRACKER_*` 环境变量，两个入口
+都读它：数据库坐标、API key、webhook secret、TLS 路径、PAT 名。除此之外不需要别的东西——
+没有配置文件、没有 init 目录、没有数据卷。`docker/stack.env.example` 就是一份现成的清单，
+即使一个容器都不跑，也可以照着它设环境变量。
+
+两件容器替你做掉的事，以及原生部署的替代办法：
+
+| 容器里 | 原生部署 |
+|---|---|
+| `init` 先跑一次，`web` / `mcp` 等它成功才起 | 先跑 `db init`，再起两个进程 |
+| `restart: unless-stopped` 会自动拉起 | 自备进程守护：systemd、NSSM、任务计划，或你惯用的进程管理器 |
+
+动手前先验环境：
+
+```bash
+python .claude/skills/ops-deploy-image/scripts/check_native_env.py
+```
+
+它报告解释器版本（3.10+ 可用，CI 跑的是 3.15）、两个入口是否装上、psycopg 3 能否导入，
+以及下面这条 Windows 注意事项。退出码 `0` 就绪、`2` 有警告可用、`1` 跑不起来。
+
+**Windows**：psycopg 的异步模式需要 `asyncio.SelectorEventLoop`，CLI 会为自己的进程装上。
+用别的方式驱动控制器（自定义 runner、IDE 里的测试）时要自己装：
+
+```python
+import asyncio, selectors
+asyncio.set_event_loop(asyncio.SelectorEventLoop(selectors.SelectSelector()))
+```
+
+### 作为服务运行
+
+两个进程互相独立，可以分别守护，谁都不需要另一个。一个角色一个 unit 是诚实的形态：
+
+```ini
+# /etc/systemd/system/citracker-web.service
+[Unit]
+Description=citracker — REST 与 webhook
+After=network-online.target
+
+[Service]
+EnvironmentFile=/etc/citracker/env
+ExecStart=/opt/citracker/venv/bin/rhosocial-github-ci-tracker serve all
+Restart=unless-stopped
+
+[Install]
+WantedBy=multi-user.target
+```
+
+MCP 监听照抄一份，`ExecStart` 换成 `serve mcp`。`EnvironmentFile` 就是 `CITRACKER_*` 的
+落脚处——相当于原生的 `docker/stack.env`，同样属于"不入库"那一类。
 
 最短路径（外部已有 PostgreSQL，证书就绪）：
 
