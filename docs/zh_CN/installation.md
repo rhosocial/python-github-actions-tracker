@@ -21,16 +21,13 @@ registry.cn-shanghai.aliyuncs.com/vistart_public/citracker:latest        # 国�
 docker.io/vistart/citracker:latest                                       # 国外
 ```
 
-两个标签，含义不同：
+只有一个标签：`latest`。它指向 main 最近一次成功发布，因此"拉到的是哪一版"由镜像内部的
+`build.revision` 回答（`/readyz`、`ci_status` 都会报），固定版本部署则是把 `CITRACKER_IMAGE`
+指向某个 registry 地址，再用 `build.revision` 核对。
 
-| 标签 | 指向 | 什么时候动 |
-|---|---|---|
-| `latest` | **当前 `main` 构建出来的镜像** | 构建结束时 `main` 仍在这次提交上（或已越过、但没改动镜像输入）才移动；因此旧提交的构建晚完成不会覆盖新镜像 |
-| `sha-<sha>` | 那一次构建的提交 | 每次构建都写，永不覆盖别的提交 |
-
-排查"线上到底是哪份代码"、或者要固定版本部署时用 `sha-<sha>`（`CITRACKER_IMAGE` 直接指它）。
-`workflow_dispatch` 在 `main` 上是显式重新发布（回滚到旧提交也走这条），会移动 `latest`；
-在其它分支上只发布 `sha-<sha>`，不会污染 `latest`。
+`workflow_dispatch` 在 `main` 上是正常发布；在某个提交上运行是**刻意的重发**——这就是回滚的
+做法（`gh workflow run images.yml --ref <旧提交>`）。在其它分支或 tag 上运行只构建不发布，
+feature 代码不会变成生产要拉的东西。
 
 - 多架构：`linux/amd64`、`linux/arm64`。
 - 镜像里只有 Python 运行时、服务代码和入口脚本；**不含数据库、证书、任何代理配置、pip 镜像或索引覆盖**。

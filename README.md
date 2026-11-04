@@ -1,6 +1,9 @@
 # python-ci-tracker
 
 [![CI](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml)
+[![Image build](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/vistart/citracker)](https://hub.docker.com/r/vistart/citracker)
+[![Docker Image Size](https://img.shields.io/docker/image-size/vistart/citracker/latest)](https://hub.docker.com/r/vistart/citracker/tags)
 [![Python](https://img.shields.io/badge/python-3.15-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](docs/README.md)
@@ -27,7 +30,7 @@ English | [简体中文](README.zh-CN.md)
 | **Trigger and wait, without burning minutes** | `trigger_workflow` dispatches on request; `if_absent=true` answers "this commit already ran" without starting a second run. `rerun_run(failed_only=true)` repeats only the jobs that broke, after a local check that there *are* failed jobs. `wait_for_run` is a bounded long poll whose timeout comes from the workflow's own history. |
 | **PostgreSQL, and it says so** | Log tables are partitioned by month so old data is one `DROP TABLE`; a trigram index accelerates searching them (`pg_trgm`, ~1× the log text in disk); the schema is the service's own renderer; the test suite runs against a real server. |
 | **A budget from real time, not the queue** | Every run read carries `timings`: the jobs' span, the queue, and the span of the jobs that passed — the numbers a wait is sized from, so a queue behind other repositories does not inflate the p50/p90. `db usage` and `ci_status.storage` report what the database actually holds. |
-| **One image, two registries** | `images.yml` publishes the same multi-arch build to Aliyun (`vistart_public/citracker`) and Docker Hub (`vistart/citracker`), tagged `sha-<commit>` and `latest`. Each destination has its own secrets, so either can be absent. It runs only when asked for. |
+| **One image, two registries** | `images.yml` publishes the same multi-arch build to Aliyun (`vistart_public/citracker`) and Docker Hub (`vistart/citracker`), tagged `latest`. Each destination has its own secrets, so either can be absent. It runs only when asked for, and `build.revision` — not a tag — says which build is running. |
 | **Metrics in the standard format** | `GET /metrics` on the REST listener answers with the Prometheus text format: webhook deliveries, GitHub calls by status code, tool calls by outcome, connection-pool gauges via `ci_status.health`. Process-local counters; sum across instances in the scraper. |
 
 ## Why you would use it

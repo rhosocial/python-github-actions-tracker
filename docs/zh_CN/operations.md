@@ -53,10 +53,10 @@
   docker compose --env-file docker/stack.env pull && docker compose --env-file docker/stack.env up -d
   ```
 
-  #### 两个 registry，一次构建
+  #### 两个 registry，一次构建，一个 tag
 
-  `images.yml` 把**同一份**多架构构建推到两个目的地，各自的 tag 都是 `sha-<commit>`，
-  在 main 上运行的还会移动 `latest`：
+  `images.yml` 把**同一份**多架构构建推到两个目的地，tag 都只有 `latest`——一份 manifest，
+  所以两处的 `latest` 是同一串字节：
 
   | 目的地 | 镜像 | secret（Settings → Secrets and variables → Actions） |
   |---|---|---|
@@ -64,8 +64,14 @@
   | Docker Hub | `docker.io/vistart/citracker` | `DOCKERHUB_REGISTRY_USERNAME` / `DOCKERHUB_REGISTRY_PASSWORD` |
 
   两处**各自独立**：缺一对 secret 只是跳过那一个（run summary 会写明跳的是谁），另一个照常
-  发布；两对都没有也仍然构建——构建失败是真失败，只是不推送。在分支或 tag 上运行只发
-  `sha-` tag，两处的 `latest` 都不动：feature 代码不能变成生产拉的东西。
+  发布；两对都没有也仍然构建——构建失败是真失败，只是不推送。在分支或 tag 上运行**什么都不
+  推送**、只证明构建能过：feature 代码不能变成生产拉的东西。在某个提交上 `workflow_dispatch`
+  是被认账的，这正是回滚的做法（`gh workflow run images.yml --ref <旧提交>`）——那一刻起，
+  那个提交的 `latest` 就是生产要拉的东西。
+
+  "线上跑的是哪一版"不再由 tag 回答，而是由 `build.revision`——`/readyz` 与 `ci_status` 从
+  容器内部报出来，构建时由工作流写进镜像。固定版本部署仍然可行：把 `CITRACKER_IMAGE`
+  指向某个 registry 地址，再用 `build.revision` 确认自己拉的是什么。
 
   兄弟库那条容易漏：镜像在**构建时**用 `pip install git+https://github.com/rhosocial/python-activerecord.git@<ref>`
   固化进去，运行时不会重新取，所以兄弟库合并了也要手动重建一次。只有本地验证时不必走 registry：

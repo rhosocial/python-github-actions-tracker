@@ -51,10 +51,10 @@ docker compose --env-file docker/stack.env pull
 docker compose --env-file docker/stack.env up -d
 ```
 
-### Two registries, one build
+### Two registries, one build, one tag
 
 `images.yml` pushes the **same** multi-arch build to both destinations, tagged
-`sha-<commit>` and (from a run on main) `latest`:
+`latest` — one manifest, so the two `latest` tags are the same bytes:
 
 | Destination | Image | Secrets (Settings -> Secrets and variables -> Actions) |
 |---|---|---|
@@ -64,8 +64,16 @@ docker compose --env-file docker/stack.env up -d
 Each destination is independent: a missing pair is **skipped** (the run summary
 says which), and the other still publishes. With neither pair present the
 workflow still builds, so a build failure remains a failure, but pushes nothing.
-A run on a branch or a tag publishes its `sha-` tag only and leaves both
-`latest` tags alone -- feature code must not become what production pulls.
+A run on a branch or a tag **publishes nothing** and only proves the build --
+feature code must not become what production pulls. A dispatch at a commit is
+honoured, which is how a rollback works (`gh workflow run images.yml --ref
+<older-sha>`): that commit's `latest` becomes what production pulls again.
+
+"Which build is running" no longer comes from the tag — it comes from
+`build.revision`, which `/readyz` and `ci_status` report from inside the
+container, and from the stamp the workflow bakes in at build time. Pinning a
+deployment still works: point `CITRACKER_IMAGE` at a registry address and let
+`build.revision` say what you pulled.
 
 For a local check no registry is involved:
 `CITRACKER_IMAGE=citracker:local docker compose build`, then

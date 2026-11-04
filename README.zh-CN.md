@@ -1,6 +1,9 @@
 # python-ci-tracker
 
 [![CI](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml)
+[![Image build](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/vistart/citracker)](https://hub.docker.com/r/vistart/citracker)
+[![Docker Image Size](https://img.shields.io/docker/image-size/vistart/citracker/latest)](https://hub.docker.com/r/vistart/citracker/tags)
 [![Python](https://img.shields.io/badge/python-3.15-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](docs/README.md)
@@ -27,7 +30,7 @@ GitHub 还能回答时，绝不用缓存充当真相。
 | **明确只支持 PostgreSQL** | 日志表按月分区，清旧数据是一次 `DROP TABLE`；三元组索引（`pg_trgm`，硬盘开销约为日志文本的 1 倍）加快搜索；schema 由服务自己的渲染器生成；测试套件跑在真实数据库上 |
 
 | **预算来自真实耗时，不含排队** | 每次读 run 都带 `timings`：job 的跨度、排队时间、通过 job 的跨度——等待预算依据的就是它们，被别处仓库堵在队列里的时间不会抬高 p50/p90。`db usage` 与 `ci_status.storage` 报告数据库实际占用 |
-| **一个镜像，两个 registry** | `images.yml` 把同一个多架构构建发布到阿里云（`vistart_public/citracker`）与 Docker Hub（`vistart/citracker`），tag 为 `sha-<commit>` 与 `latest`。两处各自一套 secret，缺一个也不影响另一个。只在被要求时才运行 |
+| **一个镜像，两个 registry** | `images.yml` 把同一个多架构构建发布到阿里云（`vistart_public/citracker`）与 Docker Hub（`vistart/citracker`），tag 只有 `latest`。两处各自一套 secret，缺一个也不影响另一个。只在被要求时才运行，"跑的是哪一版"由 `build.revision` 回答 |
 | **标准格式的指标** | REST 监听上的 `GET /metrics` 以 Prometheus 文本格式回答：webhook 投递、GitHub 调用（按 status code）、工具调用（按 outcome），连接池 gauge 经 `ci_status.health`。进程内计数，跨实例由抓取方求和 |
 
 ## 为什么用

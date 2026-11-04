@@ -6,25 +6,30 @@
 # destination is independent -- a missing pair of secrets means that one is
 # skipped, and the others still publish.
 #
-# **Manual only.** A push to main runs the tests (test.yml) and never builds an
-# image: publishing a multi-arch image is a deliberate act, not a side effect of
-# merging. Run it from the Actions tab or `gh workflow run images.yml --ref main`
-# after the tests are green.
+# **Manual only, and `latest` is the only tag.** A push to main runs the tests
+# (`test.yml`) and never builds an image: publishing is a deliberate act, not a
+# side effect of merging. Run it from the Actions tab or
+# `gh workflow run images.yml --ref main` after the tests are green.
 #
-# Two tags per destination, with different jobs:
-#   citracker:sha-<sha>  the commit that was built. Written by every build, never
-#                        overwritten by another commit, safe to pin in a deploy.
-#   citracker:latest     what main builds from. Moved only after the build
-#                        finishes, and only from a run on main -- feature code
-#                        must not become what production pulls. A dispatch of an
-#                        older main commit is an explicit republish and moves it.
+# What the `sha-<commit>` tag used to give, and where it went:
+#   * a deploy that pins one exact build -- replaced by pinning on `latest`
+#     plus `build.revision`, which the image itself reports (`/readyz`,
+#     `/livez`, `ci_status`), so "which commit is running" is still answerable
+#     from inside the container;
+#   * a rollback target -- replaced by re-running this workflow at the older
+#     commit (`gh workflow run images.yml --ref <sha>`), which is honoured: the
+#     run publishes and says so. A dispatch on a *branch* other than main is
+#     not: feature code must not become what production pulls.
+#
+# Two tags would also mean two manifests to keep in step, and one of them --
+# `latest` -- is the only one any deployment reads.
 #
 # The build uses the upstream python:3.15-slim base and the standard PyPI: a
 # GitHub runner reaches both directly, so no mirror and no proxy is involved.
 #
 # Needs two pairs of repository secrets (Settings -> Secrets and variables ->
 # Actions), either of which may be absent:
-#   ALIYUN_REGISTRY_USERNAME / ALIYUN_REGISTRY_PASSWORD      Aliyun
+#   ALIYUN_REGISTRY_USERNAME / ALIYUN_REGISTRY_PASSWORD        Aliyun
 #   DOCKERHUB_REGISTRY_USERNAME / DOCKERHUB_REGISTRY_PASSWORD  Docker Hub
 # Without a pair the destination is skipped and says so in the run summary. With
 # neither, the job still builds -- a build failure is a real failure -- but
@@ -37,8 +42,8 @@ on:
 
 concurrency:
   # Per-commit: a newer dispatch of the same commit supersedes its own in-flight
-  # build. Different commits are independent -- a manual rebuild of an old release
-  # must not cancel, or be cancelled by, a build of the current tip.
+  # build. Different commits are independent -- a manual republish of an old
+  # release must not cancel, or be cancelled by, a build of the current tip.
   group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
@@ -127,28 +132,50 @@ jobs:
               echo "Missing secrets DOCKERHUB_REGISTRY_USERNAME / DOCKERHUB_REGISTRY_PASSWORD."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ -z "$ALIYUN_USERNAME$ALIYUN_PASSWORD" ] && [ -z "$DOCKERHUB_USERNAME$DOCKERHUB_PASSWORD" ]; then
-            echo "::notice::no registry credentials at all; building without publishing"
-          fi
 
-      - name: Compose the tags
-        id: tags
+      # What gets published, and whether anything does. The reference decides it:
+      # `main` publishes, a dispatch at a commit publishes (that is how a
+      # rollback is done), and any other ref builds without publishing -- a
+      # branch build that never reaches a registry is still a useful build.
+      - name: Decide what to publish
+        id: publish
         env:
+          REF: ${{ github.ref }}
           ALIYUN: ${{ steps.check.outputs.aliyun }}
           DOCKERHUB: ${{ steps.check.outputs.dockerhub }}
         run: |
           list=""
+          case "$REF" in
+            refs/heads/main)
+              echo "::notice::publishing latest from main" ;;
+            refs/*)
+              echo "push=false" >> "$GITHUB_OUTPUT"
+              echo "list=" >> "$GITHUB_OUTPUT"
+              echo "::notice::$REF is not main; building without publishing" |
+                tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0 ;;
+            *)
+              # A dispatch at a commit: not a ref, so this is a republish of a
+              # known commit rather than feature code.
+              echo "::notice::publishing commit $REF (a dispatch, honoured)" ;;
+          esac
+
           if [ "$ALIYUN" = "true" ]; then
-            list="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE/$IMAGE:sha-$GITHUB_SHA"
+            list="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE/$IMAGE:latest"
           fi
           if [ "$DOCKERHUB" = "true" ]; then
-            entry="$DOCKERHUB_REGISTRY/$DOCKERHUB_NAMESPACE/$IMAGE:sha-$GITHUB_SHA"
+            entry="$DOCKERHUB_REGISTRY/$DOCKERHUB_NAMESPACE/$IMAGE:latest"
             list="${list:+$list$'\n'}$entry"
           fi
           if [ -z "$list" ]; then
-            # Nothing to push to: one tag, so the build still names its output.
-            list="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE/$IMAGE:sha-$GITHUB_SHA"
+            # Credentials are missing entirely: build, publish nothing, say so.
+            echo "push=false" >> "$GITHUB_OUTPUT"
+            echo "list=" >> "$GITHUB_OUTPUT"
+            echo "::notice::no usable credentials; building without publishing" |
+              tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
           fi
+          echo "push=true" >> "$GITHUB_OUTPUT"
           # A multiline output needs the heredoc delimiter form: GitHub Actions
           # reads `name=value` one per line, so a bare second line would land in
           # the next step's environment as an unrelated variable and the second
@@ -160,7 +187,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Log in to Aliyun
-        if: steps.check.outputs.aliyun == 'true'
+        if: steps.publish.outputs.push == 'true' && steps.check.outputs.aliyun == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.ALIYUN_REGISTRY }}
@@ -168,28 +195,23 @@ jobs:
           password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
 
       - name: Log in to Docker Hub
-        if: steps.check.outputs.dockerhub == 'true'
+        if: steps.publish.outputs.push == 'true' && steps.check.outputs.dockerhub == 'true'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.DOCKERHUB_REGISTRY }}
           username: ${{ secrets.DOCKERHUB_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKERHUB_REGISTRY_PASSWORD }}
 
-      # Every build publishes its own commit tag and nothing else. `latest` is
-      # moved afterwards by the next step, because which build finishes last is
-      # not which commit is newest: two pushes close together build in parallel
-      # under different concurrency groups, and on 2026-10-31 the older commit
-      # finished second and silently replaced the newer image under `latest`.
-      #
-      # The build itself is one multi-arch build whichever destinations wrote to:
-      # the manifest is built once and pushed to each registry in turn.
+      # One multi-arch build, published as `latest` to each destination whose
+      # credentials are present. The manifest is built once and pushed to each
+      # registry in turn, so the two `latest` tags are the same bytes.
       - name: Build and publish the service image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: ${{ steps.check.outputs.aliyun == 'true' || steps.check.outputs.dockerhub == 'true' }}
+          push: ${{ steps.publish.outputs.push == 'true' }}
           # The Aliyun registry rejects OCI attestation manifests
           # (application/vnd.oci.empty.v1+json) with "unknown manifest class",
           # so provenance stays off for this target.
@@ -199,39 +221,4 @@ jobs:
             GIT_REVISION=${{ github.sha }}
             GIT_BUILD_NUMBER=${{ github.run_number }}
             GIT_BUILT_AT=${{ steps.stamp.outputs.built_at }}
-          tags: ${{ steps.tags.outputs.list }}
-
-      # `latest` means "what main produces". Only a run on main may move it:
-      # a dispatch on a feature branch or a tag publishes its commit tag only,
-      # because feature code must not become what production pulls.
-      #
-      # There is no "has main moved past this commit?" check any more. Nothing
-      # builds automatically, so a run of an older main commit is a deliberate
-      # republish (a rollback is a legitimate reason), and it is honoured as is.
-      - name: Move latest when building main
-        if: steps.check.outputs.aliyun == 'true' || steps.check.outputs.dockerhub == 'true'
-        env:
-          REF: ${{ github.ref }}
-          ALIYUN: ${{ steps.check.outputs.aliyun }}
-          DOCKERHUB: ${{ steps.check.outputs.dockerhub }}
-        run: |
-          set -euo pipefail
-
-          if [ "$REF" != "refs/heads/main" ]; then
-            echo "::notice::$REF is not main; published sha-$GITHUB_SHA tags, latest untouched" |
-              tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          moved=""
-          if [ "$ALIYUN" = "true" ]; then
-            tag="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE/$IMAGE"
-            docker buildx imagetools create --tag "$tag:latest" "$tag:sha-$GITHUB_SHA"
-            moved="$tag:latest"
-          fi
-          if [ "$DOCKERHUB" = "true" ]; then
-            tag="$DOCKERHUB_REGISTRY/$DOCKERHUB_NAMESPACE/$IMAGE"
-            docker buildx imagetools create --tag "$tag:latest" "$tag:sha-$GITHUB_SHA"
-            moved="$moved $tag:latest"
-          fi
-          echo "latest -> $GITHUB_SHA ($moved)" | tee -a "$GITHUB_STEP_SUMMARY"
+          tags: ${{ steps.publish.outputs.list }}

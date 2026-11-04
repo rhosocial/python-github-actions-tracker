@@ -18,6 +18,15 @@ registry.cn-shanghai.aliyuncs.com/vistart_public/citracker:latest  # domestic Ch
 docker.io/vistart/citracker:latest                                 # everywhere else
 ```
 
+One tag, `latest`: what main last published. Which build *that* was is answered
+from inside the container by `build.revision` (`/readyz`, `ci_status`), stamped at
+build time. Pinning a deployment still works — point `CITRACKER_IMAGE` at a
+registry address, then confirm with `build.revision`.
+
+A dispatch at a commit is a deliberate re-publish — that is how a rollback works
+(`gh workflow run images.yml --ref <older-sha>`). A run on a branch or a tag only
+builds: feature code must not become what production pulls.
+
 - Multi-arch: `linux/amd64`, `linux/arm64`.
 - Only the Python runtime, the service code and an entrypoint — no database, no
   certificates, no proxy or pip-mirror configuration.
