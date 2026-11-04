@@ -24,39 +24,33 @@ MCP 工具与 REST、CLI 共用同一套业务核心。首次接入建议先调�
 ### 配置 OpenCode（V2）
 
 配置写在全局 `~/.config/opencode/opencode.jsonc`（Windows 为
-`%USERPROFILE%\.config\opencode\opencode.jsonc`），不要写进项目配置：
+`%USERPROFILE%\.config\opencode\opencode.jsonc`），不要写进项目配置。键名是 `mcp.<服务器名>`：
+**没有** `servers` 这一层，写成 `mcp.servers.<名字>` 会被当成一台名叫 "servers" 的服务器，
+静默连不上：
 
 ```jsonc
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "servers": {
-      "citracker": {
-        "type": "remote",
-        "url": "http://127.0.0.1:8001/mcp",
-        "oauth": false,
-        "protocol": "auto",
-        "headers": {
-          "Authorization": "Bearer {env:CITRACKER_API_KEY}"
-        }
+    "citracker": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8001/mcp",
+      "enabled": true,
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:CITRACKER_API_KEY}"
       }
     }
   }
 }
 ```
 
-- `oauth: false`：当前没有中心授权服务器，关闭 OpenCode 的 OAuth 发现。
-- `protocol: "auto"`：服务端面向 MCP `2026-07-28`，`auto` 会先探测该版本，失败再回退到
-  `legacy` 握手。
-- `headers.Authorization`：静态 Bearer，与 REST 共用 `CITRACKER_API_KEY`。OpenCode 进程
-  必须能读到该环境变量；从桌面图标启动时读不到 shell 里临时设置的变量，此时可把令牌
-  直接写进全局配置（该文件不入库）。
-
-也可以用 CLI 添加，再手工补齐 `oauth`、`protocol` 和 `headers`：
-
-```bash
-opencode mcp add citracker --global --url http://127.0.0.1:8001/mcp
-```
+- `oauth: false`：本服务用静态 Bearer，不做 OAuth；关掉自动探测，避免 key 打错时 OpenCode
+  去开浏览器走一遍发现流程。
+- `{env:CITRACKER_API_KEY}`：加载时从进程环境展开。OpenCode 进程必须能读到该变量；从桌面
+  图标启动时读不到 shell 里临时设置的变量，此时可把令牌直接写进全局配置（该文件不入库）。
+- 四家主流 agent（Claude Code、Codex、OpenCode、Command Code）的完整配置与作用域模型见
+  [编码 Agent 接入 MCP](mcp-agents.md)。
 
 ### 验证
 

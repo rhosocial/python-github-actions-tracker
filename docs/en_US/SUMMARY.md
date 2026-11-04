@@ -19,6 +19,7 @@
 ## Using it
 
 * [The API](api.md)
+* [Coding agents over MCP](mcp-agents.md)
 * [The CLI](cli.md)
 * [Logs and windows](logs.md)
 

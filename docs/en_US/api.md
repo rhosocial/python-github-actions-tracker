@@ -32,6 +32,14 @@ cancel_run(repo, run_id)               cancel
 name, because the name differs per branch and the stored one follows the last run
 written.
 
+## Connecting the agents
+
+Claude Code, Codex, OpenCode and Command Code each manage MCP differently —
+config file, scope model, approval gates. The exact snippets that connect them
+to this service are in [Coding agents over MCP](mcp-agents.md); the endpoint is
+`http://127.0.0.1:8001/mcp` (Streamable HTTP) and the authentication is a static
+`Authorization: Bearer <CITRACKER_API_KEY>` header whenever that variable is set.
+
 ## Where a run's seconds went
 
 `duration_seconds` is the attempt's wall clock — the window GitHub reports, which

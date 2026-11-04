@@ -69,6 +69,24 @@ repeatable, and parallel:
   background jobs, no queue, and PostgreSQL's parallel reads and cascades
   absorb whatever the filter admits.
 
+## Use it from your coding agent
+
+The MCP endpoint is `http://127.0.0.1:8001/mcp` (Streamable HTTP). One line
+per agent — the full configuration reference, including the shared-file shapes
+and what each agent's approval gate does, is
+[Coding agents over MCP](docs/en_US/mcp-agents.md):
+
+```bash
+claude mcp add --transport http citracker http://127.0.0.1:8001/mcp   # Claude Code
+codex mcp add citracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
+opencode:  "mcp": { "citracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
+cmd mcp add --transport http citracker http://127.0.0.1:8001/mcp      # Command Code
+```
+
+With `CITRACKER_API_KEY` set, add `--header "Authorization: Bearer <key>"`
+(Claude Code, Command Code), `bearer_token_env_var` (Codex) or an
+`Authorization` header with `oauth: false` (OpenCode).
+
 ## Where the details live
 
 - [Documentation (English)](docs/en_US/README.md) — deployment, the API, the

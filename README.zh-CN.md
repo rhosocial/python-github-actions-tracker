@@ -62,6 +62,22 @@ GitHub 还能回答时，绝不用缓存充当真相。
 - **数据库承压。** 一次读就是一次查询，不是轮询：没有后台任务、没有队列，
   PostgreSQL 的并行读与级联删除接住过滤后的量。
 
+## 用编码 Agent 接入
+
+MCP 端点是 `http://127.0.0.1:8001/mcp`（Streamable HTTP）。每个 agent 一行——完整配置参考
+（含共享文件的形态、各家的批准关卡）见[编码 Agent 接入 MCP](docs/zh_CN/mcp-agents.md)：
+
+```bash
+claude mcp add --transport http citracker http://127.0.0.1:8001/mcp   # Claude Code
+codex mcp add citracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
+opencode:  "mcp": { "citracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
+cmd mcp add --transport http citracker http://127.0.0.1:8001/mcp      # Command Code
+```
+
+配置了 `CITRACKER_API_KEY` 时，Claude Code / Command Code 加
+`--header "Authorization: Bearer <key>"`，Codex 用 `bearer_token_env_var`，
+OpenCode 用 `Authorization` 头并写 `oauth: false`。
+
 ## 细节在哪里
 
 - [文档（简体中文）](docs/zh_CN/README.md)——部署、接口、CLI、开发

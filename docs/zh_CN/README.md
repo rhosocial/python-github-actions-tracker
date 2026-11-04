@@ -17,6 +17,7 @@
 ## 使用
 
 * [接口](api.md)
+* [编码 Agent 接入 MCP](mcp-agents.md)
 * [命令行](cli.md)
 * [日志与窗口](logs.md)
 
