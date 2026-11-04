@@ -1,0 +1,5 @@
+# Documentation site only. Nothing here is imported at runtime; the versions are pinned
+# because a Material or plugin upgrade is a build change, and it should be a deliberate one.
+mkdocs==1.6.1
+mkdocs-material==9.8.0
+mkdocs-htmlproofer-plugin==1.6.0

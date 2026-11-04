@@ -30,6 +30,6 @@
 
 ## Status
 
-English content is being filled in. The root [README.md](../../README.md) states
+English content is being filled in. The root [README.md](https://github.com/rhosocial/python-github-ci-tracker#readme) states
 what the project does; each page here is a tutorial that grows as the service
 does.

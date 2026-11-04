@@ -1,0 +1,121 @@
+# .github/workflows/pages.yml
+#
+# Builds the documentation site and publishes it to GitHub Pages.
+#
+# Two builds, one site: `mkdocs.en.yml` renders docs/en_US at the site root, and
+# `mkdocs.zh.yml` renders docs/zh_CN under /zh_CN/. They are separate builds rather than one
+# i18n build because the alternative -- an i18n plugin -- couples the build to a plugin's
+# release schedule for a two-language site, and the two configurations differ by three lines.
+#
+# Navigation is written in the two mkdocs files, and `tests/app/test_docs_site.py` fails when
+# it drifts from SUMMARY.md. A plugin was tried first: mkdocs-literate-nav does not parse this
+# repository's summary (a `## Section` heading is neither a section nor a list item to it),
+# so a hand-written nav plus a test beats a plugin that silently drops pages.
+#
+# Deliberately separate from test.yml: a broken document should not make the code suite look
+# red, and a failing code test should not block a typo fix from reaching the site.
+#
+# Pull requests build but do not deploy -- a broken link fails before the merge, which is the
+# only moment the failure is cheap.
+
+name: Publish docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs*.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'mkdocs*.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+concurrency:
+  # A newer documentation fix supersedes its own in-flight build.
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build both languages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+          cache: pip
+          cache-dependency-path: requirements-docs.txt
+
+      # Pinned in requirements-docs.txt: a Material or plugin upgrade is a build change and
+      # should be a reviewed one.
+      - name: Install the docs toolchain
+        run: pip install -r requirements-docs.txt
+
+      # `--strict` turns MkDocs warnings into errors: a page that exists but is unreachable
+      # from the nav, a link to a heading that moved. The htmlproofer plugin covers the one
+      # thing `--strict` does not: anchors.
+      - name: Build English
+        run: mkdocs build -f mkdocs.en.yml --strict
+
+      - name: Build Chinese
+        run: mkdocs build -f mkdocs.zh.yml --strict
+
+      - name: Assemble the site as Pages will serve it
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp -r site/en_US/. _site/
+          mkdir -p _site/zh_CN
+          cp -r site/zh_CN/. _site/zh_CN/
+
+      # The shape of the deployment, asserted before it is uploaded: the two entry points,
+      # both sitemaps, and the language switcher pointing at the other half.
+      - name: Check the assembled tree
+        run: |
+          set -euo pipefail
+          test -f _site/index.html
+          test -f _site/zh_CN/index.html
+          test -f _site/sitemap.xml
+          test -f _site/zh_CN/sitemap.xml
+          test -f _site/404.html
+          grep -q 'citracker' _site/index.html
+          grep -q 'citracker' _site/zh_CN/index.html
+          grep -q 'hreflang="zh"' _site/index.html
+          grep -q 'hreflang="en"' _site/zh_CN/index.html
+          echo "site tree: $(find _site -name 'index.html' | wc -l) pages"
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

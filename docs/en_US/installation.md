@@ -108,6 +108,42 @@ builds: feature code must not become what production pulls.
 - Build it yourself: `docker buildx bake --load` for the current architecture,
   `docker buildx bake citracker-all --push` for every platform.
 
+### ARM64, including ARM-based NAS
+
+The image is a real `linux/arm64` build, not an emulated one — the same manifest, two
+architectures, so `docker pull` picks whichever the host is and nothing has to be
+translated at runtime. That makes a 64-bit ARM NAS with a container manager a viable
+host: it is a small server that is already on, and CI status is exactly the kind of thing
+you want answered from it.
+
+Check the machine before planning around it:
+
+```bash
+uname -m                                  # aarch64 → the arm64 image
+docker version --format '{{.Server.Arch}}'
+docker pull docker.io/vistart/citracker:latest       # resolves to the host's arch
+docker image inspect docker.io/vistart/citracker:latest --format '{{.Architecture}}'
+```
+
+Both of these families have provided container management on their 64-bit ARM models —
+**as an example, not a compatibility list**: Synology's Container Manager on DSM 7.2
+(DS223, DS423 and other `aarch64` models; the low-end `j` series often ships without
+container support) and QNAP's Container Station on QTS 5 (TS-233, TS-433 and other
+Cortex-A55 models). Model support moves with firmware, so the vendor's own app centre is
+the authority: if it offers a container manager and `uname -m` says `aarch64`, this image
+runs.
+
+Two practical notes for a NAS:
+
+- **Memory is the constraint, not CPU.** The service is two `serve` processes plus
+  PostgreSQL; 2 GB is the comfortable floor for both in one box. If the NAS is the
+  database host too, either give PostgreSQL a small `shared_buffers` or point
+  `CITRACKER_DB_*` at a database somewhere else — the service does not care where it is.
+- **Do not put the log volume on a spinning disk you also use for backups.** The log
+  tables are the biggest thing this service writes, and `db partitions --drop-before`
+  is cheap only when the filesystem lets a table drop be a metadata operation.
+
+
 ## Ports
 
 | Port | Process | Meaning |

@@ -6,7 +6,7 @@
 [![Docker Image Size](https://img.shields.io/docker/image-size/vistart/citracker/latest)](https://hub.docker.com/r/vistart/citracker/tags)
 [![Python](https://img.shields.io/badge/python-3.15-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](docs/README.md)
+[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](https://rhosocial.github.io/python-github-ci-tracker/)
 
 **一个自建服务，回答"刚才那次 CI 到底怎么了"——通过 MCP、REST、CLI 三种接口。**
 
@@ -79,6 +79,8 @@ cmd mcp add --transport http citracker http://127.0.0.1:8001/mcp      # Command 
 OpenCode 用 `Authorization` 头并写 `oauth: false`。
 
 ## 细节在哪里
+
+在线阅读（无需 checkout）：<https://rhosocial.github.io/python-github-ci-tracker/zh_CN/> · [English](https://rhosocial.github.io/python-github-ci-tracker/)
 
 - [文档（简体中文）](docs/zh_CN/README.md)——部署、接口、CLI、开发
 - [Documentation (English)](docs/en_US/README.md)

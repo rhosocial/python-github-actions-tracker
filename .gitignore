@@ -58,3 +58,5 @@ docker/stack.env
 # The local compose overlay: proxy and public URL of one machine, which mean
 # nothing anywhere else (see the header of that file).
 docker-compose.override.yml
+# Documentation site build output (mkdocs)
+/site/

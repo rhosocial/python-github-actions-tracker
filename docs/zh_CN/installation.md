@@ -2,7 +2,7 @@
 
 三种形态：本地 CLI、单容器、compose 双容器。
 
-**不需要 Docker。** 它是一个带两个命令行入口的 Python 包，原生安装就是同一套服务、同样的
+**不需要 Docker。** 本服务就是一个带两个命令行入口的 Python 包，原生安装即同一套服务、同样的
 行为——差别只在首次初始化由谁触发、进程由谁守护。
 
 ```bash
@@ -12,10 +12,10 @@ pip install rhosocial-github-ci-tracker
 ### 原生部署：四条命令
 
 ```bash
-# 1. 建库建表（用户有建库权限时会顺手建库，托管服务用 --no-create-database）
+# 1. 建库建表（有建库权限时会连库一起建好；托管服务加 --no-create-database）
 rhosocial-github-ci-tracker-db init
 
-# 2. 登记凭据——等价于容器里 20-pat.sh 做的事：
+# 2. 登记凭据，等价于容器里 20-pat.sh 做的事：
 rhosocial-github-ci-tracker credential pat ensure \
   --name default --token-file /path/to/citracker-pat --probe-repo owner/repo
 
@@ -24,29 +24,30 @@ rhosocial-github-ci-tracker serve all    # REST :8000 + webhook :18080
 rhosocial-github-ci-tracker serve mcp    # MCP :8001
 ```
 
-compose 文件里 `environment:` 的那些项，原生部署一律来自 `CITRACKER_*` 环境变量，两个入口
-都读它：数据库坐标、API key、webhook secret、TLS 路径、PAT 名。除此之外不需要别的东西——
-没有配置文件、没有 init 目录、没有数据卷。`docker/stack.env.example` 就是一份现成的清单，
-即使一个容器都不跑，也可以照着它设环境变量。
+compose 文件 `environment:` 里那一串配置，在原生部署里全部来自 `CITRACKER_*` 环境变量，
+两个命令都读：数据库坐标、API key、webhook secret、TLS 路径、PAT 名。除此之外不需要别的
+东西——没有配置文件，没有 init 目录，也没有数据卷。`docker/stack.env.example` 是一份现成的
+清单，一个容器都不跑也能照它逐项设环境变量。
 
-两件容器替你做掉的事，以及原生部署的替代办法：
+容器替你做的两件事，原生部署要自己来：
 
 | 容器里 | 原生部署 |
 |---|---|
 | `init` 先跑一次，`web` / `mcp` 等它成功才起 | 先跑 `db init`，再起两个进程 |
-| `restart: unless-stopped` 会自动拉起 | 自备进程守护：systemd、NSSM、任务计划，或你惯用的进程管理器 |
+| `restart: unless-stopped` 自动拉起 | 自备进程守护：systemd、NSSM、任务计划，或你惯用的进程管理器 |
 
-动手前先验环境：
+动手之前先验一下环境：
 
 ```bash
 python .claude/skills/ops-deploy-image/scripts/check_native_env.py
 ```
 
-它报告解释器版本（3.10+ 可用，CI 跑的是 3.15）、两个入口是否装上、psycopg 3 能否导入，
-以及下面这条 Windows 注意事项。退出码 `0` 就绪、`2` 有警告可用、`1` 跑不起来。
+它会报解释器版本（3.10 以上可用，CI 跑的是 3.15）、两个命令装没装上、psycopg 3 能不能导入，
+以及下面这条 Windows 注意事项。退出码 `0` 表示就绪，`2` 表示可用但有问题要看，`1` 表示
+跑不起来。
 
-**Windows**：psycopg 的异步模式需要 `asyncio.SelectorEventLoop`，CLI 会为自己的进程装上。
-用别的方式驱动控制器（自定义 runner、IDE 里的测试）时要自己装：
+**Windows**：psycopg 的异步模式需要 `asyncio.SelectorEventLoop`，CLI 会为自己的进程装上；
+用别的方式驱动控制器（自写的 runner、IDE 里的测试）就得自己装：
 
 ```python
 import asyncio, selectors
@@ -55,7 +56,7 @@ asyncio.set_event_loop(asyncio.SelectorEventLoop(selectors.SelectSelector()))
 
 ### 作为服务运行
 
-两个进程互相独立，可以分别守护，谁都不需要另一个。一个角色一个 unit 是诚实的形态：
+两个进程互相独立，分别守护即可，谁都不需要另一个。一个角色一个 unit，最清楚：
 
 ```ini
 # /etc/systemd/system/citracker-web.service
@@ -107,9 +108,39 @@ feature 代码不会变成生产要拉的东西。
   `mirrors.aliyun.com` 等都不会进入镜像。新增构建步骤时由 `tests/app/test_image_hygiene.py`
   和 `images.yml` 的守卫步骤拦截。
 - 代理是**运行时**选择：全球用户不需要；中国大陆用户在自己的 compose / 环境里注入即可，见
-  [运行时代理](#运行时代理仅中国大陆)。
+  [运行时代理](operations.md#运行时代理仅中国大陆)。
 - 自建：`docker buildx bake --load`（amd64 + arm64，本机只加载当前架构）；全平台用
   `docker buildx bake citracker-all --push`。
+
+### ARM64 与 ARM NAS
+
+镜像是原生的 `linux/arm64` 构建，不是模拟出来的：同一个 manifest 里含两个架构，`docker pull`
+会按宿主机自动挑，运行时没有转译开销。所以带容器管理器的 64 位 ARM NAS 完全可以当宿主机用——
+NAS 本来就一直开着，而“CI 现在什么状态”这类问题正适合由它来回答。
+
+部署前先确认这台机器：
+
+```bash
+uname -m                                    # aarch64 → 用 arm64 镜像
+docker version --format '{{.Server.Arch}}'
+docker pull docker.io/vistart/citracker:latest         # 自动取宿主架构
+docker image inspect docker.io/vistart/citracker:latest --format '{{.Architecture}}'
+```
+
+两家都有支持容器管理的 64 位 ARM 机型，**以下只是举例，不是兼容性清单**：Synology 在
+DSM 7.2 上的 Container Manager（DS223、DS423 等 `aarch64` 机型；低端 `j` 系列通常不带容器
+支持），QNAP 在 QTS 5 上的 Container Station（TS-233、TS-433 等 Cortex-A55 机型）。具体
+机型能不能用取决于固件，以厂商应用中心为准：只要里面能装容器管理器，`uname -m` 又显示
+`aarch64`，这个镜像就能跑。
+
+在 NAS 上部署，有两点要注意：
+
+- **先看内存，别急着看 CPU。** 服务是两个 `serve` 进程加 PostgreSQL，都放在同一台机器上，
+  建议至少留 2 GB。NAS 兼做数据库的话，要么把 PostgreSQL 的 `shared_buffers` 调小，要么
+  让 `CITRACKER_DB_*` 指向别处的数据库——服务不挑数据库在哪。
+- **日志卷不要和备份挤在同一块机械盘上。** 日志是这个服务写入量最大的部分；
+  `db partitions --drop-before` 之所以快，是因为删的是整张表（一次元数据操作），而不是
+  逐行删除，这需要底层文件系统配合。
 
 ### 端口与启动参数
 
@@ -170,7 +201,7 @@ docker run -d --name citracker-web --restart unless-stopped \
 | `CITRACKER_DB_HOST/PORT` | `localhost:5432`（compose 内为 `postgres:5432`） | PostgreSQL 坐标 |
 | `CITRACKER_DB_USER/PASSWORD/NAME` | `root` / `password` / `test_db` | 数据库账号与库名 |
 | `CITRACKER_DB_SSLMODE` | `prefer` | libpq sslmode |
-| `CITRACKER_POOL_MIN/MAX` | `1` / `10` | 连接池。每个在处理的请求占一条连接，长轮询也算，见[连接池](#连接池一个请求占一条连接) |
+| `CITRACKER_POOL_MIN/MAX` | `1` / `10` | 连接池。每个在处理的请求占一条连接，长轮询也算，见[连接池](operations.md#连接池一个请求占一条连接) |
 | `CITRACKER_API_KEY` | 空 | REST / MCP 的 Bearer；空表示不鉴权（启动告警），公网必须设置 |
 | `CITRACKER_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听 |
 | `CITRACKER_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |

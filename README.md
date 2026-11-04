@@ -6,7 +6,7 @@
 [![Docker Image Size](https://img.shields.io/docker/image-size/vistart/citracker/latest)](https://hub.docker.com/r/vistart/citracker/tags)
 [![Python](https://img.shields.io/badge/python-3.15-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](docs/README.md)
+[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](https://rhosocial.github.io/python-github-ci-tracker/)
 
 **A self-hosted service that answers "what happened in CI" — over MCP, REST and a CLI.**
 
@@ -88,6 +88,8 @@ With `CITRACKER_API_KEY` set, add `--header "Authorization: Bearer <key>"`
 `Authorization` header with `oauth: false` (OpenCode).
 
 ## Where the details live
+
+Read it online (no checkout needed): <https://rhosocial.github.io/python-github-ci-tracker/> · [简体中文](https://rhosocial.github.io/python-github-ci-tracker/zh_CN/)
 
 - [Documentation (English)](docs/en_US/README.md) — deployment, the API, the
   CLI, development
