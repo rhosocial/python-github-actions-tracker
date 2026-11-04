@@ -9,6 +9,10 @@ site_description: GitHub Actions 运行、作业、步骤与日志的跟踪服�
 site_url: https://rhosocial.github.io/python-github-ci-tracker/zh_CN/
 repo_url: https://github.com/rhosocial/python-github-ci-tracker
 repo_name: rhosocial/python-github-ci-tracker
+copyright: >-
+  Copyright &copy; 2026 rhosocial &middot;
+  <a href="/python-github-ci-tracker/zh_CN/privacy/">隐私说明</a> &middot;
+  文档 CC BY 4.0 &middot; 代码 Apache-2.0
 
 # SUMMARY.md is the repository's table of contents, not a site page.
 exclude_docs: SUMMARY.md
@@ -68,12 +72,27 @@ nav:
   - 开发:
       - 开发: development.md
       - 测试: testing.md
+  - 隐私说明: privacy.md
 
 plugins:
   - search
   - htmlproofer:
       validate_external_urls: false
       raise_error_after_finish: true
+
+extra_javascript:
+  # Baidu Tongji is not a built-in provider; the file is duplicated in both docs
+  # roots because each language builds from its own directory, and a test keeps
+  # the two copies identical.
+  - javascripts/baidu-tongji.js
+
+extra:
+  generator: false
+  # Google Analytics 4 via Material's built-in integration. The property is the
+  # organisation's; a per-site stream should replace it when there is one.
+  analytics:
+    provider: google
+    property: G-VPM29QVEST
 
 markdown_extensions:
   - admonition

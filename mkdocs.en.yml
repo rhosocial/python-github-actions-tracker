@@ -13,6 +13,10 @@ site_description: Track GitHub Actions runs, jobs, steps and logs — over MCP, 
 site_url: https://rhosocial.github.io/python-github-ci-tracker/
 repo_url: https://github.com/rhosocial/python-github-ci-tracker
 repo_name: rhosocial/python-github-ci-tracker
+copyright: >-
+  Copyright &copy; 2026 rhosocial &middot;
+  <a href="/python-github-ci-tracker/privacy/">Privacy</a> &middot;
+  docs CC BY 4.0 &middot; code Apache-2.0
 
 # SUMMARY.md is the repository's table of contents, not a site page.
 exclude_docs: SUMMARY.md
@@ -72,6 +76,7 @@ nav:
   - Development:
       - Development: development.md
       - Testing: testing.md
+  - Privacy: privacy.md
 
 plugins:
   - search
@@ -80,6 +85,20 @@ plugins:
       # and turning that into a red build teaches people to ignore the build.
       validate_external_urls: false
       raise_error_after_finish: true
+
+extra_javascript:
+  # Baidu Tongji is not a built-in provider; the file is duplicated in both docs
+  # roots because each language builds from its own directory, and a test keeps
+  # the two copies identical.
+  - javascripts/baidu-tongji.js
+
+extra:
+  generator: false
+  # Google Analytics 4 via Material's built-in integration. The property is the
+  # organisation's; a per-site stream should replace it when there is one.
+  analytics:
+    provider: google
+    property: G-VPM29QVEST
 
 markdown_extensions:
   - admonition

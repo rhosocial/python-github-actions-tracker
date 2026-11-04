@@ -96,6 +96,36 @@ def test_both_languages_build_the_same_site() -> None:
         assert en[key] == zh[key], f"{key} differs between the two builds"
 
 
+def test_the_analytics_script_is_one_file_twice() -> None:
+    """Each language builds from its own docs root, so the script lives in both.
+
+    Duplication is the price of two builds; a test that compares the bytes is the price of
+    duplication. If the Baidu site ID changes it must change in both, or one language
+    reports to a different site than the other.
+    """
+    copies = [
+        DOCS / "en_US/javascripts/baidu-tongji.js",
+        DOCS / "zh_CN/javascripts/baidu-tongji.js",
+    ]
+    assert (
+        copies[0].read_bytes() == copies[1].read_bytes()
+    ), "the two Baidu Tongji copies differ; they must stay byte-identical"
+
+
+def test_analytics_is_configured_in_both_builds() -> None:
+    """A site that is only measured in one language is measured wrong."""
+    for lang, path in CONFIGS.items():
+        config = _config(path)
+        analytics = config["extra"]["analytics"]
+        assert analytics["provider"] == "google"
+        assert analytics["property"].startswith("G-"), f"{lang}: not a GA4 measurement id"
+        assert (
+            "javascripts/baidu-tongji.js" in config["extra_javascript"]
+        ), f"{lang}: the Baidu Tongji script is not loaded"
+        # Every page that carries tracking should say so.
+        assert (DOCS / lang / "privacy.md").is_file()
+
+
 def test_no_private_infrastructure_reaches_a_public_page() -> None:
     """The site is indexed. A development database address is not a documentation value.
 

@@ -27,3 +27,5 @@
 
 * [Development](development.md)
 * [Testing](testing.md)
+
+* [Privacy](privacy.md)
