@@ -29,7 +29,7 @@ def github_request(token: str, method: str, path: str, data: dict | None = None)
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "ci-tracker-test",
+            "User-Agent": "github-actions-tracker-test",
             "Content-Type": "application/json",
         },
     )

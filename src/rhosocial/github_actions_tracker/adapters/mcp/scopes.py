@@ -1,5 +1,5 @@
 # src/rhosocial/github_actions_tracker/adapters/mcp/scopes.py
-"""MCP scope definitions for CI Tracker.
+"""MCP scope definitions for GitHub Actions Tracker.
 
 Scopes map one-to-one onto the read/write split the tools already honour, so an
 OAuth grant can express the same limit the tools enforce. Keeping the write

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "rhosocial-github-actions-tracker"
 version = "1.0.0.dev1"
-description = "GitHub CI status tracking and automation service"
+description = "GitHub Actions status tracking and automation service"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }

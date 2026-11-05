@@ -7,33 +7,33 @@ refuses an illegal transition, and a local workflow lookup comes up empty.
 Everything else -- tokens, triggers, webhooks, the GitHub API -- is decided by a
 service, and those errors live above this layer.
 
-:class:`CitrackerError` sits here for the same reason: it is the root the whole
+:class:`GhatError` sits here for the same reason: it is the root the whole
 vocabulary hangs off, and a model cannot reach up for it.
 """
 
 from __future__ import annotations
 
 
-class CitrackerError(Exception):
+class GhatError(Exception):
     """Base exception for all business logic errors."""
 
     pass
 
 
-class InvalidStateTransitionError(CitrackerError):
+class InvalidStateTransitionError(GhatError):
     """Invalid state machine transition attempted."""
 
     pass
 
 
-class WorkflowNotFoundError(CitrackerError):
+class WorkflowNotFoundError(GhatError):
     """Workflow not found in repository."""
 
     pass
 
 
 __all__ = [
-    "CitrackerError",
+    "GhatError",
     "InvalidStateTransitionError",
     "WorkflowNotFoundError",
 ]

@@ -1,5 +1,5 @@
 # src/rhosocial/github_actions_tracker/adapters/common/errors.py
-"""Error type definitions for CI Tracker."""
+"""Error type definitions for the tracker."""
 
 from __future__ import annotations
 
@@ -33,8 +33,8 @@ class ErrorCode(str, Enum):
     SERVICE_UNAVAILABLE = "service_unavailable"
 
 
-class CitrackerError(Exception):
-    """Base exception for CI Tracker."""
+class GhatError(Exception):
+    """Base exception for the tracker."""
 
     def __init__(
         self,
@@ -50,14 +50,14 @@ class CitrackerError(Exception):
         super().__init__(message)
 
 
-class PermissionDeniedError(CitrackerError):
+class PermissionDeniedError(GhatError):
     """Permission denied error."""
 
     def __init__(self, message: str = "Permission denied") -> None:
         super().__init__(ErrorCode.FORBIDDEN, message, 403)
 
 
-class NotFoundError(CitrackerError):
+class NotFoundError(GhatError):
     """Resource not found error."""
 
     def __init__(self, resource: str, identifier: str) -> None:
@@ -68,14 +68,14 @@ class NotFoundError(CitrackerError):
         )
 
 
-class ValidationError(CitrackerError):
+class ValidationError(GhatError):
     """Validation error."""
 
     def __init__(self, message: str, details: dict | None = None) -> None:
         super().__init__(ErrorCode.VALIDATION_ERROR, message, 422, details)
 
 
-class DuplicateResourceError(CitrackerError):
+class DuplicateResourceError(GhatError):
     """Duplicate resource error."""
 
     def __init__(self, resource: str, identifier: str) -> None:
@@ -86,14 +86,14 @@ class DuplicateResourceError(CitrackerError):
         )
 
 
-class ConflictError(CitrackerError):
+class ConflictError(GhatError):
     """Request conflicts with the current resource state (HTTP 409)."""
 
     def __init__(self, message: str, details: dict | None = None) -> None:
         super().__init__(ErrorCode.CONFLICT, message, 409, details)
 
 
-class GitHubAPIError(CitrackerError):
+class GitHubAPIError(GhatError):
     """GitHub API error."""
 
     def __init__(
@@ -111,14 +111,14 @@ class GitHubAPIError(CitrackerError):
         super().__init__(code, message, status_code, {"github_code": github_error_code})
 
 
-class InternalError(CitrackerError):
+class InternalError(GhatError):
     """Internal server error."""
 
     def __init__(self, message: str = "Internal server error") -> None:
         super().__init__(ErrorCode.INTERNAL_ERROR, message, 500)
 
 
-def from_core_exception(exc: Exception) -> CitrackerError:
+def from_core_exception(exc: Exception) -> GhatError:
     """Translate a business-core exception into the HTTP error vocabulary.
 
     The core raises its own exception hierarchy, which knows nothing about
@@ -152,7 +152,7 @@ def from_core_exception(exc: Exception) -> CitrackerError:
             core.WebhookNotFoundError,
         ),
     ):
-        return CitrackerError(ErrorCode.NOT_FOUND, str(exc), 404)
+        return GhatError(ErrorCode.NOT_FOUND, str(exc), 404)
 
     if isinstance(exc, core.RunInProgressError):
         # 409: the request conflicts with the run's current state. The caller can
@@ -167,7 +167,7 @@ def from_core_exception(exc: Exception) -> CitrackerError:
             core.ConcurrentUpdateError,
         ),
     ):
-        return CitrackerError(ErrorCode.CONFLICT, str(exc), 409)
+        return GhatError(ErrorCode.CONFLICT, str(exc), 409)
 
     if isinstance(
         exc,
@@ -183,18 +183,18 @@ def from_core_exception(exc: Exception) -> CitrackerError:
         return PermissionDeniedError(str(exc))
 
     if isinstance(exc, core.ValidationError):
-        return CitrackerError(ErrorCode.VALIDATION_ERROR, str(exc), 422)
+        return GhatError(ErrorCode.VALIDATION_ERROR, str(exc), 422)
 
     if isinstance(exc, core.RateLimitError):
-        return CitrackerError(ErrorCode.GITHUB_RATE_LIMIT, str(exc), 429)
+        return GhatError(ErrorCode.GITHUB_RATE_LIMIT, str(exc), 429)
 
     if isinstance(exc, core.UpstreamUnavailableError):
         # 503, not 502: nothing about the request is wrong and the service is
         # fine; the route to GitHub is. ``Retry-After`` is the caller's call.
-        return CitrackerError(ErrorCode.UPSTREAM_UNAVAILABLE, str(exc), 503)
+        return GhatError(ErrorCode.UPSTREAM_UNAVAILABLE, str(exc), 503)
 
     if isinstance(exc, core.InvalidStateTransitionError):
-        return CitrackerError(ErrorCode.CONFLICT, str(exc), 409)
+        return GhatError(ErrorCode.CONFLICT, str(exc), 409)
 
     if isinstance(exc, (core.TriggerFailedError, core.GithubAPIError)):
         # GitHub rejected the dispatch, or the created run could not be

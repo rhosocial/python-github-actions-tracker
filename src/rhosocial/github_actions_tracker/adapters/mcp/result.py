@@ -40,7 +40,7 @@ from mcp.types import ToolAnnotations
 
 from ...core.exceptions import (
     AttemptNotFoundError,
-    CitrackerError,
+    GhatError,
     GithubAPIError,
     InvalidStateTransitionError,
     JobNotFoundError,
@@ -149,7 +149,7 @@ SAFE_WRITE = ToolAnnotations(
 )
 
 
-def _code_for(exc: CitrackerError) -> tuple[str, str, str | None]:
+def _code_for(exc: GhatError) -> tuple[str, str, str | None]:
     """Map an exception onto ``(code, hint, action_url)``."""
     if isinstance(exc, RepositoryNotFoundError):
         return (
@@ -335,7 +335,7 @@ def error_result(exc: Exception) -> dict[str, Any]:
         # "internal_error" and the JSON text as the message.
         return exc.payload
 
-    if isinstance(exc, CitrackerError):
+    if isinstance(exc, GhatError):
         code, hint, action_url = _code_for(exc)
         message = str(exc) or exc.__class__.__name__
     else:

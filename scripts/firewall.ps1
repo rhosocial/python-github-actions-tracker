@@ -33,7 +33,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$RuleName = "CI Tracker Webhook (TCP {0})"
+$RuleName = "GitHub Actions Tracker Webhook (TCP {0})"
 
 function Get-ConfiguredPort {
     <#
@@ -91,7 +91,7 @@ if ($existing) {
 if (-not $existing) {
     if ($PSCmdlet.ShouldProcess($Port, 'Create firewall rule')) {
         New-NetFirewallRule -DisplayName $DisplayName `
-            -Description "Allow GitHub webhook deliveries to the CI Tracker receiver." `
+            -Description "Allow GitHub webhook deliveries to the GitHub Actions Tracker receiver." `
             -Direction Inbound -Protocol TCP -LocalPort $Port `
             -Action Allow -Profile Any | Out-Null
         Write-Host "Created rule: $DisplayName"

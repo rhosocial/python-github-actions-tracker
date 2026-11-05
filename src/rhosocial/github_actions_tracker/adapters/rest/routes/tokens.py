@@ -14,9 +14,9 @@ from fastapi import APIRouter, Depends, Request, status
 
 from ....views import TokenRecord
 from ...common.errors import (
-    CitrackerError,
     ConflictError,
     DuplicateResourceError,
+    GhatError,
     GitHubAPIError,
     InternalError,
     NotFoundError,
@@ -33,7 +33,7 @@ def get_token_service(request: Request):
     return request.app.state.container.token
 
 
-def _map_token_error(name: str, exc: Exception) -> CitrackerError:
+def _map_token_error(name: str, exc: Exception) -> GhatError:
     """Map a core token error onto its REST counterpart.
 
     Core error messages describe aliases and counts only, never the token
@@ -116,7 +116,7 @@ async def add_token(
     service = get_token_service()
     try:
         record = await service.add_token(name=request.name, token=request.token)
-    except core_errors.CitrackerError as e:
+    except core_errors.GhatError as e:
         raise _map_token_error(request.name, e) from e
     return _token_meta(record)
 
@@ -131,7 +131,7 @@ async def verify_token(
 
     try:
         return await service.verify_token(name=name)
-    except core_errors.CitrackerError as e:
+    except core_errors.GhatError as e:
         raise _map_token_error(name, e) from e
 
 
@@ -148,7 +148,7 @@ async def rotate_token(
         record = await service.rotate_token(
             name=name, token=request.token, expires_at=request.expires_at
         )
-    except core_errors.CitrackerError as e:
+    except core_errors.GhatError as e:
         raise _map_token_error(name, e) from e
     return _token_meta(record)
 
@@ -163,5 +163,5 @@ async def delete_token(
 
     try:
         await service.delete_token(name=name)
-    except core_errors.CitrackerError as e:
+    except core_errors.GhatError as e:
         raise _map_token_error(name, e) from e

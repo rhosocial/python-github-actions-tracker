@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from ...common.errors import CitrackerError
+from ...common.errors import GhatError
 from ..formatters import format_run_status
 
 
@@ -25,7 +25,7 @@ async def run(args: argparse.Namespace, container: Any) -> None:
             branch=args.branch,
             workflow=args.workflow,
         )
-    except CitrackerError as exc:
+    except GhatError as exc:
         print(f"Error: {exc}", flush=True)
         raise SystemExit(1) from exc
 

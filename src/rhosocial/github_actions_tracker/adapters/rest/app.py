@@ -1,5 +1,5 @@
 # src/rhosocial/github_actions_tracker/adapters/rest/app.py
-"""FastAPI application factory for CI Tracker REST API."""
+"""FastAPI application factory for GitHub Actions Tracker REST API."""
 
 from __future__ import annotations
 
@@ -13,15 +13,15 @@ from ... import __version__
 from ...build import build_info
 from ...config import get_settings
 from ...container import Container
-from ...core.exceptions import CitrackerError as CoreCitrackerError
+from ...core.exceptions import GhatError as CoreGhatError
 from ...database import Database
 from ...observability.exposition import MetricsMiddleware
-from ..common.errors import CitrackerError, from_core_exception
+from ..common.errors import GhatError, from_core_exception
 from .middleware.auth import ApiKeyMiddleware
 from .routes import jobs, repositories, runs, tokens, webhooks, workflows
 
 
-def _error_response(exc: CitrackerError) -> JSONResponse:
+def _error_response(exc: GhatError) -> JSONResponse:
     """Render one adapter error in the wire envelope shared by both handlers."""
     return JSONResponse(
         status_code=exc.status_code,
@@ -80,8 +80,8 @@ def create_app(
                 await owned.close()
 
     app = FastAPI(
-        title="CI Tracker API",
-        description="GitHub CI status tracking and automation service",
+        title="GitHub Actions Tracker API",
+        description="GitHub Actions status tracking and automation service",
         version=__version__,
         lifespan=lifespan,
     )
@@ -184,22 +184,22 @@ def create_app(
         )
 
     # Global exception handler for adapter errors raised by the routes.
-    @app.exception_handler(CitrackerError)
+    @app.exception_handler(GhatError)
     async def tracker_exception_handler(
         request: Request,
-        exc: CitrackerError,
+        exc: GhatError,
     ) -> JSONResponse:
-        """Handle CitrackerError exceptions."""
+        """Handle GhatError exceptions."""
         return _error_response(exc)
 
     # The business core raises its own hierarchy, a different class from the
     # adapter's, so it needs its own translation: without this handler an
     # unsubscribed repository or an unknown workflow id reaches the client as
     # an opaque 500 instead of the 404 it deserves.
-    @app.exception_handler(CoreCitrackerError)
+    @app.exception_handler(CoreGhatError)
     async def core_exception_handler(
         request: Request,
-        exc: CoreCitrackerError,
+        exc: CoreGhatError,
     ) -> JSONResponse:
         """Translate a core exception and answer in the same envelope."""
         return _error_response(from_core_exception(exc))

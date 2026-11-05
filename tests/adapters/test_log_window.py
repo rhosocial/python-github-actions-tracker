@@ -2,7 +2,7 @@
 """Bounded reading of a log: no content assumptions, only addressing.
 
 Every test here is about *which lines* come back, never about what the lines
-mean. The service is a general CI tracker: it cannot know that a project prints
+mean. The service is a general tracker: it cannot know that a project prints
 pytest summaries, `##[error]` markers or a runner teardown, and a default window
 that guessed at those would show the wrong lines for every other project.
 

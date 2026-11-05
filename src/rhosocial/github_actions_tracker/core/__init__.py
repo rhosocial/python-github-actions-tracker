@@ -36,8 +36,8 @@ from ..models.states import (
 )
 from .exceptions import (
     AttemptNotFoundError,
-    CitrackerError,
     ConcurrentUpdateError,
+    GhatError,
     GithubAPIError,
     InvalidStateTransitionError,
     JobNotFoundError,
@@ -63,7 +63,7 @@ from .run_tracker import RunTracker
 
 __all__ = [
     # Exceptions
-    "CitrackerError",
+    "GhatError",
     "AttemptNotFoundError",
     "ConcurrentUpdateError",
     "GithubAPIError",

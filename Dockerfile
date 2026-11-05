@@ -1,4 +1,4 @@
-# CITracker service image: the Python runtime only -- no database, no
+# GitHub Actions Tracker service image: the Python runtime only -- no database, no
 # certificates, no secrets. Pair it with any PostgreSQL (see
 # docker-compose.yml for postgres:18) and mount TLS material from outside.
 #

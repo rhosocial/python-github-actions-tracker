@@ -24,7 +24,7 @@ def github_get(token: str, path: str) -> dict:
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "ci-tracker-test",
+            "User-Agent": "github-actions-tracker-test",
         },
     )
     try:

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..core.exceptions import (
     AttemptNotFoundError,
-    CitrackerError,
+    GhatError,
     GithubAPIError,
     JobNotFoundError,
     RunNotFoundError,
@@ -186,7 +186,7 @@ class QueryController:
 
         try:
             payload = await self._readers.get_run_attempt(repository, run_id, attempt)
-        except CitrackerError as exc:
+        except GhatError as exc:
             mapped = map_api_error(exc)
             if isinstance(mapped, GithubAPIError) and mapped.status_code == 404:
                 raise AttemptNotFoundError(
@@ -275,7 +275,7 @@ class QueryController:
                 per_page=_clamp(per_page),
                 page=max(page, 1),
             )
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         runs = await self._upsert_page(repo, payloads)
@@ -324,7 +324,7 @@ class QueryController:
                     per_page=per_page,
                     page=1,
                 )
-            except CitrackerError as exc:
+            except GhatError as exc:
                 results[name].error = exc
                 continue
             results[name].runs = records
@@ -366,7 +366,7 @@ class QueryController:
                 branch=branch,
                 per_page=1,
             )
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         if not payloads:
@@ -386,7 +386,7 @@ class QueryController:
         repo = await self._runs.repository(repository)
         try:
             remote = await self._readers.get_run(repository, run_id)
-        except CitrackerError as exc:
+        except GhatError as exc:
             mapped = map_api_error(exc)
             if isinstance(mapped, GithubAPIError) and mapped.status_code == 404:
                 raise RunNotFoundError(f"Run {run_id} not found on GitHub") from exc
@@ -571,7 +571,7 @@ class QueryController:
                 fresh = await self._store.run(run.github_run_id, with_state=True)
                 await self._store.sync_jobs(fresh or run, [remote])
                 steps = await self._store.steps(job)
-            except CitrackerError as exc:
+            except GhatError as exc:
                 logger.warning(
                     "Could not repair the steps of job %s: %s: %s",
                     job_id,
@@ -668,7 +668,7 @@ class QueryController:
         if content is None or not job.is_finished:
             try:
                 content = await self._readers.get_job_logs(repository, job_id)
-            except CitrackerError as exc:
+            except GhatError as exc:
                 if content is None:
                     raise map_api_error(exc) from exc
                 # The stored copy is what we have; a failed refresh must not
@@ -920,7 +920,7 @@ class QueryController:
 
         try:
             remote = await self._repositories.get_repo_workflows(repo.full_name)
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         wanted = workflow.strip()

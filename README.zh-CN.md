@@ -1,4 +1,4 @@
-# python-ci-tracker
+# python-github-actions-tracker
 
 [![CI](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/test.yml)
 [![Image build](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/images.yml/badge.svg)](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/images.yml)

@@ -1,4 +1,4 @@
-# Multi-arch build definition for the CITracker image.
+# Multi-arch build definition for the GitHub Actions Tracker image.
 #
 # `docker buildx bake` builds every platform of the default target and (with
 # --push) publishes one manifest list. The platform list mirrors

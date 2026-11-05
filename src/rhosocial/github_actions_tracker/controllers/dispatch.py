@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from ..core.exceptions import (
-    CitrackerError,
+    GhatError,
     RepositoryNotFoundError,
     RunNotFoundError,
     TriggerFailedError,
@@ -161,7 +161,7 @@ class DispatchController:
                 ref,
                 inputs,
             )
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         if not _as_int(payload.get("run_id")):
@@ -232,7 +232,7 @@ class DispatchController:
                 head_sha=head_sha,
                 per_page=20,
             )
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         for payload in payloads:
@@ -292,7 +292,7 @@ class DispatchController:
 
         try:
             await self._control.rerun(repo.full_name, run_id)
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         try:
@@ -303,7 +303,7 @@ class DispatchController:
                 attempts=resolve_attempts,
                 delay=resolve_delay,
             )
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise TriggerFailedError(
                 f"GitHub accepted the re-run of run {run_id}, "
                 f"but the run could not be read back: {exc}",
@@ -388,7 +388,7 @@ class DispatchController:
 
         try:
             await self._control.rerun_failed(repo.full_name, run_id)
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         try:
@@ -399,7 +399,7 @@ class DispatchController:
                 attempts=resolve_attempts,
                 delay=resolve_delay,
             )
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise TriggerFailedError(
                 f"GitHub accepted the re-run of run {run_id}, "
                 f"but the run could not be read back: {exc}",
@@ -475,12 +475,12 @@ class DispatchController:
 
         try:
             await self._control.cancel(repo.full_name, run_id)
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
         try:
             payload = await self._readers.get_run(repo.full_name, run_id)
-        except CitrackerError:
+        except GhatError:
             return run
 
         cancelled = await self._store.update(run, payload)
@@ -522,7 +522,7 @@ class DispatchController:
                 # stored row has a real status rather than a guess.
                 try:
                     payload = await self._readers.get_run(repo.full_name, github_run_id)
-                except CitrackerError:
+                except GhatError:
                     pass
             run = await self._store.adopt(repo, payload)
         self._track(github_run_id)
@@ -558,7 +558,7 @@ class DispatchController:
                     workflow_id=workflow.workflow_id or None,
                     branch=ref,
                 )
-            except CitrackerError as exc:
+            except GhatError as exc:
                 raise map_api_error(exc) from exc
 
             for candidate in runs:

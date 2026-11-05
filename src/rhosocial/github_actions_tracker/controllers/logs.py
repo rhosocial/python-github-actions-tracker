@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from ..config import LogSettings
-from ..core.exceptions import CitrackerError
+from ..core.exceptions import GhatError
 from ..services.github.protocols import RunReader
 from ..views import CaptureStatus, LogCaptureView, StepSection
 from .run import RunData
@@ -190,7 +190,7 @@ class RunLogCapture:
             report.attempts = attempt
             try:
                 archive = await self._readers.get_run_logs(repository.full_name, run.github_run_id)
-            except CitrackerError as exc:
+            except GhatError as exc:
                 status = getattr(exc, "status_code", None)
                 report.error = f"{type(exc).__name__}: {exc}"
                 # 404 until the run finishes, 5xx while GitHub's log store is

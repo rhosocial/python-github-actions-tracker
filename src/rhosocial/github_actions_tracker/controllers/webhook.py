@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from ..core.exceptions import (
-    CitrackerError,
+    GhatError,
     RepositoryNotFoundError,
     ValidationError,
     WebhookNotFoundError,
@@ -502,7 +502,7 @@ class WebhookController:
                     remote = await self._readers.get_job(repo.full_name, github_job_id)
                     await self._store.sync_jobs(run, [remote])
                     job = await self._store.job(github_job_id) or job
-                except CitrackerError as exc:
+                except GhatError as exc:
                     logger.warning(
                         "Could not read job %s back: %s: %s",
                         github_job_id,
@@ -597,7 +597,7 @@ class WebhookController:
 
         try:
             run = await self._runs.fetch(repo, github_run_id, with_jobs=False)
-        except CitrackerError as exc:
+        except GhatError as exc:
             logger.warning(
                 "Could not adopt run %s of '%s' for its job event: %s",
                 github_run_id,
@@ -664,7 +664,7 @@ class WebhookController:
                 job.github_job_id,
                 repo.full_name,
             )
-        except CitrackerError as exc:
+        except GhatError as exc:
             logger.warning("Could not fetch logs of job %s: %s", job.github_job_id, exc)
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning(

@@ -596,7 +596,7 @@ def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
     parser = argparse.ArgumentParser(
         prog="rhosocial-github-actions-tracker-db",
-        description="CI Tracker database management CLI",
+        description="GitHub Actions Tracker database management CLI",
     )
     subparsers = parser.add_subparsers(dest="command")
 

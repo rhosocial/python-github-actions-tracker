@@ -21,7 +21,7 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ..core.exceptions import (
-    CitrackerError,
+    GhatError,
     GithubAPIError,
     RepositoryNotFoundError,
     TokenNotFoundError,
@@ -285,7 +285,7 @@ class RepositoryController:
             if not workflows:
                 try:
                     workflows = await self.refresh_workflows(repo_id=repo.id or 0)
-                except CitrackerError as exc:
+                except GhatError as exc:
                     logger.warning("Could not read the workflows of %s: %s", repo.full_name, exc)
                     workflows = []
             result[repo.full_name] = workflows
@@ -380,7 +380,7 @@ class RepositoryController:
 
         try:
             pull = await self._repositories.get_pull_request(repository, number)
-        except CitrackerError as exc:
+        except GhatError as exc:
             mapped = map_api_error(exc)
             if isinstance(mapped, GithubAPIError) and mapped.status_code == 404:
                 raise RepositoryNotFoundError(
@@ -395,7 +395,7 @@ class RepositoryController:
 
         try:
             remote_runs = await self._readers.list_runs(repository, head_sha=head_sha, per_page=100)
-        except CitrackerError as exc:
+        except GhatError as exc:
             mapped = map_api_error(exc)
             if isinstance(mapped, GithubAPIError) and mapped.status_code == 404:
                 return []
@@ -504,7 +504,7 @@ class RepositoryController:
                 f"'{getattr(credential, 'identity', '') or 'unknown'}' -- it may "
                 "not cover this repository, or the repository does not exist."
             ) from exc
-        except CitrackerError as exc:
+        except GhatError as exc:
             raise map_api_error(exc) from exc
 
     async def _refresh_workflows(
@@ -520,7 +520,7 @@ class RepositoryController:
         """
         try:
             remote = await self._repositories.get_repo_workflows(repo.full_name)
-        except CitrackerError as exc:
+        except GhatError as exc:
             if strict:
                 raise map_api_error(exc) from exc
             logger.warning("Could not refresh workflows for '%s': %s", repo.full_name, exc)
@@ -569,7 +569,7 @@ class RepositoryController:
                 if url.startswith(prefix) and hook_id:
                     await self._webhooks.delete_webhook(repo.full_name, hook_id)
                     logger.info("Deleted webhook %s of '%s'", hook_id, repo.full_name)
-        except CitrackerError as exc:
+        except GhatError as exc:
             logger.warning("Could not delete webhooks of '%s': %s", repo.full_name, exc)
 
 

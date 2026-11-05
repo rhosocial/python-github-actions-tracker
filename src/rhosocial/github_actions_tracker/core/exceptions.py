@@ -4,19 +4,19 @@
 from __future__ import annotations
 
 from ..models.errors import (
-    CitrackerError,
+    GhatError,
     InvalidStateTransitionError,
     WorkflowNotFoundError,
 )
 
 
-class TokenNotFoundError(CitrackerError):
+class TokenNotFoundError(GhatError):
     """GitHub token not found or inactive."""
 
     pass
 
 
-class TokenInUseError(CitrackerError):
+class TokenInUseError(GhatError):
     """Token cannot be deleted because repositories still reference it.
 
     Attributes:
@@ -30,19 +30,19 @@ class TokenInUseError(CitrackerError):
         self.repository_count = repository_count
 
 
-class RepositoryNotFoundError(CitrackerError):
+class RepositoryNotFoundError(GhatError):
     """Repository not subscribed."""
 
     pass
 
 
-class RunNotFoundError(CitrackerError):
+class RunNotFoundError(GhatError):
     """Workflow run not found."""
 
     pass
 
 
-class AttemptNotFoundError(CitrackerError):
+class AttemptNotFoundError(GhatError):
     """The run exists, but it has no attempt with that number.
 
     Distinct from :class:`RunNotFoundError`: telling a caller the run is missing
@@ -53,19 +53,19 @@ class AttemptNotFoundError(CitrackerError):
     pass
 
 
-class JobNotFoundError(CitrackerError):
+class JobNotFoundError(GhatError):
     """Job not found."""
 
     pass
 
 
-class StepNotFoundError(CitrackerError):
+class StepNotFoundError(GhatError):
     """Step not found."""
 
     pass
 
 
-class UpstreamUnavailableError(CitrackerError):
+class UpstreamUnavailableError(GhatError):
     """GitHub could not be reached, or dropped the connection.
 
     Distinct from every other failure here: nothing about the request is wrong,
@@ -78,7 +78,7 @@ class UpstreamUnavailableError(CitrackerError):
     pass
 
 
-class TriggerFailedError(CitrackerError):
+class TriggerFailedError(GhatError):
     """Failed to trigger workflow.
 
     Attributes:
@@ -97,7 +97,7 @@ class TriggerFailedError(CitrackerError):
         self.response_body = response_body
 
 
-class RunInProgressError(CitrackerError):
+class RunInProgressError(GhatError):
     """GitHub refused a run operation because the run is still going.
 
     Re-running a run that has not finished is a *concurrency* conflict: GitHub
@@ -115,7 +115,7 @@ class RunInProgressError(CitrackerError):
         self.status_code = status_code
 
 
-class TokenInvalidError(CitrackerError):
+class TokenInvalidError(GhatError):
     """GitHub token is invalid or expired.
 
     Raised when GitHub answers 401 -- the token was revoked, or it expired
@@ -127,7 +127,7 @@ class TokenInvalidError(CitrackerError):
     pass
 
 
-class TokenExpiredError(CitrackerError):
+class TokenExpiredError(GhatError):
     """A repository's bound token is past its declared expiry.
 
     Attributes:
@@ -145,7 +145,7 @@ class TokenExpiredError(CitrackerError):
         self.repository = repository
 
 
-class TokenDeactivatedError(CitrackerError):
+class TokenDeactivatedError(GhatError):
     """A repository's bound token was deactivated.
 
     Attributes:
@@ -159,7 +159,7 @@ class TokenDeactivatedError(CitrackerError):
         self.repository = repository
 
 
-class TokenRequiredError(CitrackerError):
+class TokenRequiredError(GhatError):
     """The operation needs a bound credential but the repository is anonymous.
 
     Attributes:
@@ -171,7 +171,7 @@ class TokenRequiredError(CitrackerError):
         self.repository = repository
 
 
-class TokenAlreadyExistsError(CitrackerError):
+class TokenAlreadyExistsError(GhatError):
     """A token with the same name is already registered."""
 
     def __init__(self, message: str, token_name: str = "") -> None:
@@ -179,25 +179,25 @@ class TokenAlreadyExistsError(CitrackerError):
         self.token_name = token_name
 
 
-class TokenPermissionError(CitrackerError):
+class TokenPermissionError(GhatError):
     """GitHub token lacks required permissions."""
 
     pass
 
 
-class WebhookAlreadyExistsError(CitrackerError):
+class WebhookAlreadyExistsError(GhatError):
     """Webhook already exists for this repository."""
 
     pass
 
 
-class WebhookNotFoundError(CitrackerError):
+class WebhookNotFoundError(GhatError):
     """Webhook not found."""
 
     pass
 
 
-class GithubAPIError(CitrackerError):
+class GithubAPIError(GhatError):
     """GitHub API returned an unexpected error.
 
     Attributes:
@@ -216,7 +216,7 @@ class GithubAPIError(CitrackerError):
         self.response_body = response_body
 
 
-class RateLimitError(CitrackerError):
+class RateLimitError(GhatError):
     """GitHub API rate limit exceeded.
 
     Attributes:
@@ -228,13 +228,13 @@ class RateLimitError(CitrackerError):
         self.reset_at = reset_at
 
 
-class ConcurrentUpdateError(CitrackerError):
+class ConcurrentUpdateError(GhatError):
     """Optimistic concurrency control conflict."""
 
     pass
 
 
-class ValidationError(CitrackerError):
+class ValidationError(GhatError):
     """Invalid input supplied by the caller."""
 
     pass
@@ -261,7 +261,7 @@ def is_state_conflict(message: str) -> bool:
     return any(phrase in lowered for phrase in _STATE_CONFLICT_PHRASES)
 
 
-def map_api_error(error: CitrackerError) -> CitrackerError:
+def map_api_error(error: GhatError) -> GhatError:
     """Map a generic GitHub API error onto the typed business errors.
 
     Status codes are all a :class:`GithubAPIError` carries, so this is the only
@@ -298,7 +298,7 @@ def map_api_error(error: CitrackerError) -> CitrackerError:
 
 
 __all__ = [
-    "CitrackerError",
+    "GhatError",
     "InvalidStateTransitionError",
     "WorkflowNotFoundError",
     "TokenNotFoundError",

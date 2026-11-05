@@ -230,7 +230,7 @@ class PostgresServer:
         Raises:
             ValidationError: If the configured database name is not a safe
                 identifier.
-            CitrackerError: If the server is unreachable.
+            GhatError: If the server is unreachable.
         """
         name = self._checked_name()
         async with self._maintenance() as backend:
@@ -254,7 +254,7 @@ class PostgresServer:
         Raises:
             ValidationError: If the configured database name is not a safe
                 identifier, or names the maintenance database.
-            CitrackerError: If the server is unreachable.
+            GhatError: If the server is unreachable.
         """
         name = self._checked_name()
         if name == self._maintenance_database:

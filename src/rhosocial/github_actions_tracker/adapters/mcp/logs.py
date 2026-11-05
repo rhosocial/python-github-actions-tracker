@@ -4,7 +4,7 @@
 A log is text the caller asked to see; this module decides which lines come
 back, never what they mean. It knows nothing about pytest, `##[error]`, test
 summaries or a runner's teardown -- those are properties of one project's
-output, and a general CI tracker that guesses at them is wrong for every project
+output, and a general tracker that guesses at them is wrong for every project
 that prints something else.
 
 Three selections, all of them explicit or plainly bounded:

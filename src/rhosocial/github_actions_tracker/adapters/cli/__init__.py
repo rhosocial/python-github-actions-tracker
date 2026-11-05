@@ -1,5 +1,5 @@
 # src/rhosocial/github_actions_tracker/adapters/cli/__init__.py
-"""CLI adapter for CI Tracker."""
+"""CLI adapter for GitHub Actions Tracker."""
 
 from __future__ import annotations
 

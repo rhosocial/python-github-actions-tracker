@@ -1,4 +1,4 @@
-"""Send a test ping to the CI Tracker webhook."""
+"""Send a test ping to the GitHub Actions Tracker webhook."""
 
 import asyncio
 import sys

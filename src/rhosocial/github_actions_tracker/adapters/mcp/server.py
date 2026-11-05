@@ -1,5 +1,5 @@
 # src/rhosocial/github_actions_tracker/adapters/mcp/server.py
-"""MCP Server definition for CI Tracker.
+"""MCP Server definition for GitHub Actions Tracker.
 
 The server declares nine tools and one short ``instructions`` block. Both are
 deliberately small: a model that has to choose between fifteen near-synonyms
@@ -59,7 +59,7 @@ Tracks GitHub Actions runs for repositories the user has authorized.
 
 
 def create_mcp_server(
-    name: str = "the tracker",
+    name: str = "GitHub Actions Tracker",
     auth: Any | None = None,
     token_verifier: Any | None = None,
     container: Any | None = None,

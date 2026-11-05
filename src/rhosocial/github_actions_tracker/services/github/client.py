@@ -23,7 +23,7 @@ from typing import Any
 import httpx2
 
 from ...core.exceptions import (
-    CitrackerError,
+    GhatError,
     GithubAPIError,
     RateLimitError,
     RunInProgressError,
@@ -860,7 +860,7 @@ class GithubClient:
         url = f"/repos/{repo_full_name}/actions/workflows/{workflow}/dispatches"
         try:
             self._request("POST", url, token, json={"ref": PROBE_REF})
-        except CitrackerError as exc:
+        except GhatError as exc:
             # 422 means the permission check passed and the ref was rejected --
             # the exact signal this probe is after. A 403 means no Actions write;
             # anything else (404, network) is reported as "cannot", since nothing
@@ -881,7 +881,7 @@ class GithubClient:
         """
         try:
             workflows = self.get_repo_workflows(token, repo_full_name)
-        except CitrackerError:
+        except GhatError:
             return None
         for workflow in workflows:
             path = str(workflow.get("path") or "")
@@ -1315,7 +1315,7 @@ class AsyncGithubClient:
         url = f"/repos/{repo_full_name}/actions/workflows/{workflow}/dispatches"
         try:
             await self._request("POST", url, token, json={"ref": PROBE_REF})
-        except CitrackerError as exc:
+        except GhatError as exc:
             return getattr(exc, "status_code", 0) == 422
         return True
 
@@ -1323,7 +1323,7 @@ class AsyncGithubClient:
         """Pick a workflow file name to probe with (see the sync twin)."""
         try:
             workflows = await self.get_repo_workflows(token, repo_full_name)
-        except CitrackerError:
+        except GhatError:
             return None
         for workflow in workflows:
             path = str(workflow.get("path") or "")

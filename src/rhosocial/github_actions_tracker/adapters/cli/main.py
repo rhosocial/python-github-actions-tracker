@@ -100,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="rhosocial-github-actions-tracker",
-        description="GitHub CI status tracking and automation service",
+        description="GitHub Actions status tracking and automation service",
     )
     parser.add_argument(
         "--api-key",

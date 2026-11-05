@@ -1,5 +1,5 @@
 # src/rhosocial/github_actions_tracker/models/__init__.py
-"""CI Tracker models: sync/async twins over local persistence.
+"""GitHub Actions Tracker models: sync/async twins over local persistence.
 
 Every model file declares a sync twin and an `Async`-prefixed async twin with
 behavior-identical method pairs; the sync twins exist for the parity rule even

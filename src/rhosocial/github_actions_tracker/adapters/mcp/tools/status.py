@@ -360,7 +360,7 @@ def register_status_tools(server: MCPServer, container: Any) -> None:
             return {
                 "mode": "self_hosted",
                 "service": {
-                    "name": "the tracker",
+                    "name": "GitHub Actions Tracker",
                     "version": _service_version(),
                     # Which build is answering: the commit it was built from and
                     # the CI build number. ``version`` is the same constant in

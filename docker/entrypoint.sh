@@ -1,5 +1,5 @@
 #!/bin/sh
-# CITracker container entrypoint.
+# GitHub Actions Tracker container entrypoint.
 #
 # The image carries no operational bootstrap: schema creation and credential
 # provisioning are deployment concerns, so they live in scripts under

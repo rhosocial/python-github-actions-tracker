@@ -1,8 +1,8 @@
-# python-ci-tracker 项目规则
+# python-github-actions-tracker 项目规则
 
 ## 项目定位
 
-GitHub CI 状态跟踪与自动化服务。核心价值是将"触发 CI → 等待 → 取回结果"的循环自动化，
+GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。核心价值是将"触发 CI → 等待 → 取回结果"的循环自动化，
 让大模型和第三方工具可以简单地异步调用，稍后查询结果。
 
 ## 架构原则

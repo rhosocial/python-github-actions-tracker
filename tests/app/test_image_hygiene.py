@@ -87,7 +87,7 @@ def test_entrypoint_is_a_generic_init_runner() -> None:
     # The operations themselves belong to docker/init.d, mounted at run time.
     assert "GHAT_BOOTSTRAP" not in entrypoint
     assert "rhosocial-github-actions-tracker credential" not in entrypoint
-    assert "github-ci-tracker-db init" not in entrypoint
+    assert "rhosocial-github-actions-tracker-db is-initialized" in entrypoint
 
 
 def test_init_scripts_carry_the_operations() -> None:

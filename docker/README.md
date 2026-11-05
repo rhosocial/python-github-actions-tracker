@@ -1,6 +1,6 @@
 # docker
 
-CITracker 的镜像与部署文件。镜像只包含 Python 运行时和服务代码；数据库、证书、PAT
+GitHub Actions Tracker 的镜像与部署文件。镜像只包含 Python 运行时和服务代码；数据库、证书、PAT
 都在运行时提供，代理也只在运行时按需注入（中国大陆用户）。
 
 | 文件 | 用途 |

@@ -1,4 +1,4 @@
-# CITracker: the service image, split into the two roles it serves.
+# GitHub Actions Tracker: the service image, split into the two roles it serves.
 #
 #   web   REST (8000, internal) + GitHub webhook receiver (18080, published)
 #   mcp   MCP over Streamable HTTP (8001, published)

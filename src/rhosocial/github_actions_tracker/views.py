@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from .core.exceptions import CitrackerError
+from .core.exceptions import GhatError
 from .models.states import FAILED_CONCLUSIONS
 
 if TYPE_CHECKING:  # the views only read these; they never construct or query them
@@ -249,7 +249,7 @@ class RepositoryRuns:
 
     repository: str
     runs: list[RunRecord] = field(default_factory=list)
-    error: CitrackerError | None = None
+    error: GhatError | None = None
 
 
 @dataclass(frozen=True)

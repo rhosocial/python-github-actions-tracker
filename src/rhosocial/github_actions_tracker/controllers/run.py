@@ -27,7 +27,7 @@ from ..models import (
     AsyncWorkflowRun,
 )
 from ..models.attempt import AsyncRunAttempt
-from ..models.errors import CitrackerError  # noqa: F401 - re-exported for callers
+from ..models.errors import GhatError  # noqa: F401 - re-exported for callers
 from ..models.log import AsyncJobLog, AsyncStepLog
 from ..models.states import FAILED_CONCLUSIONS
 from ..services.github.protocols import RunReader

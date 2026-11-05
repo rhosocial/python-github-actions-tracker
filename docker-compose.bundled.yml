@@ -1,4 +1,4 @@
-# One-piece deployment: CITracker plus its own PostgreSQL 18.
+# One-piece deployment: GitHub Actions Tracker plus its own PostgreSQL 18.
 #
 # Use this overlay together with the base file:
 #
