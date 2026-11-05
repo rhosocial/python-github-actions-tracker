@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -124,6 +125,56 @@ def test_analytics_is_configured_in_both_builds() -> None:
         ), f"{lang}: the Baidu Tongji script is not loaded"
         # Every page that carries tracking should say so.
         assert (DOCS / lang / "privacy.md").is_file()
+
+
+def _repeated_keys(node: Any, trail: str = "") -> list[str]:
+    """Every key that appears more than once inside one mapping, as a path.
+
+    ``yaml.compose`` keeps both copies of a repeated key, which is the only reason
+    this walk can see them at all -- ``safe_load`` above keeps the last one and
+    reports nothing. The check is per mapping: the same key in two different
+    mappings (two ``nav`` entries both titled *Overview*) is ordinary YAML, while
+    the same key twice under one mapping deletes the first one silently.
+    """
+    found: list[str] = []
+    if isinstance(node, yaml.MappingNode):
+        counts: dict[str, int] = {}
+        for key_node, _ in node.value:
+            key = getattr(key_node, "value", None)
+            if isinstance(key, str):
+                counts[key] = counts.get(key, 0) + 1
+        for key, count in counts.items():
+            if count > 1:
+                found.append(f"{trail}.{key}" if trail else key)
+        for key_node, value_node in node.value:
+            key = getattr(key_node, "value", None)
+            found.extend(_repeated_keys(value_node, key if isinstance(key, str) else trail))
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            found.extend(_repeated_keys(item, trail))
+    return found
+
+
+def test_no_config_repeats_a_key() -> None:
+    """A repeated key is the one YAML mistake a parser will not report.
+
+    Seen here: the analytics provider was added as a *second* top-level ``extra:``
+    block a few lines below the first. Both builds stayed green and `--strict`
+    said nothing, because the loader kept the last block and dropped the first
+    one whole -- and with it ``alternate:``, the language switcher, which is
+    invisible in a build log and only shows up as a site that no longer offers
+    the other language. The same class of bug is guarded in
+    ``tests/app/test_workflow_files.py`` for the workflow files.
+    """
+    for path in CONFIGS.values():
+        with path.open(encoding="utf-8") as handle:
+            root = yaml.compose(handle, Loader=_TolerantLoader)
+        repeats = _repeated_keys(root)
+        assert repeats == [], (
+            f"{path.name} repeats {repeats}; a loader keeps only the last value of "
+            "a repeated key, so the rest of that configuration is dropped without "
+            "a warning"
+        )
 
 
 def test_no_private_infrastructure_reaches_a_public_page() -> None:

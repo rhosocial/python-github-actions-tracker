@@ -44,6 +44,10 @@ theme:
   icon:
     repo: fontawesome/brands/github
 
+# One `extra:` block, on purpose: YAML silently keeps only the last value of a
+# repeated key, so a second `extra:` further down the file would drop this whole
+# language switcher without any build error -- which is exactly how the switcher
+# disappeared once already. Anything added here belongs in this block too.
 extra:
   alternate:
     - name: English
@@ -52,6 +56,12 @@ extra:
     - name: 简体中文
       link: /python-github-actions-tracker/zh_CN/
       lang: zh
+  generator: false
+  # Google Analytics 4 via Material's built-in integration. The property is the
+  # organisation's; a per-site stream should replace it when there is one.
+  analytics:
+    provider: google
+    property: G-VPM29QVEST
 
 nav:
   - 首页: README.md
@@ -85,14 +95,6 @@ extra_javascript:
   # roots because each language builds from its own directory, and a test keeps
   # the two copies identical.
   - javascripts/baidu-tongji.js
-
-extra:
-  generator: false
-  # Google Analytics 4 via Material's built-in integration. The property is the
-  # organisation's; a per-site stream should replace it when there is one.
-  analytics:
-    provider: google
-    property: G-VPM29QVEST
 
 markdown_extensions:
   - admonition

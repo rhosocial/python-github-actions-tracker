@@ -95,8 +95,12 @@ jobs:
           test -f _site/sitemap.xml
           test -f _site/zh_CN/sitemap.xml
           test -f _site/404.html
-          grep -q 'citracker' _site/index.html
-          grep -q 'citracker' _site/zh_CN/index.html
+          # The site's own name, as the browser tab renders it. This used to grep for
+          # the old project name, which only proved the word appeared somewhere in the
+          # document; asserting the <title> element checks the name that is actually
+          # served, and fails the same way when the configuration loses it.
+          grep -q '<title>GitHub Actions Tracker</title>' _site/index.html
+          grep -q '<title>GitHub Actions Tracker</title>' _site/zh_CN/index.html
           grep -q 'hreflang="zh"' _site/index.html
           grep -q 'hreflang="en"' _site/zh_CN/index.html
           echo "site tree: $(find _site -name 'index.html' | wc -l) pages"
