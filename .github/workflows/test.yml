@@ -69,9 +69,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: citracker
-          POSTGRES_PASSWORD: citracker
-          POSTGRES_DB: citracker_test
+          POSTGRES_USER: github_actions_tracker
+          POSTGRES_PASSWORD: github_actions_tracker
+          POSTGRES_DB: github_actions_tracker_test
         ports:
           - 5432:5432
         options: >-
@@ -145,8 +145,8 @@ jobs:
           GHAT_TEST_PG_REQUIRED: '1'
           GHAT_DB_HOST: localhost
           GHAT_DB_PORT: '5432'
-          GHAT_DB_USER: citracker
-          GHAT_DB_PASSWORD: citracker
+          GHAT_DB_USER: github_actions_tracker
+          GHAT_DB_PASSWORD: github_actions_tracker
           GHAT_DB_SSLMODE: prefer
 
   channels:
@@ -162,8 +162,8 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: citracker
-          POSTGRES_PASSWORD: citracker
+          POSTGRES_USER: github_actions_tracker
+          POSTGRES_PASSWORD: github_actions_tracker
           POSTGRES_DB: test_db
         ports:
           - 5432:5432
@@ -225,8 +225,8 @@ jobs:
         env:
           GHAT_DB_HOST: localhost
           GHAT_DB_PORT: '5432'
-          GHAT_DB_USER: citracker
-          GHAT_DB_PASSWORD: citracker
+          GHAT_DB_USER: github_actions_tracker
+          GHAT_DB_PASSWORD: github_actions_tracker
           GHAT_DB_NAME: test_db
 
       - name: Run the channel tests
@@ -235,8 +235,8 @@ jobs:
           GHAT_E2E_POSTGRES: '1'
           GHAT_E2E_DB_HOST: localhost
           GHAT_E2E_DB_PORT: '5432'
-          GHAT_E2E_DB_USER: citracker
-          GHAT_E2E_DB_PASSWORD: citracker
+          GHAT_E2E_DB_USER: github_actions_tracker
+          GHAT_E2E_DB_PASSWORD: github_actions_tracker
           GHAT_E2E_DB_NAME: test_db
 
   models:
@@ -255,8 +255,8 @@ jobs:
       postgres:
         image: postgres:18
         env:
-          POSTGRES_USER: citracker
-          POSTGRES_PASSWORD: citracker
+          POSTGRES_USER: github_actions_tracker
+          POSTGRES_PASSWORD: github_actions_tracker
           POSTGRES_DB: test_db
         ports:
           - 5432:5432
@@ -316,6 +316,6 @@ jobs:
           GHAT_TEST_PG_REQUIRED: '1'
           GHAT_DB_HOST: localhost
           GHAT_DB_PORT: '5432'
-          GHAT_DB_USER: citracker
-          GHAT_DB_PASSWORD: citracker
+          GHAT_DB_USER: github_actions_tracker
+          GHAT_DB_PASSWORD: github_actions_tracker
           GHAT_DB_SSLMODE: prefer

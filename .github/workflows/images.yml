@@ -58,10 +58,10 @@ env:
   # The Docker Hub repository: `docker.io/vistart/github-actions-tracker`. Same organisation
   # as the Aliyun namespace, so both destinations read as one product line.
   DOCKERHUB_NAMESPACE: vistart
-  IMAGE: citracker
+  IMAGE: github-actions-tracker
 
 jobs:
-  citracker:
+  github-actions-tracker:
     name: Service image
     runs-on: ubuntu-latest
 
