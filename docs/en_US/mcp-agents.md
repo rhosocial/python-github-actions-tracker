@@ -36,14 +36,14 @@ committed), and `user` (all projects). The CLI writes the file for you:
 
 ```bash
 # Local deployment, no API key configured:
-claude mcp add --transport http the tracker http://127.0.0.1:8001/mcp
+claude mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp
 
 # TLS in front, API key set:
-claude mcp add --transport http the tracker https://tracker.example.com:8001/mcp \
+claude mcp add --transport http github-actions-tracker https://tracker.example.com:8001/mcp \
   --header "Authorization: Bearer <GHAT_API_KEY>"
 
 # Share with the team through the repository:
-claude mcp add --transport http the tracker http://127.0.0.1:8001/mcp --scope project
+claude mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp --scope project
 ```
 
 The same thing as committed JSON (`.mcp.json`):
@@ -51,7 +51,7 @@ The same thing as committed JSON (`.mcp.json`):
 ```json
 {
   "mcpServers": {
-    "the tracker": {
+    "github-actions-tracker": {
       "type": "http",
       "url": "http://127.0.0.1:8001/mcp",
       "headers": { "Authorization": "Bearer ${GHAT_API_KEY}" }
@@ -83,11 +83,11 @@ transport is spelled per server: stdio takes `command` + `args`; Streamable HTTP
 takes `url` and its authentication travels separately.
 
 ```toml
-[mcp_servers.the tracker]
+[mcp_servers.github-actions-tracker]
 url = "http://127.0.0.1:8001/mcp"
 
 # TLS in front, API key set:
-[mcp_servers.the tracker]
+[mcp_servers.github-actions-tracker]
 url = "https://tracker.example.com:8001/mcp"
 bearer_token_env_var = "GHAT_API_KEY"
 tool_timeout_sec = 120
@@ -96,9 +96,9 @@ tool_timeout_sec = 120
 The CLI form (writes the same file):
 
 ```bash
-codex mcp add the tracker --url http://127.0.0.1:8001/mcp
+codex mcp add github-actions-tracker --url http://127.0.0.1:8001/mcp
 codex mcp list          # servers and their connection state
-codex mcp login the tracker   # only for OAuth servers; this one uses a Bearer key
+codex mcp login github-actions-tracker   # only for OAuth servers; this one uses a Bearer key
 ```
 
 One `tool_timeout_sec` note that matters for this service specifically:
@@ -119,7 +119,7 @@ explicitly:
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "the tracker": {
+    "github-actions-tracker": {
       "type": "remote",
       "url": "http://127.0.0.1:8001/mcp",
       "enabled": true,
@@ -139,7 +139,7 @@ explicitly:
   Codex applies (raise it above the wait ceiling if you plan to use that tool).
 
 Verify with `opencode mcp list`, or debug a failing server with
-`opencode mcp debug the tracker`, which tests HTTP connectivity and prints the
+`opencode mcp debug github-actions-tracker`, which tests HTTP connectivity and prints the
 auth state.
 
 ## Command Code
@@ -151,9 +151,9 @@ project), `project` (`.mcp.json`, version controlled) and `user`
 when the same name appears twice.
 
 ```bash
-cmd mcp add --transport http the tracker http://127.0.0.1:8001/mcp
+cmd mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp
 
-cmd mcp add --transport http the tracker https://tracker.example.com:8001/mcp \
+cmd mcp add --transport http github-actions-tracker https://tracker.example.com:8001/mcp \
   --header "Authorization: Bearer <GHAT_API_KEY>"
 ```
 
@@ -163,7 +163,7 @@ Claude Code `.mcp.json` block pastes in unchanged):
 ```json
 {
   "mcpServers": {
-    "the tracker": {
+    "github-actions-tracker": {
       "transport": "http",
       "url": "http://127.0.0.1:8001/mcp",
       "headers": { "Authorization": "Bearer ${GHAT_API_KEY}" }

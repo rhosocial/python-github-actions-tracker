@@ -61,12 +61,12 @@ asyncio.set_event_loop(asyncio.SelectorEventLoop(selectors.SelectSelector()))
 ```ini
 # /etc/systemd/system/tracker-web.service
 [Unit]
-Description=the tracker — REST 与 webhook
+Description=github-actions-tracker — REST 与 webhook
 After=network-online.target
 
 [Service]
-EnvironmentFile=/etc/the tracker/env
-ExecStart=/opt/the tracker/venv/bin/rhosocial-github-actions-tracker serve all
+EnvironmentFile=/etc/github-actions-tracker/env
+ExecStart=/opt/github-actions-tracker/venv/bin/rhosocial-github-actions-tracker serve all
 Restart=unless-stopped
 
 [Install]
@@ -167,7 +167,7 @@ docker run -d --name tracker-web --restart unless-stopped \
   -v "$PWD/docker/init.d:/docker-entrypoint-init.d:ro" \
   -e GHAT_DB_HOST=<db-host> -e GHAT_DB_PORT=5432 \
   -e GHAT_DB_USER=<user> -e GHAT_DB_PASSWORD=<password> \
-  -e GHAT_DB_NAME=the tracker \
+  -e GHAT_DB_NAME=github_actions_tracker \
   -e GHAT_API_KEY=<bearer> \
   -e GHAT_WEBHOOK_SECRET=<github-webhook-secret> \
   -e GHAT_BOOTSTRAP_PAT=<fine-grained-pat> \

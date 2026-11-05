@@ -32,7 +32,7 @@ MCP 工具与 REST、CLI 共用同一套业务核心。首次接入建议先调�
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "the tracker": {
+    "github-actions-tracker": {
       "type": "remote",
       "url": "http://127.0.0.1:8001/mcp",
       "enabled": true,
@@ -58,7 +58,7 @@ MCP 工具与 REST、CLI 共用同一套业务核心。首次接入建议先调�
 opencode mcp list
 ```
 
-显示 `the tracker connected` 即接通。异常时先用 `opencode mcp debug the tracker` 查看 HTTP 与
+显示 `github-actions-tracker connected` 即接通。异常时先用 `opencode mcp debug github-actions-tracker` 查看 HTTP 与
 鉴权细节，或在 TUI 里用 `/mcps` 重连。
 
 ### 鉴权
@@ -83,27 +83,27 @@ key。CLI 不使用这个 key，`credential`、`serve webhook` 等命令在 key 
 中文：
 
 ```text
-用 the tracker 看一下 rhosocial/python-activerecord 在 main 上最新一次 test.yml 的结果。
+用本服务看一下 rhosocial/python-activerecord 在 main 上最新一次 test.yml 的结果。
 如果还在跑，等到它结束再告诉我；失败了就指出是哪个 job、哪个 step，并把关键错误行贴出来。
 ```
 
 ```text
-用 the tracker 一次性看一下 python-activerecord 系列 15 个仓库各自最新一次运行的状态，
+用本服务一次性看一下 python-activerecord 系列 11 个仓库各自最新一次运行的状态，
 汇总成一张表：仓库 / 结论 / 分支 / 耗时，失败的要标出来。
 ```
 
 ```text
-用 the tracker 统计一下 python-activerecord 系列里，过去三次运行中哪些仓库连续失败，
+用本服务统计一下 python-activerecord 系列里，过去三次运行中哪些仓库连续失败，
 以及每个失败仓库最近一次失败是哪个 job、哪个 step。
 ```
 
 ```text
 我刚推了 3 个后端仓库（mysql / postgres / mariadb）的 fix/column-constraint-gates 分支，
-用 the tracker 分别查一下各自最新一次的运行状态，汇总成一张表：仓库 / 结论 / 耗时 / 失败 job。
+用本服务分别查一下各自最新一次的运行状态，汇总成一张表：仓库 / 结论 / 耗时 / 失败 job。
 ```
 
 ```text
-用 the tracker 触发 rhosocial/python-activerecord-postgres 的 test.yml（ref: main），
+用本服务触发 rhosocial/python-activerecord-postgres 的 test.yml（ref: main），
 然后跟踪到结束。失败了先别重跑，把失败原因给我。
 ```
 
@@ -122,7 +122,7 @@ failing job.
 ```
 
 ```text
-Ask the tracker for the newest run of all fifteen python-activerecord repositories in one go,
+Ask the tracker for the newest run of all eleven python-activerecord repositories in one go,
 then give me only the ones that are red, with the failing job and step for each.
 ```
 
@@ -393,11 +393,11 @@ OpenCode 的 `mcp.timeout.execution` 默认 12 小时，通常不用改。
 | `connected` 但每次调用都 401 | 客户端 header 里的 key 与服务端 `GHAT_API_KEY` 不一致 | 两边用同一个值；从桌面图标启动的 OpenCode 读不到 shell 临时变量，可写进全局配置 |
 | 连接被拒绝 / `fetch failed` | 8001 没有发布到宿主，或绑到了 `127.0.0.1` | 看 `docker compose ps` 的 PORTS 列；需要从别的主机访问时把 `GHAT_MCP_PORT_HOST` 打开并确认防火墙 |
 | 容器 `Up` 但**所有调用 500**、`/readyz` 503 或 500 | 数据库连不上：`GHAT_DB_HOST` 是动态 DNS，IP 变了以后容器里缓存的旧地址失效。日志里是 `Failed to connect to PostgreSQL: ... server closed the connection unexpectedly` | 先 `docker compose ps` 看是否 `(healthy)`（compose 已给 web/mcp 配 `/readyz` 健康检查）；再在宿主上用同一账号 `Test-NetConnection <host> -Port <port>` 对比解析结果；**重启 web 和 mcp** 让它们重新解析，不需要重建镜像 |
-| 容器 `(unhealthy)` | 同上，或数据库确实宕了 | `docker logs the tracker-mcp-1 --tail 30`；数据库恢复后 `docker restart` 即可 |
+| 容器 `(unhealthy)` | 同上，或数据库确实宕了 | `docker logs github-actions-tracker-mcp-1 --tail 30`；数据库恢复后 `docker restart` 即可 |
 | 日志里成片 `Failed to acquire connection within 30.0 seconds` | 连接池耗尽：`Pool stats` 里 `in_use≈max_size` 是并发饱和；`available=0, in_use=0` 是旧版本的许可泄漏 | 前者调大 `GHAT_POOL_MAX`（长轮询也占连接）；后者重启容器，并升级到含 `a55ebbd9` 的镜像。详见[连接池](operations.md#连接池一个请求占一条连接) |
 | `docker compose pull` 之后 `up -d` / `docker start` / `docker rm -f` 全部卡住 | 本机 Docker Desktop 的容器运行时被卡住（与上文单文件 bind mount 那条不同，这条与挂载无关，`pull` 完新镜像后出现） | 退出并重启 Docker Desktop，再跑一次 `up -d`；不需要动 compose 文件 |
 | webhook 日志里出现过 `ClientDisconnect` 的 ASGI traceback | GitHub 在发送中途放弃（它自己超时），旧版本把它当成未处理异常打了整段堆栈 | 含本次修复的镜像只记一行 `client disconnected before the body arrived`；GitHub 会重投，或下一次 `find_runs` 补齐，无需处理 |
-| `init` 退出码 1、web/mcp 停在 `Created` | 新镜像一启动就失败（典型是 import 环：`ImportError: cannot import name ... from partially initialized module`）。`up -d` 只会说 init 失败，web/mcp 根本不会启动 | 先看 `docker logs the tracker-init-1 --tail 40` 拿真实异常；修好重建镜像再 `up -d`。`ps` 里的 `Created` 不是"在跑"，是"没起来" |
+| `init` 退出码 1、web/mcp 停在 `Created` | 新镜像一启动就失败（典型是 import 环：`ImportError: cannot import name ... from partially initialized module`）。`up -d` 只会说 init 失败，web/mcp 根本不会启动 | 先看 `docker logs github-actions-tracker-init-1 --tail 40` 拿真实异常；修好重建镜像再 `up -d`。`ps` 里的 `Created` 不是"在跑"，是"没起来" |
 | 工具报 `Error executing tool ...` | 这是**预期**的失败形态：MCP 层 `isError: true`，文本是 JSON 信封 | 读信封里的 `code` / `hint` / `action_url`。`repository_not_subscribed` 要运营方加仓库，不是你换参数能解决的 |
 | `repository_not_subscribed` | 该仓库没订阅 | 按 `action_url` 加订阅，或在容器里 `repo subscribe --name owner/repo --credential pat/work` |
 | `wait_for_run` 一直 `timed_out` | 任务比单次上限长 | 继续调；或调大 `GHAT_WAIT_MAX_SECONDS` 并同步放宽客户端执行超时 |

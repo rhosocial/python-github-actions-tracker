@@ -271,16 +271,16 @@ docker compose run --rm -e GHAT_INITDB=force init
 这一步幂等，也绝不阻断启动：服务器拒绝（托管套餐没有、权限不够）时表照旧建，
 `usage` 会报 `trgm_installed: false`——缺少加速器是一个可见状态，不是一次意外。
 
-### 典型场景：the tracker 怎么知道有 CI 在跑
+### 典型场景：本服务怎么知道有 CI 在跑
 
-**判定只有一条：仓库是否已订阅。** 不看是谁触发的——push、PR、协作者手点、`gh workflow run`、本服务触发，一律采纳。所以"要不要告诉 the tracker"这个问题不存在：不需要。
+**判定只有一条：仓库是否已订阅。** 不看是谁触发的——push、PR、协作者手点、`gh workflow run`、本服务触发，一律采纳。所以"要不要告诉本服务"这个问题不存在：不需要。
 
-| 场景 | the tracker 如何得知 | 需要你做什么 |
+| 场景 | 本服务如何得知 | 需要你做什么 |
 |---|---|---|
-| 1. agent 提交并 push，工作流按 `on: push` 自动跑 | GitHub 把 `workflow_run` 投递到已配置的 webhook，the tracker 直接采纳，run 立刻入库 | 什么都不用做 |
+| 1. agent 提交并 push，工作流按 `on: push` 自动跑 | GitHub 把 `workflow_run` 投递到已配置的 webhook，本服务直接采纳，run 立刻入库 | 什么都不用做 |
 | 2. push 后在 GitHub 页面手点 Run workflow | 同上，`event` 记为 `workflow_dispatch` | 什么都不用做 |
-| 3. 通过 the tracker 触发（`trigger_workflow` / CLI） | 触发时登记，webhook 后续把状态补齐 | 一次调用 |
-| 4. 用 `gh workflow run` 直接触发 | 同场景 1——webhook 照样到达，the tracker 照样采纳 | 什么都不用做，但 the tracker 不知道"这次是你主动要跑的"，不会替你做幂等判断 |
+| 3. 通过本服务触发（`trigger_workflow` / CLI） | 触发时登记，webhook 后续把状态补齐 | 一次调用 |
+| 4. 用 `gh workflow run` 直接触发 | 同场景 1——webhook 照样到达，本服务照样采纳 | 什么都不用做，但本服务不知道"这次是你主动要跑的"，不会替你做幂等判断 |
 | 5. 发起 PR，`on: pull_request` 触发 | 同场景 1，`pr_number` 一并记录 | 什么都不用做 |
 
 两个前提，缺一不可：

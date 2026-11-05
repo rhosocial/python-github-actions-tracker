@@ -8,7 +8,7 @@ from a shared scenarios file; CI uses a service container.
 
 ```bash
 GHAT_DB_HOST=localhost GHAT_DB_PORT=5432 \
-GHAT_DB_USER=the tracker GHAT_DB_PASSWORD=the tracker \
+GHAT_DB_USER=github_actions_tracker GHAT_DB_PASSWORD=github_actions_tracker \
 PYTHONPATH=tests .venv3.15/Scripts/python -m pytest tests -q
 ```
 

@@ -70,12 +70,12 @@ other. A unit per role is the honest shape:
 ```ini
 # /etc/systemd/system/tracker-web.service
 [Unit]
-Description=the tracker — REST and webhook
+Description=github-actions-tracker — REST and webhook
 After=network-online.target
 
 [Service]
-EnvironmentFile=/etc/the tracker/env
-ExecStart=/opt/the tracker/venv/bin/rhosocial-github-actions-tracker serve all
+EnvironmentFile=/etc/github-actions-tracker/env
+ExecStart=/opt/github-actions-tracker/venv/bin/rhosocial-github-actions-tracker serve all
 Restart=unless-stopped
 
 [Install]

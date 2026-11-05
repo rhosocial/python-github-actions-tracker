@@ -223,7 +223,7 @@ GitHub 调用按 operation 与 status code，每一次工具调用按 tool 与 o
 
 ```yaml
 scrape_configs:
-  - job_name: the tracker
+  - job_name: github-actions-tracker
     static_configs:
       - targets: ["tracker-web:8000"]
 ```

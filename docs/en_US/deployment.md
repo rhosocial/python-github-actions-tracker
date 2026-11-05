@@ -178,7 +178,7 @@ Three facts about the shape:
 
 ```yaml
 scrape_configs:
-  - job_name: the tracker
+  - job_name: github-actions-tracker
     static_configs:
       - targets: ["tracker-web:8000"]
 ```

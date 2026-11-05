@@ -28,7 +28,7 @@ py -3.15 -m venv .venv3.15
 ```bash
 # 方式一：直接给坐标
 GHAT_DB_HOST=localhost GHAT_DB_PORT=5432 \
-GHAT_DB_USER=the tracker GHAT_DB_PASSWORD=the tracker \
+GHAT_DB_USER=github_actions_tracker GHAT_DB_PASSWORD=github_actions_tracker \
 PYTHONPATH=tests .venv3.15/Scripts/python -m pytest tests -q
 
 # 方式二：共享的 postgres_scenarios.yaml（python-activerecord-postgres 里的那个）
