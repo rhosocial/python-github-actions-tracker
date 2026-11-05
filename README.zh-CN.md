@@ -68,10 +68,10 @@ MCP 端点是 `http://127.0.0.1:8001/mcp`（Streamable HTTP）。每个 agent �
 （含共享文件的形态、各家的批准关卡）见[编码 Agent 接入 MCP](docs/zh_CN/mcp-agents.md)：
 
 ```bash
-claude mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp   # Claude Code
-codex mcp add github_actions_tracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
-opencode:  "mcp": { "github_actions_tracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
-cmd mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp      # Command Code
+claude mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp   # Claude Code
+codex mcp add github-actions-tracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
+opencode:  "mcp": { "github-actions-tracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
+cmd mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp      # Command Code
 ```
 
 配置了 `GHAT_API_KEY` 时，Claude Code / Command Code 加

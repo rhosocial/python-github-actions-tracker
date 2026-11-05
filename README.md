@@ -77,10 +77,10 @@ and what each agent's approval gate does, is
 [Coding agents over MCP](docs/en_US/mcp-agents.md):
 
 ```bash
-claude mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp   # Claude Code
-codex mcp add github_actions_tracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
-opencode:  "mcp": { "github_actions_tracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
-cmd mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp      # Command Code
+claude mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp   # Claude Code
+codex mcp add github-actions-tracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
+opencode:  "mcp": { "github-actions-tracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
+cmd mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp      # Command Code
 ```
 
 With `GHAT_API_KEY` set, add `--header "Authorization: Bearer <key>"`
