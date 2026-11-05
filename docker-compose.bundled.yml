@@ -6,7 +6,7 @@
 #     --env-file docker/stack.env up -d
 #
 # The overlay only adds the official postgres:18 image and points every app
-# container at it. It overrides CITRACKER_DB_HOST on purpose, so an external
+# container at it. It overrides GHAT_DB_HOST on purpose, so an external
 # database named in stack.env cannot leak into this shape.
 #
 # Data lives in the named volume `pgdata`. `docker compose ... down` keeps it;
@@ -15,24 +15,24 @@
 services:
   init:
     environment:
-      CITRACKER_DB_HOST: postgres
-      CITRACKER_DB_PORT: "5432"
+      GHAT_DB_HOST: postgres
+      GHAT_DB_PORT: "5432"
     depends_on:
       postgres:
         condition: service_healthy
 
   web:
     environment:
-      CITRACKER_DB_HOST: postgres
-      CITRACKER_DB_PORT: "5432"
+      GHAT_DB_HOST: postgres
+      GHAT_DB_PORT: "5432"
     depends_on:
       postgres:
         condition: service_healthy
 
   mcp:
     environment:
-      CITRACKER_DB_HOST: postgres
-      CITRACKER_DB_PORT: "5432"
+      GHAT_DB_HOST: postgres
+      GHAT_DB_PORT: "5432"
     depends_on:
       postgres:
         condition: service_healthy
@@ -41,9 +41,9 @@ services:
     image: postgres:18
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${CITRACKER_DB_USER:-citracker}
-      POSTGRES_PASSWORD: ${CITRACKER_DB_PASSWORD:-citracker}
-      POSTGRES_DB: ${CITRACKER_DB_NAME:-citracker}
+      POSTGRES_USER: ${GHAT_DB_USER:-github_actions_tracker}
+      POSTGRES_PASSWORD: ${GHAT_DB_PASSWORD:-github_actions_tracker}
+      POSTGRES_DB: ${GHAT_DB_NAME:-github_actions_tracker}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

@@ -16,7 +16,7 @@ import asyncio
 import inspect
 from typing import Any
 
-from rhosocial.github_ci_tracker.views import RunView
+from rhosocial.github_actions_tracker.views import RunView
 
 
 class _Calls:
@@ -30,7 +30,7 @@ def _tool_container(monkeypatch, calls: _Calls, *, result: RunView) -> Any:
     """Register the trigger tools against a container whose trigger records calls."""
     from types import SimpleNamespace
 
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import trigger as trigger_tools
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import trigger as trigger_tools
 
     class _Trigger:
         async def rerun_workflow(
@@ -120,7 +120,7 @@ class TestTheRestRoute:
         """FastAPI wraps a query default in ``Query``; the value inside it is
         what matters, because that is what a caller who omits the parameter gets.
         """
-        from rhosocial.github_ci_tracker.adapters.rest.routes import runs as runs_routes
+        from rhosocial.github_actions_tracker.adapters.rest.routes import runs as runs_routes
 
         route = next(
             item for item in runs_routes.router.routes if item.path == "/runs/{run_id}/rerun"
@@ -132,7 +132,9 @@ class TestTheRestRoute:
         assert default.default is False
 
     def test_the_response_carries_the_selection(self) -> None:
-        from rhosocial.github_ci_tracker.adapters.rest.schemas.responses import RerunRunResponse
+        from rhosocial.github_actions_tracker.adapters.rest.schemas.responses import (
+            RerunRunResponse,
+        )
 
         payload = RerunRunResponse(
             run_id=90_001,
@@ -152,7 +154,7 @@ class TestTheCli:
     def test_the_flag_exists_on_the_command(self) -> None:
         """``--failed-only`` is the CLI's spelling of the same parameter; the
         default is the whole run, exactly as on the other two protocols."""
-        from rhosocial.github_ci_tracker.adapters.cli.main import build_parser
+        from rhosocial.github_actions_tracker.adapters.cli.main import build_parser
 
         parser = build_parser()
         asked = parser.parse_args(

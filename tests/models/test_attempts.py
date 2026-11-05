@@ -14,12 +14,12 @@ from __future__ import annotations
 
 from conftest import FakeGithub, subscribe
 
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRunAttempt,
     AsyncWorkflowRun,
 )
-from rhosocial.github_ci_tracker.models.run import _pull_request_number
+from rhosocial.github_actions_tracker.models.run import _pull_request_number
 
 RUN_ID = 777000
 
@@ -179,7 +179,7 @@ async def test_the_loser_of_a_step_insert_race_adopts_the_winner(
     """
     from rhosocial.activerecord.backend.errors import IntegrityError
 
-    from rhosocial.github_ci_tracker.models import AsyncStep
+    from rhosocial.github_actions_tracker.models import AsyncStep
 
     fake_client.repo_info = {**fake_client.repo_info, "is_private": False}
     repo = await subscribe(fake_client, "acme/demo")

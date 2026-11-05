@@ -16,12 +16,12 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from rhosocial.github_ci_tracker.adapters.mcp.logs import (
+from rhosocial.github_actions_tracker.adapters.mcp.logs import (
     DEFAULT_TAIL,
     MAX_CHARS,
     window_log,
 )
-from rhosocial.github_ci_tracker.adapters.mcp.result import (
+from rhosocial.github_actions_tracker.adapters.mcp.result import (
     MCPToolError,
     error_envelope,
     error_result,
@@ -30,9 +30,9 @@ from rhosocial.github_ci_tracker.adapters.mcp.result import (
     set_request_origin,
     settings_url,
 )
-from rhosocial.github_ci_tracker.adapters.mcp.scopes import TOOL_SCOPES
-from rhosocial.github_ci_tracker.adapters.mcp.server import INSTRUCTIONS, create_mcp_server
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.adapters.mcp.scopes import TOOL_SCOPES
+from rhosocial.github_actions_tracker.adapters.mcp.server import INSTRUCTIONS, create_mcp_server
+from rhosocial.github_actions_tracker.core.exceptions import (
     RepositoryNotFoundError,
     RunNotFoundError,
     TokenExpiredError,
@@ -179,20 +179,20 @@ def test_action_url_is_absolute_or_absent(monkeypatch) -> None:
     the user the URL from the error, and a URL without a scheme cannot be
     opened.
     """
-    monkeypatch.delenv("CITRACKER_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("GHAT_PUBLIC_BASE_URL", raising=False)
     set_request_origin("")
 
     assert error_result(RepositoryNotFoundError("x"))["error"].get("action_url") == ""
     assert settings_url() == ""
 
-    set_request_origin("https", "citracker.example.com")
+    set_request_origin("https", "tracker.example.com")
     assert error_result(RepositoryNotFoundError("x"))["error"]["action_url"] == (
-        "https://citracker.example.com/api/v1/repositories"
+        "https://tracker.example.com/api/v1/repositories"
     )
-    assert settings_url() == "https://citracker.example.com/api/v1/repositories"
+    assert settings_url() == "https://tracker.example.com/api/v1/repositories"
 
     # An explicit configuration beats whatever the caller put in its Host.
-    monkeypatch.setenv("CITRACKER_PUBLIC_BASE_URL", "https://ops.internal:8443/")
+    monkeypatch.setenv("GHAT_PUBLIC_BASE_URL", "https://ops.internal:8443/")
     assert origin() == "https://ops.internal:8443"
     assert settings_url() == "https://ops.internal:8443/api/v1/repositories"
 
@@ -216,7 +216,7 @@ def test_error_envelope_raises_for_the_transport() -> None:
 
 def test_error_result_never_asks_for_a_token() -> None:
     """Every credential error must send the user to settings, not to a token."""
-    set_request_origin("https", "citracker.example.com")
+    set_request_origin("https", "tracker.example.com")
     for exc in (
         TokenExpiredError("expired", token_name="work"),
         RepositoryNotFoundError("nope"),
@@ -285,8 +285,8 @@ def _history_service(history):
 
 def test_the_job_history_renders_the_verdict_the_service_decided(monkeypatch) -> None:
     """The counts and verdict are the service's; only the sentence is written here."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
-    from rhosocial.github_ci_tracker.views import JobHistoryView
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
+    from rhosocial.github_actions_tracker.views import JobHistoryView
 
     history = JobHistoryView(job_name="build", sampled_executions=3, failures=3)
 
@@ -302,8 +302,8 @@ def test_the_job_history_renders_the_verdict_the_service_decided(monkeypatch) ->
 
 
 def test_an_intermittent_job_is_described_by_its_counts(monkeypatch) -> None:
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
-    from rhosocial.github_ci_tracker.views import JobHistoryView
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
+    from rhosocial.github_actions_tracker.views import JobHistoryView
 
     history = JobHistoryView(job_name="build", sampled_executions=10, failures=2)
 
@@ -318,7 +318,7 @@ def test_an_intermittent_job_is_described_by_its_counts(monkeypatch) -> None:
 
 
 def test_no_history_is_reported_as_no_history(monkeypatch) -> None:
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
 
     assert (
         asyncio.run(
@@ -332,7 +332,7 @@ def test_no_history_is_reported_as_no_history(monkeypatch) -> None:
 
 def test_the_trigger_scope_lists_the_workflows_it_was_given() -> None:
     """The scope is a rendering step: the workflows come from the service."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools.status import _trigger_scope
+    from rhosocial.github_actions_tracker.adapters.mcp.tools.status import _trigger_scope
 
     workflows = {"acme/demo": [SimpleNamespace(path=".github/workflows/ci.yml", name="CI")]}
 
@@ -347,8 +347,8 @@ def test_the_trigger_scope_lists_the_workflows_it_was_given() -> None:
 
 def test_ci_status_reports_what_the_services_say(monkeypatch) -> None:
     """The payload is assembled from service answers, never from a query."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import status as status_tools
-    from rhosocial.github_ci_tracker.views import BindingSummary, StatusSnapshot, StreamHealth
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import status as status_tools
+    from rhosocial.github_actions_tracker.views import BindingSummary, StatusSnapshot, StreamHealth
 
     repo = SimpleNamespace(full_name="acme/demo", is_private=False, default_branch="main")
     workflow = SimpleNamespace(path=".github/workflows/ci.yml", name="CI")
@@ -428,8 +428,8 @@ def test_ci_status_storage_is_the_advisor_answer_verbatim(monkeypatch) -> None:
     ``None`` -- nothing is capable of measuring, which is not the same as
     measuring and finding zero.
     """
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import status as status_tools
-    from rhosocial.github_ci_tracker.introspection import StorageReport, TableUsage
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import status as status_tools
+    from rhosocial.github_actions_tracker.introspection import StorageReport, TableUsage
 
     repo = SimpleNamespace(full_name="acme/demo", is_private=False, default_branch="main")
 
@@ -438,7 +438,7 @@ def test_ci_status_storage_is_the_advisor_answer_verbatim(monkeypatch) -> None:
             return [repo]
 
         async def binding_summary(self):  # noqa: ANN202
-            from rhosocial.github_ci_tracker.views import BindingSummary
+            from rhosocial.github_actions_tracker.views import BindingSummary
 
             return BindingSummary(bound=0, anonymous=0)
 
@@ -451,7 +451,7 @@ def test_ci_status_storage_is_the_advisor_answer_verbatim(monkeypatch) -> None:
 
     class _Status:
         async def snapshot(self):  # noqa: ANN202
-            from rhosocial.github_ci_tracker.views import StatusSnapshot
+            from rhosocial.github_actions_tracker.views import StatusSnapshot
 
             return StatusSnapshot(repository_count=0, runs_tracked=0, streams={})
 
@@ -460,7 +460,7 @@ def test_ci_status_storage_is_the_advisor_answer_verbatim(monkeypatch) -> None:
             return StorageReport(
                 available=True,
                 database_bytes=4096,
-                tables=[TableUsage("ct_step_logs", 3, 2048)],
+                tables=[TableUsage("ghat_step_logs", 3, 2048)],
                 runs_added_last_day=1,
                 trgm_installed=True,
             )
@@ -487,7 +487,7 @@ def test_ci_status_storage_is_the_advisor_answer_verbatim(monkeypatch) -> None:
     payload = _payload(built)
 
     assert payload["storage"]["database_bytes"] == 4096
-    assert payload["storage"]["tables"] == [{"name": "ct_step_logs", "rows": 3, "bytes": 2048}]
+    assert payload["storage"]["tables"] == [{"name": "ghat_step_logs", "rows": 3, "bytes": 2048}]
     assert payload["storage"]["runs_added_last_day"] == 1
     assert payload["storage"]["trgm_installed"] is True
 
@@ -497,7 +497,7 @@ def test_ci_status_storage_is_the_advisor_answer_verbatim(monkeypatch) -> None:
 
 def _registered(tools_module, register, monkeypatch, *, result):
     """Register a tool group against a recorder, with a stubbed service."""
-    from rhosocial.github_ci_tracker.views import RunView  # noqa: F401 - documented below
+    from rhosocial.github_actions_tracker.views import RunView  # noqa: F401 - documented below
 
     class _Tokens:
         async def list_tokens(self, limit=100, offset=0):  # noqa: ANN001, ANN202
@@ -534,7 +534,7 @@ def _registered(tools_module, register, monkeypatch, *, result):
 
 def test_a_running_run_is_not_reported_as_a_credential_problem() -> None:
     """The 403 GitHub sends for concurrency must not send anyone to the token."""
-    from rhosocial.github_ci_tracker.core.exceptions import RunInProgressError
+    from rhosocial.github_actions_tracker.core.exceptions import RunInProgressError
 
     payload = error_result(RunInProgressError("This workflow is already running"))
 
@@ -544,7 +544,7 @@ def test_a_running_run_is_not_reported_as_a_credential_problem() -> None:
 
 
 def test_a_real_permission_error_still_says_so() -> None:
-    from rhosocial.github_ci_tracker.core.exceptions import TokenPermissionError
+    from rhosocial.github_actions_tracker.core.exceptions import TokenPermissionError
 
     payload = error_result(TokenPermissionError("Insufficient token permissions"))
 
@@ -552,7 +552,7 @@ def test_a_real_permission_error_still_says_so() -> None:
 
 
 def test_a_rejected_state_change_is_a_conflict_not_a_permission() -> None:
-    from rhosocial.github_ci_tracker.core.exceptions import GithubAPIError
+    from rhosocial.github_actions_tracker.core.exceptions import GithubAPIError
 
     payload = error_result(GithubAPIError("conflict", status_code=409))
 
@@ -561,8 +561,8 @@ def test_a_rejected_state_change_is_a_conflict_not_a_permission() -> None:
 
 def test_a_rerun_reports_the_attempt_it_started(monkeypatch) -> None:
     """The caller can confirm "this is my Nth attempt" without asking GitHub."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import trigger as trigger_tools
-    from rhosocial.github_ci_tracker.views import RunView
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import trigger as trigger_tools
+    from rhosocial.github_actions_tracker.views import RunView
 
     tools = _registered(
         trigger_tools,
@@ -587,8 +587,8 @@ def test_a_rerun_reports_the_attempt_it_started(monkeypatch) -> None:
 
 def test_a_rerun_github_has_not_reflected_yet_says_so(monkeypatch) -> None:
     """A lagging read is reported, not dressed up as a new attempt."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import trigger as trigger_tools
-    from rhosocial.github_ci_tracker.views import RunView
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import trigger as trigger_tools
+    from rhosocial.github_actions_tracker.views import RunView
 
     tools = _registered(
         trigger_tools,
@@ -604,8 +604,8 @@ def test_a_rerun_github_has_not_reflected_yet_says_so(monkeypatch) -> None:
 
 
 def test_a_trigger_says_which_attempt_it_created(monkeypatch) -> None:
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import trigger as trigger_tools
-    from rhosocial.github_ci_tracker.views import RunView
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import trigger as trigger_tools
+    from rhosocial.github_actions_tracker.views import RunView
 
     tools = _registered(
         trigger_tools,
@@ -624,8 +624,8 @@ def test_a_trigger_says_which_attempt_it_created(monkeypatch) -> None:
 
 def test_a_reused_run_says_nothing_was_dispatched(monkeypatch) -> None:
     """``if_absent`` spends no CI minutes, and the answer must say so."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import trigger as trigger_tools
-    from rhosocial.github_ci_tracker.views import RunView
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import trigger as trigger_tools
+    from rhosocial.github_actions_tracker.views import RunView
 
     tools = _registered(
         trigger_tools,
@@ -651,7 +651,7 @@ def test_a_reused_run_says_nothing_was_dispatched(monkeypatch) -> None:
 
 def test_an_unmapped_403_about_the_run_is_still_not_a_credential_problem() -> None:
     """The transport error can reach the envelope before map_api_error does."""
-    from rhosocial.github_ci_tracker.core.exceptions import GithubAPIError
+    from rhosocial.github_actions_tracker.core.exceptions import GithubAPIError
 
     payload = error_result(GithubAPIError("This workflow is already running", status_code=403))
 
@@ -662,8 +662,8 @@ def test_run_payload_timestamps_are_utc() -> None:
     """One response must not mix +08:00 and +00:00."""
     from datetime import datetime, timedelta, timezone
 
-    from rhosocial.github_ci_tracker.adapters.mcp.tools.query import _run_summary
-    from rhosocial.github_ci_tracker.views import _to_run_record
+    from rhosocial.github_actions_tracker.adapters.mcp.tools.query import _run_summary
+    from rhosocial.github_actions_tracker.views import _to_run_record
 
     shanghai = timezone(timedelta(hours=8))
     run = SimpleNamespace(
@@ -692,8 +692,8 @@ def test_run_payload_timestamps_are_utc() -> None:
 
 def test_get_run_can_report_a_past_attempt(monkeypatch) -> None:
     """A past attempt is read, and its jobs are the ones stored for it."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
-    from rhosocial.github_ci_tracker.views import JobRecord, RunRecord
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
+    from rhosocial.github_actions_tracker.views import JobRecord, RunRecord
 
     record = RunRecord(
         run_id=90_001,
@@ -755,8 +755,8 @@ def test_get_run_can_report_a_past_attempt(monkeypatch) -> None:
 
 def test_the_attempt_hint_survives_include_jobs_false(monkeypatch) -> None:
     """Omitting jobs must not hide the fact that this is a past attempt."""
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
-    from rhosocial.github_ci_tracker.views import RunRecord
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
+    from rhosocial.github_actions_tracker.views import RunRecord
 
     record = RunRecord(run_id=90_001, run_number=7, attempt=1, is_latest=False, attempts_total=2)
 
@@ -798,7 +798,7 @@ def test_list_repos_omits_workflows_the_list_form_never_read() -> None:
     """
     from datetime import datetime, timedelta, timezone
 
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import repository as repo_tools
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import repository as repo_tools
 
     shanghai = timezone(timedelta(hours=8))
     repo = SimpleNamespace(
@@ -839,7 +839,7 @@ def test_a_run_summary_carries_identity_and_a_bounded_subject() -> None:
     """Two runs of one sha differ by workflow; the body stays out of the list."""
     from types import SimpleNamespace
 
-    from rhosocial.github_ci_tracker.adapters.mcp.tools.query import _run_summary
+    from rhosocial.github_actions_tracker.adapters.mcp.tools.query import _run_summary
 
     run = SimpleNamespace(
         run_id=90_001,
@@ -884,8 +884,8 @@ def test_a_run_summary_carries_identity_and_a_bounded_subject() -> None:
 def test_a_run_summary_reports_the_failing_jobs_when_asked() -> None:
     from types import SimpleNamespace
 
-    from rhosocial.github_ci_tracker.adapters.mcp.tools.query import _run_summary
-    from rhosocial.github_ci_tracker.views import JobFailure
+    from rhosocial.github_actions_tracker.adapters.mcp.tools.query import _run_summary
+    from rhosocial.github_actions_tracker.views import JobFailure
 
     run = SimpleNamespace(
         run_id=90_009,
@@ -921,7 +921,7 @@ def _log_tool(stub):
     """Register the query tools against a container with one stub service."""
     from types import SimpleNamespace
 
-    from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
+    from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
 
     class _Recorder:
         def __init__(self) -> None:
@@ -941,7 +941,7 @@ def _log_tool(stub):
 
 def test_get_job_log_step_returns_that_step_only() -> None:
     """Step mode publishes sections, not a window over the merged document."""
-    from rhosocial.github_ci_tracker.views import JobLogsView, StepSection
+    from rhosocial.github_actions_tracker.views import JobLogsView, StepSection
 
     view = JobLogsView(
         job_id=7,
@@ -982,7 +982,7 @@ def test_get_job_log_step_returns_that_step_only() -> None:
 
 def test_get_job_log_without_step_text_says_so_instead_of_guessing() -> None:
     """No captured step is an answer; the merged document is the alternative."""
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(
         job_id=7,
@@ -1012,7 +1012,7 @@ def test_a_green_job_reports_nothing_failed_rather_than_a_missing_capture() -> N
     steps' text "was never fetched", which sends a reader looking for a capture
     that never needed to happen.
     """
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(
         job_id=7,
@@ -1041,7 +1041,7 @@ def test_get_job_log_resolves_the_repository_when_it_is_omitted() -> None:
     ``get_job`` already resolves it from the stored row, and the two tools
     describe the same job.
     """
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(job_id=7, job_name="build", log_content="one\n")
 
@@ -1064,7 +1064,7 @@ def test_get_job_log_resolves_the_repository_when_it_is_omitted() -> None:
 
 
 def test_get_job_log_without_step_flags_still_windows_the_job_document() -> None:
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(job_id=7, job_name="build", log_content="one\ntwo\nthree\n")
 
@@ -1096,7 +1096,7 @@ def test_a_failed_job_is_read_from_the_steps_that_failed() -> None:
     choosing them costs no call and reads no log text. The payload has to say it
     narrowed, or the caller mistakes the failed steps' text for the whole job.
     """
-    from rhosocial.github_ci_tracker.views import JobLogsView, StepSection
+    from rhosocial.github_actions_tracker.views import JobLogsView, StepSection
 
     view = JobLogsView(
         job_id=7,
@@ -1128,7 +1128,7 @@ def test_a_failed_job_is_read_from_the_steps_that_failed() -> None:
 
 def test_whole_job_asks_for_the_merged_document() -> None:
     """The failure-scoped default is a convenience, not a restriction."""
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(job_id=7, job_name="build", log_content="one\n")
 
@@ -1150,7 +1150,7 @@ def test_whole_job_asks_for_the_merged_document() -> None:
 
 def test_the_wider_document_says_why_it_is_wider() -> None:
     """Falling back to the merged document is not "the job produced no log"."""
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(
         job_id=7,
@@ -1176,7 +1176,7 @@ def test_the_wider_document_says_why_it_is_wider() -> None:
 
 def test_a_shared_failure_is_reported_once_with_every_step_that_printed_it() -> None:
     """The matrix case: N failed jobs, one text, one copy, N references."""
-    from rhosocial.github_ci_tracker.views import (
+    from rhosocial.github_actions_tracker.views import (
         FailedStepRef,
         FailureGroup,
         RunFailuresView,
@@ -1229,7 +1229,7 @@ def test_a_shared_failure_is_reported_once_with_every_step_that_printed_it() -> 
 
 def test_missing_step_logs_are_listed_rather_than_substituted() -> None:
     """No captured text is an answer: the grouping says which step is gone."""
-    from rhosocial.github_ci_tracker.views import FailedStepRef, RunFailuresView
+    from rhosocial.github_actions_tracker.views import FailedStepRef, RunFailuresView
 
     view = RunFailuresView(
         run_id=9,
@@ -1256,7 +1256,7 @@ def test_missing_step_logs_are_listed_rather_than_substituted() -> None:
 
 
 def test_a_green_run_says_so_instead_of_listing_nothing() -> None:
-    from rhosocial.github_ci_tracker.views import RunFailuresView
+    from rhosocial.github_actions_tracker.views import RunFailuresView
 
     view = RunFailuresView(run_id=9, jobs_failed=0)
 
@@ -1274,7 +1274,7 @@ def test_a_green_run_says_so_instead_of_listing_nothing() -> None:
 
 def test_the_repository_is_resolved_from_the_run() -> None:
     """Run ids are globally unique: asking for the repository again is friction."""
-    from rhosocial.github_ci_tracker.views import RunFailuresView
+    from rhosocial.github_actions_tracker.views import RunFailuresView
 
     view = RunFailuresView(run_id=9, jobs_failed=0)
 
@@ -1295,7 +1295,7 @@ def test_the_repository_is_resolved_from_the_run() -> None:
 def test_get_run_returns_a_roster_without_steps_or_a_failure_block() -> None:
     """Run level is run level: no step detail, no log excerpts, no duplication."""
 
-    from rhosocial.github_ci_tracker.views import JobRecord, RunRecord, Timings
+    from rhosocial.github_actions_tracker.views import JobRecord, RunRecord, Timings
 
     run = RunRecord(
         run_id=9,
@@ -1341,7 +1341,7 @@ def test_get_run_returns_a_roster_without_steps_or_a_failure_block() -> None:
 
 
 def test_get_job_names_the_failing_step_and_whether_its_log_is_here() -> None:
-    from rhosocial.github_ci_tracker.views import JobRecord, StepRecord
+    from rhosocial.github_actions_tracker.views import JobRecord, StepRecord
 
     job = JobRecord(
         job_id=7,
@@ -1381,7 +1381,7 @@ def test_get_job_names_the_failing_step_and_whether_its_log_is_here() -> None:
 
 
 def test_get_job_points_at_the_job_when_the_step_log_was_not_captured() -> None:
-    from rhosocial.github_ci_tracker.views import JobRecord, StepRecord
+    from rhosocial.github_actions_tracker.views import JobRecord, StepRecord
 
     job = JobRecord(
         job_id=7,
@@ -1417,7 +1417,7 @@ def _search_tool(view):
 
 
 def test_search_with_step_reads_that_step_and_reports_local_lines() -> None:
-    from rhosocial.github_ci_tracker.views import JobLogsView, StepSection
+    from rhosocial.github_actions_tracker.views import JobLogsView, StepSection
 
     view = JobLogsView(
         job_id=7,
@@ -1437,7 +1437,7 @@ def test_search_with_step_reads_that_step_and_reports_local_lines() -> None:
 
 
 def test_search_without_step_stays_on_the_job_document() -> None:
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(job_id=7, job_name="build", log_content="up\nboom\n")
     tool, query = _search_tool(view)
@@ -1452,7 +1452,7 @@ def test_search_without_step_stays_on_the_job_document() -> None:
 
 def test_search_on_a_step_without_a_log_is_not_reported_as_no_match() -> None:
     """The document does not exist here, so the pattern was never searched."""
-    from rhosocial.github_ci_tracker.views import JobLogsView
+    from rhosocial.github_actions_tracker.views import JobLogsView
 
     view = JobLogsView(
         job_id=7,
@@ -1473,7 +1473,7 @@ def test_search_on_a_step_without_a_log_is_not_reported_as_no_match() -> None:
 
 def test_step_mode_honours_an_explicit_line_window() -> None:
     """The regression a real run exposed: 236KB came back for a 3-line request."""
-    from rhosocial.github_ci_tracker.views import JobLogsView, StepSection
+    from rhosocial.github_actions_tracker.views import JobLogsView, StepSection
 
     view = JobLogsView(
         job_id=7,
@@ -1503,7 +1503,7 @@ def test_step_mode_honours_an_explicit_line_window() -> None:
 
 
 def test_step_mode_honours_grep() -> None:
-    from rhosocial.github_ci_tracker.views import JobLogsView, StepSection
+    from rhosocial.github_actions_tracker.views import JobLogsView, StepSection
 
     view = JobLogsView(
         job_id=7,
@@ -1529,7 +1529,7 @@ def test_step_mode_honours_grep() -> None:
 
 
 def test_step_mode_without_arguments_returns_the_whole_step() -> None:
-    from rhosocial.github_ci_tracker.views import JobLogsView, StepSection
+    from rhosocial.github_actions_tracker.views import JobLogsView, StepSection
 
     view = JobLogsView(
         job_id=7,
@@ -1552,7 +1552,7 @@ def test_step_mode_without_arguments_returns_the_whole_step() -> None:
 
 
 def test_get_job_refresh_logs_reports_what_the_refresh_did() -> None:
-    from rhosocial.github_ci_tracker.views import (
+    from rhosocial.github_actions_tracker.views import (
         CaptureStatus,
         JobRecord,
         LogCaptureView,
@@ -1586,7 +1586,7 @@ def test_get_job_refresh_logs_reports_what_the_refresh_did() -> None:
 
 
 def test_get_job_without_refresh_does_not_capture() -> None:
-    from rhosocial.github_ci_tracker.views import CaptureStatus, JobRecord, StepRecord
+    from rhosocial.github_actions_tracker.views import CaptureStatus, JobRecord, StepRecord
 
     job = JobRecord(
         job_id=7,
@@ -1616,7 +1616,7 @@ def test_get_job_without_refresh_does_not_capture() -> None:
 def test_the_capture_window_is_reported_in_utc() -> None:
     from datetime import datetime, timedelta, timezone
 
-    from rhosocial.github_ci_tracker.views import CaptureStatus, JobRecord, StepRecord
+    from rhosocial.github_actions_tracker.views import CaptureStatus, JobRecord, StepRecord
 
     shanghai = timezone(timedelta(hours=8))
     job = JobRecord(

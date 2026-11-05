@@ -9,7 +9,7 @@ native install is the same service with the same behaviour — only the first-bo
 and the process supervision differ.
 
 ```bash
-pip install rhosocial-github-ci-tracker
+pip install rhosocial-github-actions-tracker
 ```
 
 The image and the CI both run **Python 3.15**. `requires-python` stays at 3.10 for
@@ -19,18 +19,18 @@ anyone installing the package; the runtime we build and test is 3.15.
 
 ```bash
 # 1. schema (also creates the database when the user may; --no-create-database otherwise)
-rhosocial-github-ci-tracker-db init
+rhosocial-github-actions-tracker-db init
 
 # 2. the credential — the same step 20-pat.sh performs in the container:
-rhosocial-github-ci-tracker credential pat ensure \
-  --name default --token-file /path/to/citracker-pat --probe-repo owner/repo
+rhosocial-github-actions-tracker credential pat ensure \
+  --name default --token-file /path/to/github-actions-tracker-pat --probe-repo owner/repo
 
 # 3. the two long-running processes (one terminal each, or under your service manager):
-rhosocial-github-ci-tracker serve all    # REST :8000 + webhook :18080
-rhosocial-github-ci-tracker serve mcp    # MCP :8001
+rhosocial-github-actions-tracker serve all    # REST :8000 + webhook :18080
+rhosocial-github-actions-tracker serve mcp    # MCP :8001
 ```
 
-Everything the compose file's `environment:` block carries comes from `CITRACKER_*`
+Everything the compose file's `environment:` block carries comes from `GHAT_*`
 environment variables, read by both entry points — the database coordinates, the API key,
 the webhook secret, the TLS paths, the PAT name. Nothing else is needed: no config file,
 no init directory, no volume. `docker/stack.env.example` is a ready-made list of what to
@@ -68,14 +68,14 @@ The two processes are independent and can be supervised separately; neither need
 other. A unit per role is the honest shape:
 
 ```ini
-# /etc/systemd/system/citracker-web.service
+# /etc/systemd/system/tracker-web.service
 [Unit]
-Description=citracker — REST and webhook
+Description=the tracker — REST and webhook
 After=network-online.target
 
 [Service]
-EnvironmentFile=/etc/citracker/env
-ExecStart=/opt/citracker/venv/bin/rhosocial-github-ci-tracker serve all
+EnvironmentFile=/etc/the tracker/env
+ExecStart=/opt/the tracker/venv/bin/rhosocial-github-actions-tracker serve all
 Restart=unless-stopped
 
 [Install]
@@ -83,19 +83,19 @@ WantedBy=multi-user.target
 ```
 
 and the same file with `serve mcp` for the MCP listener. `EnvironmentFile` is where the
-`CITRACKER_*` values live — the native equivalent of `docker/stack.env`, and it belongs
+`GHAT_*` values live — the native equivalent of `docker/stack.env`, and it belongs
 in the same "not committed" category.
 
 ## The image
 
 ```
-registry.cn-shanghai.aliyuncs.com/vistart_public/citracker:latest  # domestic China
-docker.io/vistart/citracker:latest                                 # everywhere else
+registry.cn-shanghai.aliyuncs.com/vistart_public/github-actions-tracker:latest  # domestic China
+docker.io/vistart/github-actions-tracker:latest                                 # everywhere else
 ```
 
 One tag, `latest`: what main last published. Which build *that* was is answered
 from inside the container by `build.revision` (`/readyz`, `ci_status`), stamped at
-build time. Pinning a deployment still works — point `CITRACKER_IMAGE` at a
+build time. Pinning a deployment still works — point `GHAT_IMAGE` at a
 registry address, then confirm with `build.revision`.
 
 A dispatch at a commit is a deliberate re-publish — that is how a rollback works
@@ -106,7 +106,7 @@ builds: feature code must not become what production pulls.
 - Only the Python runtime, the service code and an entrypoint — no database, no
   certificates, no proxy or pip-mirror configuration.
 - Build it yourself: `docker buildx bake --load` for the current architecture,
-  `docker buildx bake citracker-all --push` for every platform.
+  `docker buildx bake github-actions-tracker-all --push` for every platform.
 
 ### ARM64, including ARM-based NAS
 
@@ -121,8 +121,8 @@ Check the machine before planning around it:
 ```bash
 uname -m                                  # aarch64 → the arm64 image
 docker version --format '{{.Server.Arch}}'
-docker pull docker.io/vistart/citracker:latest       # resolves to the host's arch
-docker image inspect docker.io/vistart/citracker:latest --format '{{.Architecture}}'
+docker pull docker.io/vistart/github-actions-tracker:latest       # resolves to the host's arch
+docker image inspect docker.io/vistart/github-actions-tracker:latest --format '{{.Architecture}}'
 ```
 
 Both of these families have provided container management on their 64-bit ARM models —
@@ -138,7 +138,7 @@ Two practical notes for a NAS:
 - **Memory is the constraint, not CPU.** The service is two `serve` processes plus
   PostgreSQL; 2 GB is the comfortable floor for both in one box. If the NAS is the
   database host too, either give PostgreSQL a small `shared_buffers` or point
-  `CITRACKER_DB_*` at a database somewhere else — the service does not care where it is.
+  `GHAT_DB_*` at a database somewhere else — the service does not care where it is.
 - **Do not put the log volume on a spinning disk you also use for backups.** The log
   tables are the biggest thing this service writes, and `db partitions --drop-before`
   is cheap only when the filesystem lets a table drop be a metadata operation.

@@ -2,8 +2,8 @@
 """Who answers a GitHub call when the process has no ambient PAT.
 
 The composition root hands each group a resolver that reads
-``ct_repository_bindings``. Without it a deployment that binds per repository
-(the CLI, or a server started without ``CITRACKER_PAT_NAME``) would read
+``ghat_repository_bindings``. Without it a deployment that binds per repository
+(the CLI, or a server started without ``GHAT_PAT_NAME``) would read
 anonymously -- a private repository would answer 404 and a dispatch would be
 refused, with the binding sitting there unused.
 """
@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from conftest import FakeGithub, FakeGithubReads
 
-from rhosocial.github_ci_tracker.container import Container
-from rhosocial.github_ci_tracker.credentials import get_provider
-from rhosocial.github_ci_tracker.models import AsyncRepository
-from rhosocial.github_ci_tracker.models.binding import AsyncRepositoryBinding
+from rhosocial.github_actions_tracker.container import Container
+from rhosocial.github_actions_tracker.credentials import get_provider
+from rhosocial.github_actions_tracker.models import AsyncRepository
+from rhosocial.github_actions_tracker.models.binding import AsyncRepositoryBinding
 
 REPO = "acme/demo"
 

@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from rhosocial.github_ci_tracker.controllers import RepositoryData, RunData
-from rhosocial.github_ci_tracker.controllers.status import StatusController
-from rhosocial.github_ci_tracker.controllers.webhook import DeliveryLedger
-from rhosocial.github_ci_tracker.models import AsyncRepository, AsyncWebhookDelivery
+from rhosocial.github_actions_tracker.controllers import RepositoryData, RunData
+from rhosocial.github_actions_tracker.controllers.status import StatusController
+from rhosocial.github_actions_tracker.controllers.webhook import DeliveryLedger
+from rhosocial.github_actions_tracker.models import AsyncRepository, AsyncWebhookDelivery
 
 
 def _service() -> StatusController:
@@ -107,7 +107,7 @@ class TestIngestRate:
 
     async def test_rows_added_just_now_are_counted_in_both_windows(self, bound) -> None:
         repo = await _repository()
-        from rhosocial.github_ci_tracker.models import AsyncWorkflow, AsyncWorkflowRun
+        from rhosocial.github_actions_tracker.models import AsyncWorkflow, AsyncWorkflowRun
 
         workflow = AsyncWorkflow(
             repository_id=repo.id or 0,
@@ -135,7 +135,7 @@ class TestIngestRate:
     async def test_a_burst_is_flagged_as_a_backfill(self, bound) -> None:
         """The caller must be able to tell "still loading" from "lost"."""
         repo = await _repository()
-        from rhosocial.github_ci_tracker.models import AsyncWorkflow, AsyncWorkflowRun
+        from rhosocial.github_actions_tracker.models import AsyncWorkflow, AsyncWorkflowRun
 
         workflow = AsyncWorkflow(
             repository_id=repo.id or 0,

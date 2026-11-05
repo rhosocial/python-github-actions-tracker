@@ -8,7 +8,7 @@
 | 操作 | 容器 | init 是否再跑 | 数据 |
 |---|---|---|---|
 | `docker compose stop` / `start` | 保留，仅停止/启动进程 | 会跑一次，`auto` 检测到表存在后立即跳过 | 不变 |
-| `docker compose restart web` | 保留，重启进程 | 同上（`web` 设了 `CITRACKER_INITDB=skip`，不跑） | 不变 |
+| `docker compose restart web` | 保留，重启进程 | 同上（`web` 设了 `GHAT_INITDB=skip`，不跑） | 不变 |
 | `docker compose down` → `up -d` | 删除并重建 | 会跑，仍然跳过 | 外部库不变；一体化形态卷保留 |
 | `docker compose down -v` | 删除 | 会跑，此时表已不存在 → **真正执行建表** | 一体化形态卷被删，数据丢失 |
 
@@ -60,8 +60,8 @@
 
   | 目的地 | 镜像 | secret（Settings → Secrets and variables → Actions） |
   |---|---|---|
-  | 阿里云 | `registry.cn-shanghai.aliyuncs.com/vistart_public/citracker` | `ALIYUN_REGISTRY_USERNAME` / `ALIYUN_REGISTRY_PASSWORD` |
-  | Docker Hub | `docker.io/vistart/citracker` | `DOCKERHUB_REGISTRY_USERNAME` / `DOCKERHUB_REGISTRY_PASSWORD` |
+  | 阿里云 | `registry.cn-shanghai.aliyuncs.com/vistart_public/github-actions-tracker` | `ALIYUN_REGISTRY_USERNAME` / `ALIYUN_REGISTRY_PASSWORD` |
+  | Docker Hub | `docker.io/vistart/github-actions-tracker` | `DOCKERHUB_REGISTRY_USERNAME` / `DOCKERHUB_REGISTRY_PASSWORD` |
 
   两处**各自独立**：缺一对 secret 只是跳过那一个（run summary 会写明跳的是谁），另一个照常
   发布；两对都没有也仍然构建——构建失败是真失败，只是不推送。在分支或 tag 上运行**什么都不
@@ -70,13 +70,13 @@
   那个提交的 `latest` 就是生产要拉的东西。
 
   "线上跑的是哪一版"不再由 tag 回答，而是由 `build.revision`——`/readyz` 与 `ci_status` 从
-  容器内部报出来，构建时由工作流写进镜像。固定版本部署仍然可行：把 `CITRACKER_IMAGE`
+  容器内部报出来，构建时由工作流写进镜像。固定版本部署仍然可行：把 `GHAT_IMAGE`
   指向某个 registry 地址，再用 `build.revision` 确认自己拉的是什么。
 
   兄弟库那条容易漏：镜像在**构建时**用 `pip install git+https://github.com/rhosocial/python-activerecord.git@<ref>`
   固化进去，运行时不会重新取，所以兄弟库合并了也要手动重建一次。只有本地验证时不必走 registry：
-  `CITRACKER_IMAGE=citracker:local docker compose build` 然后
-  `CITRACKER_IMAGE=citracker:local docker compose up -d`。
+  `GHAT_IMAGE=github-actions-tracker:local docker compose build` 然后
+  `GHAT_IMAGE=github-actions-tracker:local docker compose up -d`。
 - 证书续期只影响 `web`：替换 `docker/certs/` 下的文件后 `docker compose restart web`。
 
 ### 探针：`/livez` 与 `/readyz`
@@ -116,7 +116,7 @@ API key，也不占用每请求的连接作用域。
 }
 ```
 
-- 值来自镜像环境变量 `CITRACKER_BUILD_REVISION` / `_NUMBER` / `_BUILT_AT`，由
+- 值来自镜像环境变量 `GHAT_BUILD_REVISION` / `_NUMBER` / `_BUILT_AT`，由
   `images.yml` 在构建时传入（`GIT_REVISION` / `GIT_BUILD_NUMBER` / `GIT_BUILT_AT`）；
 - 本地 `pip install -e .` 或自建镜像没有这些参数时，四个字段都是 `null`——**`null` 表示没盖章，
   不是"旧版本"**；
@@ -128,16 +128,16 @@ API key，也不占用每请求的连接作用域。
 
 连接作用域是**每请求**的（REST 中间件、MCP 包装层各起一个），所以：
 
-- 每个正在处理的请求占 `CITRACKER_POOL_MAX`（默认 10）里的一个名额；
+- 每个正在处理的请求占 `GHAT_POOL_MAX`（默认 10）里的一个名额；
 - **长轮询也算**：`wait_for_run` 在等待期间一直握着自己的连接，300 秒的等待就是 300 秒的占用；
-- `CITRACKER_POOL_MAX` 要覆盖"并发长轮询 + 并发普通请求"。不够时后来者会在 `acquire` 上排队，
+- `GHAT_POOL_MAX` 要覆盖"并发长轮询 + 并发普通请求"。不够时后来者会在 `acquire` 上排队，
   30 秒后得到 `Failed to acquire connection within 30.0 seconds`。
 
 读这条错误的方法：
 
 | `Pool stats` | 含义 | 处理 |
 |---|---|---|
-| `in_use` 接近 `max_size` | **饱和**：并发确实超过了池子 | 调大 `CITRACKER_POOL_MAX`，或减少并发长轮询 |
+| `in_use` 接近 `max_size` | **饱和**：并发确实超过了池子 | 调大 `GHAT_POOL_MAX`，或减少并发长轮询 |
 | `available=0, in_use=0` | **池子被掏空**（许可泄漏） | 重启容器；这是 1.0.0.dev1 之前版本的缺陷，`python-activerecord` 的 `a55ebbd9` 已修 |
 
 ### 更新 / 替换 PAT
@@ -147,32 +147,32 @@ API key，也不占用每请求的连接作用域。
 **文件形式（推荐，令牌不进 `docker inspect`）**
 
 ```bash
-# 1. 改宿主机上的令牌文件（即 compose 只读挂载到 /run/secrets/citracker-pat 的那个文件，
+# 1. 改宿主机上的令牌文件（即 compose 只读挂载到 /run/secrets/github-actions-tracker-pat 的那个文件，
 #    见本机 docker-compose.override.yml）；文件里只放一行令牌，不要多余换行
 # 2. 重跑初始化，让 20-pat.sh 重新 ensure
-docker compose --env-file docker/stack.env run --rm -e CITRACKER_INITDB=force init
+docker compose --env-file docker/stack.env run --rm -e GHAT_INITDB=force init
 ```
 
 **环境变量形式**
 
 ```bash
-# 1. 改 docker/stack.env 里的 CITRACKER_BOOTSTRAP_PAT
+# 1. 改 docker/stack.env 里的 GHAT_BOOTSTRAP_PAT
 # 2. 重跑初始化
-docker compose --env-file docker/stack.env run --rm -e CITRACKER_INITDB=force init
+docker compose --env-file docker/stack.env run --rm -e GHAT_INITDB=force init
 ```
 
 两种方式背后都是 `credential pat ensure`，因此：
 
 - 同名凭据**原地轮换**：id 不变，仓库绑定全部保留，**不需要重新订阅**；
-- 换一个 `CITRACKER_BOOTSTRAP_PAT_NAME` 会**新增**一条凭据，旧凭据及其绑定不受影响——
+- 换一个 `GHAT_BOOTSTRAP_PAT_NAME` 会**新增**一条凭据，旧凭据及其绑定不受影响——
   想让新令牌接管，要么沿用同名，要么用 `repo bind --name owner/repo --credential pat/<新名>`
   把仓库改绑过去。
 
 验证轮换结果：
 
 ```bash
-docker compose exec web rhosocial-github-ci-tracker credential pat list
-docker compose exec web rhosocial-github-ci-tracker credential pat show \
+docker compose exec web rhosocial-github-actions-tracker credential pat list
+docker compose exec web rhosocial-github-actions-tracker credential pat show \
   --name work --probe-repo owner/repo
 ```
 
@@ -184,11 +184,11 @@ docker compose exec web rhosocial-github-ci-tracker credential pat show \
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `init` 退出非 0，`web` / `mcp` 不启动 | GitHub 拒绝了令牌（拼错、已吊销、已过期） | 换令牌后重跑 `force init`。坏令牌不会被写进库 |
-| 启动成功但 `ci_status` 的 `can_trigger` 为 `false` | 令牌缺 `Actions: Read and write`，或没给 `--probe-repo` 导致能力未知 | 补权限 / 补 `CITRACKER_BOOTSTRAP_PROBE_REPO` 后重跑 |
+| 启动成功但 `ci_status` 的 `can_trigger` 为 `false` | 令牌缺 `Actions: Read and write`，或没给 `--probe-repo` 导致能力未知 | 补权限 / 补 `GHAT_BOOTSTRAP_PROBE_REPO` 后重跑 |
 | 工具返回 `credential_expired` / `credential_invalid` | 运行期间令牌过期或被吊销（服务不会因为令牌问题停机） | 按 `action_url` 打开设置页或按上一节轮换；不要在同一令牌上重试 |
 | 工具返回 `credential_insufficient` | 令牌对该操作权限不足 | 在 GitHub 上补权限，重新录入；换令牌不要绕成"再找一个凭据" |
 | `--probe-repo` 指向不存在的仓库 | 探测目标写错 | 换成真实仓库；这不是致命错误，但 `can_write_actions` 会保持未知 |
-| 令牌出现在 `docker inspect` 里 | 用了 `CITRACKER_BOOTSTRAP_PAT` 而非 `_FILE` | 改用文件形式；已经泄漏的令牌应立刻在 GitHub 上吊销 |
+| 令牌出现在 `docker inspect` 里 | 用了 `GHAT_BOOTSTRAP_PAT` 而非 `_FILE` | 改用文件形式；已经泄漏的令牌应立刻在 GitHub 上吊销 |
 | 令牌出现在 shell 历史或进程列表 | 手工执行 `credential pat add --token <明文>` | 用 `--token-file` 或 `--token-stdin`；清掉历史记录并吊销旧令牌 |
 
 > 令牌权限最小集：`Actions: Read and write`、`Metadata: Read`；需要本服务代为创建 webhook
@@ -199,19 +199,19 @@ docker compose exec web rhosocial-github-ci-tracker credential pat show \
 已经自行管理 schema 与凭据的部署（旧库、外部迁移工具、手工 PAT）用：
 
 ```dotenv
-CITRACKER_INITDB=skip
+GHAT_INITDB=skip
 ```
 
-`init` 不执行任何脚本，`web` / `mcp` 也不建表、不碰 PAT。`CITRACKER_LEGACY=1` 是等价写法。
+`init` 不执行任何脚本，`web` / `mcp` 也不建表、不碰 PAT。`GHAT_LEGACY=1` 是等价写法。
 
 legacy 模式下需要自己保证：
 
 ```bash
 # 只建表（幂等；数据库不存在时先创建）
-docker compose run --rm web rhosocial-github-ci-tracker-db init
+docker compose run --rm web rhosocial-github-actions-tracker-db init
 
 # 录入凭据
-docker compose exec web rhosocial-github-ci-tracker credential pat ensure \
+docker compose exec web rhosocial-github-actions-tracker credential pat ensure \
   --name work --token <PAT> --probe-repo owner/repo
 ```
 
@@ -221,43 +221,43 @@ docker compose exec web rhosocial-github-ci-tracker credential pat ensure \
 
 ```bash
 # 是否已初始化（0=是，1=否；例行检查用）
-docker compose exec web rhosocial-github-ci-tracker-db is-initialized
+docker compose exec web rhosocial-github-actions-tracker-db is-initialized
 
 # 统计各表行数
-docker compose exec web rhosocial-github-ci-tracker-db stats
+docker compose exec web rhosocial-github-actions-tracker-db stats
 
 # 数据库占用：总大小、每表体积/行数、最近一天新增 run、pg_trgm 状态
-docker compose exec web rhosocial-github-ci-tracker-db usage
-docker compose exec web rhosocial-github-ci-tracker-db usage --json
+docker compose exec web rhosocial-github-actions-tracker-db usage
+docker compose exec web rhosocial-github-actions-tracker-db usage --json
 
 # 按时间清理历史（保留最近 90 天的 run、365 天的日志）
-docker compose exec web rhosocial-github-ci-tracker-db cleanup \
+docker compose exec web rhosocial-github-actions-tracker-db cleanup \
   --runs-before 90d --logs-before 365d
 
 # 分区维护：两张日志表按 job 完成时间所在 UTC 月分区，
 # 所以「清6 个月」= 丢掉 6 个整月（一次元数据操作，不锁表、不需要 VACUUM）
-docker compose exec web rhosocial-github-ci-tracker-db partitions --list
-docker compose exec web rhosocial-github-ci-tracker-db partitions --ensure 2
-docker compose exec web rhosocial-github-ci-tracker-db partitions --drop-before 6m           # 干跑，只报告
-docker compose exec web rhosocial-github-ci-tracker-db partitions --drop-before 6m --drop-old
+docker compose exec web rhosocial-github-actions-tracker-db partitions --list
+docker compose exec web rhosocial-github-actions-tracker-db partitions --ensure 2
+docker compose exec web rhosocial-github-actions-tracker-db partitions --drop-before 6m           # 干跑，只报告
+docker compose exec web rhosocial-github-actions-tracker-db partitions --drop-before 6m --drop-old
 
-# 删除并重建全部 ct_* 表（保留数据库本身）
-docker compose exec web rhosocial-github-ci-tracker-db reset --yes
+# 删除并重建全部 ghat_* 表（保留数据库本身）
+docker compose exec web rhosocial-github-actions-tracker-db reset --yes
 
 # 删除整个数据库（先断开连接；teardown 用）
-docker compose exec web rhosocial-github-ci-tracker-db drop --yes
+docker compose exec web rhosocial-github-actions-tracker-db drop --yes
 
 # 一体化形态：连数据卷一起删除
 docker compose -f docker-compose.yml -f docker-compose.bundled.yml down -v
 ```
 
-`drop` 只删 `CITRACKER_DB_NAME` 指向的库，拒绝删除 `--maintenance-db`（默认 `postgres`）。
+`drop` 只删 `GHAT_DB_NAME` 指向的库，拒绝删除 `--maintenance-db`（默认 `postgres`）。
 `reset` 会连同凭据行一起清空，之后要恢复自动注入：
 
 ```bash
-docker compose run --rm -e CITRACKER_INITDB=force init
+docker compose run --rm -e GHAT_INITDB=force init
 ```
-执行前请确认 `CITRACKER_DB_HOST` / `CITRACKER_DB_NAME` 指向正确的环境。
+执行前请确认 `GHAT_DB_HOST` / `GHAT_DB_NAME` 指向正确的环境。
 
 `stats` 数的是行数，`usage` 称的是库的重量——两个问题，答案在两个地方：行数换不成
 字节，PostgreSQL 用自己的方式度量存储（TOAST、索引、空闲空间），只有 introspector 知道。
@@ -271,16 +271,16 @@ docker compose run --rm -e CITRACKER_INITDB=force init
 这一步幂等，也绝不阻断启动：服务器拒绝（托管套餐没有、权限不够）时表照旧建，
 `usage` 会报 `trgm_installed: false`——缺少加速器是一个可见状态，不是一次意外。
 
-### 典型场景：citracker 怎么知道有 CI 在跑
+### 典型场景：the tracker 怎么知道有 CI 在跑
 
-**判定只有一条：仓库是否已订阅。** 不看是谁触发的——push、PR、协作者手点、`gh workflow run`、本服务触发，一律采纳。所以"要不要告诉 citracker"这个问题不存在：不需要。
+**判定只有一条：仓库是否已订阅。** 不看是谁触发的——push、PR、协作者手点、`gh workflow run`、本服务触发，一律采纳。所以"要不要告诉 the tracker"这个问题不存在：不需要。
 
-| 场景 | citracker 如何得知 | 需要你做什么 |
+| 场景 | the tracker 如何得知 | 需要你做什么 |
 |---|---|---|
-| 1. agent 提交并 push，工作流按 `on: push` 自动跑 | GitHub 把 `workflow_run` 投递到已配置的 webhook，citracker 直接采纳，run 立刻入库 | 什么都不用做 |
+| 1. agent 提交并 push，工作流按 `on: push` 自动跑 | GitHub 把 `workflow_run` 投递到已配置的 webhook，the tracker 直接采纳，run 立刻入库 | 什么都不用做 |
 | 2. push 后在 GitHub 页面手点 Run workflow | 同上，`event` 记为 `workflow_dispatch` | 什么都不用做 |
-| 3. 通过 citracker 触发（`trigger_workflow` / CLI） | 触发时登记，webhook 后续把状态补齐 | 一次调用 |
-| 4. 用 `gh workflow run` 直接触发 | 同场景 1——webhook 照样到达，citracker 照样采纳 | 什么都不用做，但 citracker 不知道"这次是你主动要跑的"，不会替你做幂等判断 |
+| 3. 通过 the tracker 触发（`trigger_workflow` / CLI） | 触发时登记，webhook 后续把状态补齐 | 一次调用 |
+| 4. 用 `gh workflow run` 直接触发 | 同场景 1——webhook 照样到达，the tracker 照样采纳 | 什么都不用做，但 the tracker 不知道"这次是你主动要跑的"，不会替你做幂等判断 |
 | 5. 发起 PR，`on: pull_request` 触发 | 同场景 1，`pr_number` 一并记录 | 什么都不用做 |
 
 两个前提，缺一不可：
@@ -330,18 +330,18 @@ services:
 curl -fsS https://<域名>:18080/readyz     # 就绪：含一次数据库往返；失败时 503 + checks
 curl -fsS https://<域名>:18080/livez      # 存活：不碰数据库
 docker compose logs -f init web mcp
-docker compose exec web rhosocial-github-ci-tracker credential pat list
+docker compose exec web rhosocial-github-actions-tracker credential pat list
 ```
 
 MCP 客户端配置见下一节。
 
 #### 投递台账与推送通道健康
 
-每一次到达接收端的 GitHub 投递都会写一行 `ct_webhook_delivery`，无论它是被处理、被忽略，还是因为验签失败被拒。`workflow_run` 和 `workflow_job` 在 GitHub 侧是两条独立的流（payload、生命周期都不同），因此台账用 `event_type` 区分，报告时也分开：
+每一次到达接收端的 GitHub 投递都会写一行 `ghat_webhook_delivery`，无论它是被处理、被忽略，还是因为验签失败被拒。`workflow_run` 和 `workflow_job` 在 GitHub 侧是两条独立的流（payload、生命周期都不同），因此台账用 `event_type` 区分，报告时也分开：
 
 ```bash
 # 行数、按流统计都走这个命令
-docker compose exec web rhosocial-github-ci-tracker-db stats
+docker compose exec web rhosocial-github-actions-tracker-db stats
 ```
 
 `ci_status` 的 `health` 分为按流的结构，另保留两个旧字段供兼容：
@@ -389,8 +389,8 @@ docker compose exec web rhosocial-github-ci-tracker-db stats
 
 ```bash
 # 列出未落库的投递（含 delivery_id / run / job / 原因）
-docker compose exec web rhosocial-github-ci-tracker-db deliveries --unhandled --limit 20
-docker compose exec web rhosocial-github-ci-tracker-db deliveries --stream workflow_job --limit 50
+docker compose exec web rhosocial-github-actions-tracker-db deliveries --unhandled --limit 20
+docker compose exec web rhosocial-github-actions-tracker-db deliveries --stream workflow_job --limit 50
 ```
 
 修复路径：用 `find_runs` 重新拉一遍即可补回（拉取通道不依赖 webhook）。同一 run 的多个 job 事件同时到达时，只有第一条会去读 GitHub 上的父 run，其余复用它的结果；即使两条同时插库，输的一方也改为读取已存在的行，而不再让整条投递失败。
@@ -400,5 +400,5 @@ docker compose exec web rhosocial-github-ci-tracker-db deliveries --stream workf
 台账只存关联与结论，**不存 payload**：GitHub 自己的 Recent Deliveries 保留 30 天，凭 `delivery_id` 可以取回原文。因此台账可以定期清理，不影响已落库的运行数据：
 ```bash
 # 清理 30 天前的投递记录；run / job / step 的数据不受影响
-docker compose exec web rhosocial-github-ci-tracker-db cleanup --deliveries-before 30d
+docker compose exec web rhosocial-github-actions-tracker-db cleanup --deliveries-before 30d
 ```

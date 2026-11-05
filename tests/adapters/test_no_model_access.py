@@ -21,8 +21,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "rhosocial" / "github_ci_tracker"
-PACKAGE = "rhosocial.github_ci_tracker"
+SRC = Path(__file__).resolve().parents[2] / "src" / "rhosocial" / "github_actions_tracker"
+PACKAGE = "rhosocial.github_actions_tracker"
 MODELS = f"{PACKAGE}.models"
 
 
@@ -109,16 +109,16 @@ def test_the_scanner_sees_relative_and_lazy_imports() -> None:
         "    return AsyncJob\n"
     )
 
-    found = _model_imports_in(source, "rhosocial.github_ci_tracker.adapters.mcp.tools")
+    found = _model_imports_in(source, "rhosocial.github_actions_tracker.adapters.mcp.tools")
 
     assert found == [
-        "line 6: rhosocial.github_ci_tracker.models"
+        "line 6: rhosocial.github_actions_tracker.models"
     ], "the type-only import must be allowed, the lazy one must not"
 
 
 def test_the_scanner_accepts_an_indirect_import() -> None:
     source = "from ....controllers import QueryController\n"
 
-    found = _model_imports_in(source, "rhosocial.github_ci_tracker.adapters.mcp.tools")
+    found = _model_imports_in(source, "rhosocial.github_actions_tracker.adapters.mcp.tools")
 
     assert found == []

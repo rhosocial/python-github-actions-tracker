@@ -24,9 +24,9 @@ from typing import Any
 
 import pytest
 
-from rhosocial.github_ci_tracker.controllers.dispatch import DispatchController
-from rhosocial.github_ci_tracker.controllers.trigger import TriggerController
-from rhosocial.github_ci_tracker.core.exceptions import ValidationError
+from rhosocial.github_actions_tracker.controllers.dispatch import DispatchController
+from rhosocial.github_actions_tracker.controllers.trigger import TriggerController
+from rhosocial.github_actions_tracker.core.exceptions import ValidationError
 
 
 class _Control:
@@ -174,8 +174,8 @@ class TestTheSelectiveRequest:
 
 class TestTheAdapterPassesItThrough:
     def test_the_tool_takes_the_flag_and_answers_with_it(self, monkeypatch) -> None:
-        from rhosocial.github_ci_tracker.adapters.mcp.tools import trigger as trigger_tools
-        from rhosocial.github_ci_tracker.views import RunView
+        from rhosocial.github_actions_tracker.adapters.mcp.tools import trigger as trigger_tools
+        from rhosocial.github_actions_tracker.views import RunView
 
         seen: dict[str, Any] = {}
 

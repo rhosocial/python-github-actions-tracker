@@ -19,8 +19,8 @@ import pytest
 from rhosocial.activerecord.backend.impl.postgres.backend import AsyncPostgresBackend
 from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnectionConfig
 
-from rhosocial.github_ci_tracker.core.exceptions import ValidationError
-from rhosocial.github_ci_tracker.database import PostgresServer
+from rhosocial.github_actions_tracker.core.exceptions import ValidationError
+from rhosocial.github_actions_tracker.database import PostgresServer
 
 
 def _config(database: str) -> PostgresConnectionConfig:
@@ -41,10 +41,10 @@ async def _refuse(*args: object, **kwargs: object) -> None:
 @pytest.mark.parametrize(
     "database",
     [
-        'citracker"; DROP DATABASE postgres; --',
-        "citracker WITH OWNER",
+        'the tracker"; DROP DATABASE postgres; --',
+        "the tracker WITH OWNER",
         "cit tracker",
-        "citracker.",
+        "the tracker.",
         "",
         "x" * 64,
     ],
@@ -59,7 +59,7 @@ async def test_an_unsafe_database_name_is_refused(database: str, monkeypatch) ->
 
 @pytest.mark.parametrize(
     "database",
-    ["citracker", "citracker_e2e", "Cit-Tracker_2", "x" * 63],
+    ["ghat", "ghat_e2e", "Cit-Tracker_2", "x" * 63],
 )
 async def test_a_plain_database_name_is_accepted(database: str, monkeypatch) -> None:
     """The shapes PostgreSQL allows pass validation and proceed to connect.

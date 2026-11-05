@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from rhosocial.github_ci_tracker.certificates import (
+from rhosocial.github_actions_tracker.certificates import (
     CERT_EXPIRED,
     CERT_HOSTNAME_MISMATCH,
     CERT_NOT_A_CERTIFICATE,
@@ -161,7 +161,7 @@ class TestTheTrustStore:
     """
 
     def test_one_unreadable_entry_does_not_hide_the_others(self) -> None:
-        from rhosocial.github_ci_tracker.certificates import _load_pem_certificates
+        from rhosocial.github_actions_tracker.certificates import _load_pem_certificates
 
         good = _pem(_certificate("ci.example.com", _key()))
         bundle = good + b"-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----\n"
@@ -171,7 +171,7 @@ class TestTheTrustStore:
         assert [item.subject.rfc4514_string() for item in loaded] == ["CN=ci.example.com"]
 
     def test_nothing_readable_is_an_empty_list_not_an_exception(self) -> None:
-        from rhosocial.github_ci_tracker.certificates import _load_pem_certificates
+        from rhosocial.github_actions_tracker.certificates import _load_pem_certificates
 
         assert _load_pem_certificates(b"no pem here") == []
 
@@ -273,7 +273,7 @@ class TestTheBootIsNeverBlocked:
         """Point the container's collaborators at no-ops, leaving the real start."""
         from types import SimpleNamespace
 
-        from rhosocial.github_ci_tracker import container as container_module
+        from rhosocial.github_actions_tracker import container as container_module
 
         async def _no_credential(cls, resolved, name):  # noqa: ANN001, ANN202
             return None
@@ -299,8 +299,8 @@ class TestTheBootIsNeverBlocked:
     ) -> None:
         import logging
 
-        from rhosocial.github_ci_tracker import container as container_module
-        from rhosocial.github_ci_tracker.config import ServiceSettings
+        from rhosocial.github_actions_tracker import container as container_module
+        from rhosocial.github_actions_tracker.config import ServiceSettings
 
         key = _key()
         certfile, keyfile = _pair(tmp_path, _certificate("example.com", key, offset_days=-400), key)
@@ -326,8 +326,8 @@ class TestTheBootIsNeverBlocked:
         stops either."""
         import logging
 
-        from rhosocial.github_ci_tracker import container as container_module
-        from rhosocial.github_ci_tracker.config import ServiceSettings
+        from rhosocial.github_actions_tracker import container as container_module
+        from rhosocial.github_actions_tracker.config import ServiceSettings
 
         service = ServiceSettings(
             webhook_ssl_certfile="/nonexistent/fullchain.pem",
@@ -371,7 +371,7 @@ class TestWhereTheHostnameComesFrom:
     def test_it_falls_back_to_the_urls(self, monkeypatch) -> None:
         from types import SimpleNamespace
 
-        monkeypatch.delenv("CITRACKER_PUBLIC_BASE_URL", raising=False)
+        monkeypatch.delenv("GHAT_PUBLIC_BASE_URL", raising=False)
         settings = SimpleNamespace(
             service=SimpleNamespace(
                 webhook_ssl_hostname="", webhook_url="https://ci.example.com:18080/hook"
@@ -383,7 +383,7 @@ class TestWhereTheHostnameComesFrom:
     def test_nothing_names_a_host_and_none_is_returned(self, monkeypatch) -> None:
         from types import SimpleNamespace
 
-        monkeypatch.delenv("CITRACKER_PUBLIC_BASE_URL", raising=False)
+        monkeypatch.delenv("GHAT_PUBLIC_BASE_URL", raising=False)
         settings = SimpleNamespace(service=SimpleNamespace(webhook_ssl_hostname="", webhook_url=""))
 
         assert hostname_of(settings) is None

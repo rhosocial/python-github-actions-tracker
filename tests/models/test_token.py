@@ -24,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from conftest import FakeGithub
 
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.core.exceptions import (
     TokenAlreadyExistsError,
     TokenDeactivatedError,
     TokenExpiredError,
@@ -33,9 +33,9 @@ from rhosocial.github_ci_tracker.core.exceptions import (
     TokenNotFoundError,
     ValidationError,
 )
-from rhosocial.github_ci_tracker.credentials import AsyncPatCredential, get_provider
-from rhosocial.github_ci_tracker.models import AsyncRepository
-from rhosocial.github_ci_tracker.models.binding import AsyncRepositoryBinding
+from rhosocial.github_actions_tracker.credentials import AsyncPatCredential, get_provider
+from rhosocial.github_actions_tracker.models import AsyncRepository
+from rhosocial.github_actions_tracker.models.binding import AsyncRepositoryBinding
 
 #: Whole seconds, so a round trip through a backend that drops sub-second
 #: precision still compares equal. One instant for both fixtures, so they cannot

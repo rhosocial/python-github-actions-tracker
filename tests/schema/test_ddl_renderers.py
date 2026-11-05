@@ -20,8 +20,8 @@ import re
 
 import pytest
 
-from rhosocial.github_ci_tracker.schema import ddl_postgres
-from rhosocial.github_ci_tracker.schema.model import (
+from rhosocial.github_actions_tracker.schema import ddl_postgres
+from rhosocial.github_actions_tracker.schema.model import (
     SCHEMA,
     ColumnType,
     OnDelete,
@@ -30,17 +30,17 @@ from rhosocial.github_ci_tracker.schema.model import (
 
 #: Every table this schema defines, core and provider alike.
 EXPECTED_TABLES = (
-    "ct_repositories",
-    "ct_repository_bindings",
-    "ct_workflows",
-    "ct_workflow_runs",
-    "ct_run_attempts",
-    "ct_jobs",
-    "ct_steps",
-    "ct_step_logs",
-    "ct_job_logs",
-    "ct_webhook_delivery",
-    "ct_pat_credentials",
+    "ghat_repositories",
+    "ghat_repository_bindings",
+    "ghat_workflows",
+    "ghat_workflow_runs",
+    "ghat_run_attempts",
+    "ghat_jobs",
+    "ghat_steps",
+    "ghat_step_logs",
+    "ghat_job_logs",
+    "ghat_webhook_delivery",
+    "ghat_pat_credentials",
 )
 
 
@@ -86,7 +86,7 @@ def test_every_index_is_created() -> None:
     drifting -- an index that stops being rendered *and* is not in the accelerator
     list fails this test.
     """
-    from rhosocial.github_ci_tracker.schema import _TRGM_INDEXES
+    from rhosocial.github_actions_tracker.schema import _TRGM_INDEXES
 
     operator_class = {
         (index.name, table.name)
@@ -146,7 +146,7 @@ def test_every_column_type_renders(column_type: ColumnType, expected: str) -> No
     A type that exists in the model but not in the renderer would only surface
     when a migration-free rebuild hit it in production.
     """
-    from rhosocial.github_ci_tracker.schema.model import Column
+    from rhosocial.github_actions_tracker.schema.model import Column
 
     column = Column("probe", column_type, nullable=False)
 
@@ -165,7 +165,7 @@ def test_every_column_type_renders(column_type: ColumnType, expected: str) -> No
 
 
 def test_varchar_length_is_honoured() -> None:
-    from rhosocial.github_ci_tracker.schema.model import Column
+    from rhosocial.github_actions_tracker.schema.model import Column
 
     assert "VARCHAR(42)" in ddl_postgres.render_create_table(
         Table(
@@ -197,7 +197,7 @@ def test_the_log_tables_are_partitioned_by_bucket() -> None:
     dropped as a unit, and the whole point of the bucket column is that it
     becomes one.
     """
-    for name in ("ct_step_logs", "ct_job_logs"):
+    for name in ("ghat_step_logs", "ghat_job_logs"):
         assert _statement_for(name).endswith('PARTITION BY RANGE ("bucket")'), name
 
 
@@ -205,7 +205,7 @@ def test_no_other_table_is_partitioned() -> None:
     """Partitioning the delivery ledger too would buy nothing: it is queried by
     time, dropped by age, and small."""
     for name in EXPECTED_TABLES:
-        if name not in ("ct_step_logs", "ct_job_logs"):
+        if name not in ("ghat_step_logs", "ghat_job_logs"):
             assert "PARTITION BY" not in _statement_for(name), name
 
 
@@ -216,17 +216,17 @@ def test_a_partitioned_table_carries_the_key_in_its_uniques() -> None:
     ``UNIQUE (step_id, bucket)``, and the bucket is a function of the row's own
     parent -- so two rows that would have collided still collide.
     """
-    step_logs = _statement_for("ct_step_logs")
+    step_logs = _statement_for("ghat_step_logs")
     assert 'UNIQUE ("step_id", "bucket")' in step_logs
     # The single-column form is what PostgreSQL rejects on a partitioned table.
     assert 'UNIQUE ("step_id")' not in step_logs
 
-    job_logs = _statement_for("ct_job_logs")
+    job_logs = _statement_for("ghat_job_logs")
     assert 'UNIQUE ("job_id", "bucket")' in job_logs
 
 
 def test_the_bucket_column_renders_as_a_date_on_both_log_tables() -> None:
-    for name in ("ct_step_logs", "ct_job_logs"):
+    for name in ("ghat_step_logs", "ghat_job_logs"):
         assert re.search(r'"bucket" DATE', _statement_for(name)), name
 
 
@@ -235,7 +235,7 @@ def test_drop_order_covers_every_table_and_legacy_name() -> None:
     dropped = " ".join(ddl_postgres.drop_statements(SCHEMA))
     for name in EXPECTED_TABLES:
         assert f'"{name}"' in dropped
-    assert '"ct_github_tokens"' in dropped
+    assert '"ghat_github_tokens"' in dropped
 
 
 def test_drops_the_parent_not_each_partition() -> None:

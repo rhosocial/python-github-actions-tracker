@@ -1,4 +1,4 @@
-# python-github-ci-tracker
+# python-github-actions-tracker
 
 A self-hosted GitHub Actions tracker. This directory holds the documentation; the
 root README states what the project does and why.

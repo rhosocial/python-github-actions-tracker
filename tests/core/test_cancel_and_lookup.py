@@ -12,8 +12,8 @@ from __future__ import annotations
 import pytest
 from conftest import FakeGithub  # noqa: F401 - the fixture of the same name
 
-from rhosocial.github_ci_tracker.core.exceptions import RunNotFoundError
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.core.exceptions import RunNotFoundError
+from rhosocial.github_actions_tracker.models import (
     AsyncRepository,
     AsyncWorkflow,
     AsyncWorkflowRun,
@@ -56,8 +56,8 @@ async def _run(repo: AsyncRepository) -> AsyncWorkflowRun:
 
 class TestRepositoryLookup:
     async def test_a_tracked_run_resolves_its_repository(self, bound) -> None:
-        from rhosocial.github_ci_tracker.adapters.mcp.tools.query import _repository_of_run
-        from rhosocial.github_ci_tracker.container import Container
+        from rhosocial.github_actions_tracker.adapters.mcp.tools.query import _repository_of_run
+        from rhosocial.github_actions_tracker.container import Container
 
         repo = await _ready_repo()
         await _run(repo)
@@ -65,8 +65,8 @@ class TestRepositoryLookup:
         assert await _repository_of_run(Container.build(), RUN_ID) == REPO
 
     async def test_an_untracked_run_says_what_to_do(self, bound) -> None:
-        from rhosocial.github_ci_tracker.adapters.mcp.tools.query import _repository_of_run
-        from rhosocial.github_ci_tracker.container import Container
+        from rhosocial.github_actions_tracker.adapters.mcp.tools.query import _repository_of_run
+        from rhosocial.github_actions_tracker.container import Container
 
         await _ready_repo()
 

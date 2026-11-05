@@ -12,7 +12,7 @@ absolute. Any number this reports can be handed to ``get_job_log`` as
 
 from __future__ import annotations
 
-from rhosocial.github_ci_tracker.adapters.mcp.logs import search_log
+from rhosocial.github_actions_tracker.adapters.mcp.logs import search_log
 
 DOCUMENT = "\n".join(
     [

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from conftest import FakeGithub, make_webhook_service
 
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRepository,
     AsyncStep,

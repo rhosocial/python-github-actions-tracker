@@ -19,9 +19,9 @@ from typing import Any
 
 from conftest import FakeGithub, subscribe
 
-from rhosocial.github_ci_tracker.controllers import QueryController, RunController, RunData
-from rhosocial.github_ci_tracker.models import AsyncJob, AsyncRepository, AsyncWorkflowRun
-from rhosocial.github_ci_tracker.services.github import GithubRepositories, GithubRuns
+from rhosocial.github_actions_tracker.controllers import QueryController, RunController, RunData
+from rhosocial.github_actions_tracker.models import AsyncJob, AsyncRepository, AsyncWorkflowRun
+from rhosocial.github_actions_tracker.services.github import GithubRepositories, GithubRuns
 
 
 def _query(fake: FakeGithub | None = None) -> QueryController:
@@ -110,7 +110,7 @@ class TestTheTimingWireForm:
         conversion happens once, in the view, not in each adapter."""
         from decimal import Decimal
 
-        from rhosocial.github_ci_tracker.views import Timings
+        from rhosocial.github_actions_tracker.views import Timings
 
         payload = Timings(
             job_span_seconds=Decimal("363.000000"),

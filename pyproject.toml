@@ -3,7 +3,7 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rhosocial-github-ci-tracker"
+name = "rhosocial-github-actions-tracker"
 version = "1.0.0.dev1"
 description = "GitHub CI status tracking and automation service"
 readme = "README.md"
@@ -46,8 +46,8 @@ dependencies = [
 ]
 
 [project.scripts]
-rhosocial-github-ci-tracker = "rhosocial.github_ci_tracker.adapters.cli.main:main"
-rhosocial-github-ci-tracker-db = "rhosocial.github_ci_tracker.adapters.cli.db:main"
+rhosocial-github-actions-tracker = "rhosocial.github_actions_tracker.adapters.cli.main:main"
+rhosocial-github-actions-tracker-db = "rhosocial.github_actions_tracker.adapters.cli.db:main"
 
 [project.optional-dependencies]
 dev = [
@@ -65,8 +65,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rhosocial/python-github-ci-tracker"
-Repository = "https://github.com/rhosocial/python-github-ci-tracker"
+Homepage = "https://github.com/rhosocial/python-github-actions-tracker"
+Repository = "https://github.com/rhosocial/python-github-actions-tracker"
 
 [tool.setuptools.packages.find]
 where = ["src"]

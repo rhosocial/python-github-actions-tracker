@@ -58,7 +58,7 @@ def _args(**overrides: Any) -> argparse.Namespace:
 
 
 def _run(monkeypatch, args: argparse.Namespace) -> tuple[str, _Backend]:
-    from rhosocial.github_ci_tracker.adapters.cli import db as db_cli
+    from rhosocial.github_actions_tracker.adapters.cli import db as db_cli
 
     backend = _Backend()
     monkeypatch.setattr(db_cli, "AsyncPostgresBackend", lambda connection_config: backend)
@@ -73,7 +73,7 @@ def test_logs_before_points_at_the_partitioned_path(monkeypatch, capsys) -> None
 
     said = capsys.readouterr().out
     assert "partitions --drop-before" in said
-    assert any("DELETE FROM ct_job_logs" in item for item in statements)
+    assert any("DELETE FROM ghat_job_logs" in item for item in statements)
 
 
 def test_the_other_flags_do_not_claim_a_deprecation(monkeypatch, capsys) -> None:

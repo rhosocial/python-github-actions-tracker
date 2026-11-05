@@ -6,11 +6,11 @@
 # riscv64, s390x -- because that is what the base image supports.
 #
 # The default target covers the two production platforms; build the full set
-# with `docker buildx bake citracker-all` (the exotic ones compile under
+# with `docker buildx bake github-actions-tracker-all` (the exotic ones compile under
 # emulation and take a while).
 
 variable "TAG" {
-  default = "citracker:local"
+  default = "github-actions-tracker:local"
 }
 
 variable "REGISTRY" {
@@ -18,7 +18,7 @@ variable "REGISTRY" {
 }
 
 group "default" {
-  targets = ["citracker"]
+  targets = ["github-actions-tracker"]
 }
 
 function "tag" {
@@ -26,14 +26,14 @@ function "tag" {
   result = REGISTRY == "" ? "${name}:${TAG}" : "${REGISTRY}/${name}:${TAG}"
 }
 
-target "citracker" {
+target "github-actions-tracker" {
   dockerfile = "Dockerfile"
   platforms  = ["linux/amd64", "linux/arm64/v8"]
-  tags       = [tag("citracker")]
+  tags       = [tag("github-actions-tracker")]
 }
 
-target "citracker-all" {
-  inherits = ["citracker"]
+target "github-actions-tracker-all" {
+  inherits = ["github-actions-tracker"]
   platforms = [
     "linux/amd64",
     "linux/arm64/v8",

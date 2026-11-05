@@ -63,11 +63,11 @@ from typing import Any
 
 #: Tables the receiver writes to, in an order that can be truncated safely.
 TRUNCATABLE = (
-    "ct_webhook_delivery",
-    "ct_steps",
-    "ct_jobs",
-    "ct_workflow_runs",
-    "ct_workflows",
+    "ghat_webhook_delivery",
+    "ghat_steps",
+    "ghat_jobs",
+    "ghat_workflow_runs",
+    "ghat_workflows",
 )
 
 
@@ -118,8 +118,8 @@ def sign(secret: str, body: bytes) -> str:
 
 def _database_url() -> str:
     return (
-        f"{os.environ.get('CITRACKER_DB_HOST', '')}:{os.environ.get('CITRACKER_DB_PORT', '')}"
-        f"/{os.environ.get('CITRACKER_DB_NAME', '')}"
+        f"{os.environ.get('GHAT_DB_HOST', '')}:{os.environ.get('GHAT_DB_PORT', '')}"
+        f"/{os.environ.get('GHAT_DB_NAME', '')}"
     )
 
 
@@ -139,14 +139,14 @@ def connect() -> Any:
     """Open the database the environment points at."""
     import psycopg
 
-    database = os.environ.get("CITRACKER_DB_NAME", "")
+    database = os.environ.get("GHAT_DB_NAME", "")
     return psycopg.connect(
-        host=os.environ.get("CITRACKER_DB_HOST", ""),
-        port=int(os.environ.get("CITRACKER_DB_PORT", "5432")),
+        host=os.environ.get("GHAT_DB_HOST", ""),
+        port=int(os.environ.get("GHAT_DB_PORT", "5432")),
         dbname=database,
-        user=os.environ.get("CITRACKER_DB_USER", ""),
-        password=os.environ.get("CITRACKER_DB_PASSWORD", ""),
-        sslmode=os.environ.get("CITRACKER_DB_SSLMODE", "prefer"),
+        user=os.environ.get("GHAT_DB_USER", ""),
+        password=os.environ.get("GHAT_DB_PASSWORD", ""),
+        sslmode=os.environ.get("GHAT_DB_SSLMODE", "prefer"),
         connect_timeout=10,
     )
 
@@ -238,31 +238,31 @@ def snapshot() -> dict[str, Any]:
     with connect() as connection, connection.cursor() as cursor:
         cursor.execute(
             "select github_run_id, run_attempt, status, coalesce(conclusion, '-') "
-            "from ct_workflow_runs"
+            "from ghat_workflow_runs"
         )
         state["runs"] = _digest(cursor.fetchall())
 
         cursor.execute("""
             select j.github_job_id, j.status, coalesce(j.conclusion, '-'),
                    count(s.id)
-            from ct_jobs j left join ct_steps s on s.job_id = j.id
+            from ghat_jobs j left join ghat_steps s on s.job_id = j.id
             group by j.id, j.github_job_id, j.status, j.conclusion
             """)
         state["jobs"] = _digest(cursor.fetchall())
 
         cursor.execute(
             "select j.github_job_id, s.number, s.status, coalesce(s.conclusion, '-') "
-            "from ct_steps s join ct_jobs j on j.id = s.job_id"
+            "from ghat_steps s join ghat_jobs j on j.id = s.job_id"
         )
         state["steps"] = _digest(cursor.fetchall())
 
         cursor.execute(
             "select event_type, coalesce(reason, '-'), handled, count(*) "
-            "from ct_webhook_delivery group by 1, 2, 3"
+            "from ghat_webhook_delivery group by 1, 2, 3"
         )
         state["ledger"] = _digest(cursor.fetchall())
 
-        cursor.execute("select count(*) from ct_workflows")
+        cursor.execute("select count(*) from ghat_workflows")
         state["workflow_count"] = cursor.fetchone()[0]
     state["digest"] = hashlib.sha256(
         json.dumps({k: v for k, v in state.items() if k != "digest"}, sort_keys=True).encode()
@@ -307,7 +307,7 @@ def check_invariants(capture: Path) -> int:
     with connect() as connection, connection.cursor() as cursor:
         # 1. every captured delivery is in the ledger and handled
         cursor.execute(
-            "select delivery_id, handled, coalesce(reason, '-') from ct_webhook_delivery "
+            "select delivery_id, handled, coalesce(reason, '-') from ghat_webhook_delivery "
             "where delivery_id = any(%s)",
             (captured_ids,),
         )
@@ -329,9 +329,9 @@ def check_invariants(capture: Path) -> int:
 
         # 2. no duplicate rows on the three unique keys
         for table, key in (
-            ("ct_workflow_runs", "workflow_id, github_run_id"),
-            ("ct_jobs", "run_id, github_job_id"),
-            ("ct_steps", "job_id, github_step_id"),
+            ("ghat_workflow_runs", "workflow_id, github_run_id"),
+            ("ghat_jobs", "run_id, github_job_id"),
+            ("ghat_steps", "job_id, github_step_id"),
         ):
             cursor.execute(
                 f"select count(*) from (select {key}, count(*) c from {table} "
@@ -355,8 +355,8 @@ def check_invariants(capture: Path) -> int:
         )
         if jobs_with_steps:
             cursor.execute(
-                "select j.github_job_id from ct_jobs j "
-                "left join ct_steps s on s.job_id = j.id "
+                "select j.github_job_id from ghat_jobs j "
+                "left join ghat_steps s on s.job_id = j.id "
                 "where j.github_job_id = any(%s) group by j.github_job_id "
                 "having count(s.id) = 0",
                 (jobs_with_steps,),
@@ -385,9 +385,9 @@ def check_invariants(capture: Path) -> int:
 
 
 def _require_database(allow_production: bool) -> None:
-    database = os.environ.get("CITRACKER_DB_NAME", "")
+    database = os.environ.get("GHAT_DB_NAME", "")
     if not database:
-        raise SystemExit("CITRACKER_DB_NAME is not set; point it at the scratch database")
+        raise SystemExit("GHAT_DB_NAME is not set; point it at the scratch database")
     _refuse_unless_scratch(database, allow_production)
 
 
@@ -398,9 +398,9 @@ def main(argv: list[str] | None = None) -> int:
     apply_parser = sub.add_parser("apply", help="replay a capture at the receiver")
     apply_parser.add_argument("capture", type=Path)
     apply_parser.add_argument(
-        "--base-url", default=os.environ.get("CITRACKER_REPLAY_URL", "https://127.0.0.1:18080")
+        "--base-url", default=os.environ.get("GHAT_REPLAY_URL", "https://127.0.0.1:18080")
     )
-    apply_parser.add_argument("--secret", default=os.environ.get("CITRACKER_WEBHOOK_SECRET", ""))
+    apply_parser.add_argument("--secret", default=os.environ.get("GHAT_WEBHOOK_SECRET", ""))
     apply_parser.add_argument("--mode", choices=("sequential", "shuffled"), default="sequential")
     apply_parser.add_argument("--concurrency", type=int, default=1)
     apply_parser.add_argument(
@@ -430,7 +430,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "apply":
         if not args.secret:
-            raise SystemExit("CITRACKER_WEBHOOK_SECRET (or --secret) is required")
+            raise SystemExit("GHAT_WEBHOOK_SECRET (or --secret) is required")
         deliveries = load_capture(args.capture)
         results = asyncio.run(
             apply_capture(

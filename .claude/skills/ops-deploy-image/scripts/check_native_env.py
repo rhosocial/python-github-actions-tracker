@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Can this machine run citracker without Docker?
+"""Can this machine run the tracker without Docker?
 
 Standalone: standard library only, so it runs before the package is installed (and tells
 you to install it when that is the missing piece). It checks the three things the native
@@ -79,7 +79,7 @@ def main() -> int:
             }
         )
 
-    for name in ("rhosocial-github-ci-tracker", "rhosocial-github-ci-tracker-db"):
+    for name in ("rhosocial-github-actions-tracker", "rhosocial-github-actions-tracker-db"):
         found, detail = _entry_point(name)
         facts[name] = detail
         if not found:
@@ -87,7 +87,7 @@ def main() -> int:
                 {
                     "code": "entry_point_missing",
                     "message": f"{name} is not on PATH: install the package "
-                    "(pip install rhosocial-github-ci-tracker) in the environment this "
+                    "(pip install rhosocial-github-actions-tracker) in the environment this "
                     "process will run from.",
                 }
             )

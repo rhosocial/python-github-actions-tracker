@@ -25,10 +25,10 @@ get_run_failed_logs(run_id)  → 整个 run 里失败 job 的失败 step，按�
 
 | 来源 | 内容 | 可得性 |
 |---|---|---|
-| `GET /actions/jobs/{id}/logs` | 一个 job 的合并文本 | 90 天内随时可读，存进 `ct_job_logs` |
+| `GET /actions/jobs/{id}/logs` | 一个 job 的合并文本 | 90 天内随时可读，存进 `ghat_job_logs` |
 | `GET /actions/runs/{id}/logs` | zip：合并文件 + `<job>/<step 号>_<step 名>.txt` | 按 step 拆分的文件只由 GitHub 在 run 结束后约一小时内提供 |
 
-**一小时是取回的截止时间，不是保存期限。** 取回并写进 `ct_step_logs` 的文本就是普通数据，
+**一小时是取回的截止时间，不是保存期限。** 取回并写进 `ghat_step_logs` 的文本就是普通数据，
 永久可读；截止时间唯一决定的是"还能不能再补采"。
 
 ## 引用一个 workflow：path、文件名、数字 id

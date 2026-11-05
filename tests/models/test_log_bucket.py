@@ -22,7 +22,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncJobLog,
     AsyncStep,

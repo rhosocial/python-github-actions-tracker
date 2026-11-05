@@ -13,12 +13,20 @@ from rhosocial.activerecord.backend.impl.postgres.async_support import run_corou
 
 
 async def main() -> None:
-    from rhosocial.github_ci_tracker.infrastructure.database import (
+    # Imported inside main on purpose: this script runs outside the package (it
+    # inserts src/ into sys.path above), so these are only importable once that
+    # has happened. isort is told to leave the block here rather than at the top
+    # of the file, where it would fail on a clean checkout.
+    from rhosocial.github_actions_tracker.infrastructure.database import (  # isort: skip
         bind_backend,
         create_pool,
     )
-
-    from rhosocial.github_ci_tracker.models import Job, JobLog, Step, WorkflowRun
+    from rhosocial.github_actions_tracker.models import (
+        Job,
+        JobLog,
+        Step,
+        WorkflowRun,
+    )  # isort: skip
 
     pool = await create_pool()
     try:

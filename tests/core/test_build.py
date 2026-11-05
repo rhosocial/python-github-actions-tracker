@@ -12,7 +12,7 @@ an answer.
 
 from __future__ import annotations
 
-from rhosocial.github_ci_tracker.build import (
+from rhosocial.github_actions_tracker.build import (
     BUILT_AT_ENV,
     NUMBER_ENV,
     REVISION_ENV,

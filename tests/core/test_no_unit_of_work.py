@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SRC = Path(__file__).resolve().parents[2] / "src" / "rhosocial" / "github_ci_tracker"
+SRC = Path(__file__).resolve().parents[2] / "src" / "rhosocial" / "github_actions_tracker"
 
 #: Names that only make sense with a unit of work behind them.
 #:

@@ -8,7 +8,7 @@ GitHub CI 状态跟踪与自动化服务。核心价值是将"触发 CI → 等�
 ## 架构原则
 
 1. **GitHub 是 run 状态的源头，数据库是它的缓存与历史**：run 级问题（存在性、状态、列表、latest）每次都回源 GitHub，接口不可访问就报错，绝不降级返回缓存；响应与本地不同则写回。服务实例无状态
-2. **用户自带令牌**：每个用户提供自己的 GitHub Fine-grained PAT，系统加密存储，不维护中心令牌池。进程没有 ambient PAT 时，按 `ct_repository_bindings` 逐仓库解析；未绑定即匿名读
+2. **用户自带令牌**：每个用户提供自己的 GitHub Fine-grained PAT，系统加密存储，不维护中心令牌池。进程没有 ambient PAT 时，按 `ghat_repository_bindings` 逐仓库解析；未绑定即匿名读
 3. **单向分层**：`adapters（MCP / REST / CLI）→ controllers → services → models`，只允许向下调用
 4. **被动式双通道**：webhook 推送只降低延迟、补历史，不是权威来源。无后台轮询、无定时任务、无队列
 5. **探针分开**：`/livez` 只证明进程活着（**零 I/O**，失败才该重启）；`/readyz` 证明这个实例现在能接请求（**一次数据库往返**，失败只摘流）。`/health`、`/healthz` 是 `/readyz` 的别名。数据库只进 readiness；GitHub 两个都不进（第三方抖动不该摘掉全部实例，探针还会烧配额，GitHub 可达性归 `ci_status`）
@@ -34,7 +34,7 @@ GitHub CI 状态跟踪与自动化服务。核心价值是将"触发 CI → 等�
 |---|---|
 | run 的存在性 / 状态 / 列表 / latest | 每次都读 GitHub；读不到即报错 |
 | attempt / job / step / log | 问了才读；已终结的执行（含其日志）是终态，此后缓存即答案——**但 step 分片例外**，见下 |
-| "webhook 通道活不活" | 投递台账 `ct_webhook_delivery`，只回答通道自身 |
+| "webhook 通道活不活" | 投递台账 `ghat_webhook_delivery`，只回答通道自身 |
 
 webhook 可能丢失，run 也常在本系统之外创建、第一次被问到；所以正确性不能依赖它。
 `find_runs` 这类读路径本身就能补齐漏收的 webhook。ETag 条件请求让"每次回源"不烧配额
@@ -49,12 +49,12 @@ GitHub 有两个日志来源，**不是一回事**：
 
 | 来源 | 内容 | 可得性 |
 |---|---|---|
-| `GET /actions/jobs/{job_id}/logs` | 一个 job 的合并文本 | 90 天内随时可读，原样进 `ct_job_logs`（**流程未变**） |
+| `GET /actions/jobs/{job_id}/logs` | 一个 job 的合并文本 | 90 天内随时可读，原样进 `ghat_job_logs`（**流程未变**） |
 | `GET /actions/runs/{run_id}/logs` | zip：合并文件 + `<job>/<step 号>_<step 名>.txt` + `system.txt` | 合并文件与上面**逐字节相同**；按 step 拆分的文件只由 GitHub 在 run 结束后约 **1 小时**内提供 |
 
 因此：
 
-- **一小时是取回的截止时间，不是保存期限。** 取回并写进 `ct_step_logs` 的文本就是普通数据，
+- **一小时是取回的截止时间，不是保存期限。** 取回并写进 `ghat_step_logs` 的文本就是普通数据，
   永久可读，任何读路径都不看这个窗口；窗口只决定"还能不能再补采"。
 - **step 日志是采集，不是读取**。窗口外同一接口只返回合并文件，step 边界不可恢复；
   采集发生在 run 完成投递（`workflow_run` completed）与窗口内的读取请求，两者都是尽力而为，
@@ -69,7 +69,7 @@ GitHub 有两个日志来源，**不是一回事**：
   提供这个 run 的 step 分片、再试也补不回来（已采到的照常可读）——这两个状态就是给
   调用方判断"要不要再试"的。措辞上不要说成"日志过期"：过期的是 GitHub 的提供窗口，
   不是我们存下来的行。
-- `ct_step_logs` 与 step 一对一、**允许缺失**；缺行是答案（"没赶上采集"），不是可重试的 cache miss。
+- `ghat_step_logs` 与 step 一对一、**允许缺失**；缺行是答案（"没赶上采集"），不是可重试的 cache miss。
   读 step 时缺行必须如实报 `steps_without_logs` 与原因，**绝不拿别的 step 的文本顶替**。
 **从 run 走到失败 step 的日志，只有一条路**（三层对象，一层一个工具，不重复）：
 
@@ -113,12 +113,12 @@ get_run_failed_logs(run_id)→ run 内失败 job 的失败 step，按逐字节�
 
 **step 日志是尽力而为的**：采集到就存，采集不到就不存。一个 job 的所有 step 都没有行时，
   读路径返回空 `sections` + `reason`，调用方的下一步是**读同一个 job 的合并日志**
-  （`ct_job_logs` / `whole_job=true` 或显式 `failed_steps_only` 之外的 `get_job_log`）自己分析——
+  （`ghat_job_logs` / `whole_job=true` 或显式 `failed_steps_only` 之外的 `get_job_log`）自己分析——
   而不是指望我们再猜一次 step 边界。部分 step 有、部分没有时，同样只报有行的那几段。
 - `system.txt` 是 runner 的调度记录（`Requested labels` / `Job defined at`），**不入库**。
 - 判别归档形态只看结构：目录里有没有 `<step 号>_*.txt`。`system.txt` 与合并文件两种形态都有，
   不能当信号。
-- 合并视图（`whole_job=true`、或 job 未失败 / 未运行时）走的是 `ct_job_logs`，行为与引入
+- 合并视图（`whole_job=true`、或 job 未失败 / 未运行时）走的是 `ghat_job_logs`，行为与引入
   step 日志之前完全一致。失败 job 的无参读取是**唯一**偏离该默认的路径，且回答自报
   `scoped_to_failed`。
 
@@ -126,9 +126,9 @@ get_run_failed_logs(run_id)→ run 内失败 job 的失败 step，按逐字节�
 
 连接作用域是**每请求**的（REST 中间件、MCP 包装层各起一个），所以：
 
-- 每个正在处理的请求占 `CITRACKER_POOL_MAX`（默认 10）里的一个名额；
+- 每个正在处理的请求占 `GHAT_POOL_MAX`（默认 10）里的一个名额；
 - **长轮询也算**：`wait_for_run` 在等待期间一直握着自己的连接，300 秒的等待就是 300 秒的占用；
-- 因此 `CITRACKER_POOL_MAX` 必须覆盖"并发长轮询 + 并发普通请求"，否则后来者会在 `acquire` 上排队，
+- 因此 `GHAT_POOL_MAX` 必须覆盖"并发长轮询 + 并发普通请求"，否则后来者会在 `acquire` 上排队，
   30 秒后得到 `Failed to acquire connection within 30.0 seconds`。
 
 **2026-10-30 的事故**：外部 PostgreSQL 在 10:20:28Z 终止了所有后端（`terminating connection due to
@@ -184,7 +184,7 @@ workflow 有 run 才算数。
 查一次并写回（`QueryController._fill_base_ref`，尽力而为、失败不影响这次读），此后不再产生调用；
 `find_runs(pull_request=N)` 走的是同一修复，因为它本来就把 PR 拿在手里。
 
-`ct_workflows.workflow_id = 0` 表示**未解析**，永远不等于"全部 workflow"：按 workflow 过滤时，
+`ghat_workflows.workflow_id = 0` 表示**未解析**，永远不等于"全部 workflow"：按 workflow 过滤时，
 0 必须回源解析并写回；解析不到就报 `workflow_not_found`，静默去掉过滤会让调用方拿到全量还以为是筛选结果。
 
 **等待预算来自历史，不是猜测。** `wait_for_run` 的 `timeout_seconds` 由该 workflow 最近完成 run 的
@@ -280,7 +280,7 @@ p90 决定：`trigger_workflow` / `rerun_run` 返回 `typical_duration_seconds`�
 
 ## 代码规范
 
-1. **文件头注释**: 每个 .py 文件必须以路径注释开头（`# src/rhosocial/github_ci_tracker/xxx.py`）
+1. **文件头注释**: 每个 .py 文件必须以路径注释开头（`# src/rhosocial/github_actions_tracker/xxx.py`）
 2. **行宽限制**: 100 字符
 3. **类型注解**: 使用 Python 3.8+ 兼容语法
 4. **Sync/Async 对称**: 同步和异步 API 方法名完全一致，类名加 `Async` 前缀
@@ -315,7 +315,7 @@ p90 决定：`trigger_workflow` / `rerun_run` 返回 `typical_duration_seconds`�
 ## 目录结构
 
 ```
-src/rhosocial/github_ci_tracker/
+src/rhosocial/github_actions_tracker/
 ├── models/          # M：表映射、状态机、payload 解析（叶子）
 ├── services/        # S：能力封装，目前只有 github/（协议 + REST 客户端）
 ├── controllers/     # C：一组流程 + 它用到的行操作（run/repository/webhook）

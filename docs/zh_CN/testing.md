@@ -7,17 +7,17 @@
 
 ```bash
 # 方式一：直接给坐标
-CITRACKER_DB_HOST=localhost CITRACKER_DB_PORT=5432 \
-CITRACKER_DB_USER=citracker CITRACKER_DB_PASSWORD=citracker \
+GHAT_DB_HOST=localhost GHAT_DB_PORT=5432 \
+GHAT_DB_USER=the tracker GHAT_DB_PASSWORD=the tracker \
 PYTHONPATH=tests .venv3.15/Scripts/python -m pytest tests -q
 
 # 方式二：共享的 postgres_scenarios.yaml（python-activerecord-postgres 里的那个）
-CITRACKER_TEST_PG_SCENARIO_FILE=../python-activerecord-postgres/tests/config/postgres_scenarios.yaml \
-CITRACKER_TEST_PG_SCENARIO=postgres_18 \
+GHAT_TEST_PG_SCENARIO_FILE=../python-activerecord-postgres/tests/config/postgres_scenarios.yaml \
+GHAT_TEST_PG_SCENARIO=postgres_18 \
 PYTHONPATH=tests .venv3.15/Scripts/python -m pytest tests -q
 ```
 
-没有服务器时测试**跳过**并说明原因；CI 里 `CITRACKER_TEST_PG_REQUIRED=1` 把它变成失败。
+没有服务器时测试**跳过**并说明原因；CI 里 `GHAT_TEST_PG_REQUIRED=1` 把它变成失败。
 
 ## 本地测试范围
 

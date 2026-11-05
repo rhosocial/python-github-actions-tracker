@@ -34,7 +34,7 @@ blocker or a private window can refuse them; reading is unaffected.
 ## Contact
 
 Questions about analytics or privacy belong in
-[GitHub Issues](https://github.com/rhosocial/python-github-ci-tracker/issues).
+[GitHub Issues](https://github.com/rhosocial/python-github-actions-tracker/issues).
 
 > This is an engineering-level notice, not legal advice. Cookie consent and cross-border
 > transfer rules differ by jurisdiction; follow your local regulations and professional

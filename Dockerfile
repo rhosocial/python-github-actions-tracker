@@ -83,13 +83,13 @@ ARG GIT_BUILT_AT=""
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    CITRACKER_BUILD_REVISION=${GIT_REVISION} \
-    CITRACKER_BUILD_NUMBER=${GIT_BUILD_NUMBER} \
-    CITRACKER_BUILD_BUILT_AT=${GIT_BUILT_AT}
+    GHAT_BUILD_REVISION=${GIT_REVISION} \
+    GHAT_BUILD_NUMBER=${GIT_BUILD_NUMBER} \
+    GHAT_BUILD_BUILT_AT=${GIT_BUILT_AT}
 
 LABEL org.opencontainers.image.revision=${GIT_REVISION} \
       org.opencontainers.image.created=${GIT_BUILT_AT} \
-      org.opencontainers.image.title="citracker"
+      org.opencontainers.image.title="github-actions-tracker"
 
 COPY --from=builder /opt/venv /opt/venv
 
@@ -106,11 +106,11 @@ WORKDIR /home/appuser
 EXPOSE 8000 8001 18080
 
 # TLS material lives outside the image by convention: mount a directory at
-# /certs and point CITRACKER_WEBHOOK_SSL_CERTFILE / _KEYFILE at the two files
+# /certs and point GHAT_WEBHOOK_SSL_CERTFILE / _KEYFILE at the two files
 # inside it. Nothing under /certs is created, copied, or owned by this image.
 
 # --chmod, not a chmod step afterwards: the entrypoint must be executable the
 # moment it lands, because it is the container's ENTRYPOINT.
 COPY --chown=appuser:appuser --chmod=755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["rhosocial-github-ci-tracker", "serve", "all"]
+CMD ["rhosocial-github-actions-tracker", "serve", "all"]

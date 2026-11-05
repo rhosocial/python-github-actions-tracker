@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import httpx2
 
-from rhosocial.github_ci_tracker.services.github.client import (
+from rhosocial.github_actions_tracker.services.github.client import (
     BASE_URL,
     AsyncGithubClient,
     GithubClient,

@@ -7,12 +7,12 @@ schema. SQLite was removed on 2026-11-01. The server comes from the environment 
 from a shared scenarios file; CI uses a service container.
 
 ```bash
-CITRACKER_DB_HOST=localhost CITRACKER_DB_PORT=5432 \
-CITRACKER_DB_USER=citracker CITRACKER_DB_PASSWORD=citracker \
+GHAT_DB_HOST=localhost GHAT_DB_PORT=5432 \
+GHAT_DB_USER=the tracker GHAT_DB_PASSWORD=the tracker \
 PYTHONPATH=tests .venv3.15/Scripts/python -m pytest tests -q
 ```
 
-Without a server the tests **skip** and say why; in CI `CITRACKER_TEST_PG_REQUIRED=1`
+Without a server the tests **skip** and say why; in CI `GHAT_TEST_PG_REQUIRED=1`
 turns that into a failure.
 
 ## Scope

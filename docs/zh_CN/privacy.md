@@ -32,7 +32,7 @@
 ## 联系
 
 关于统计或隐私的问题，请在
-[GitHub Issues](https://github.com/rhosocial/python-github-ci-tracker/issues) 提出。
+[GitHub Issues](https://github.com/rhosocial/python-github-actions-tracker/issues) 提出。
 
 > 本说明是工程层面的告知，不构成法律意见。Cookie 同意与数据出境的要求因地而异，
 > 请以当地法规和专业意见为准。

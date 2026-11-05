@@ -17,15 +17,15 @@ import importlib
 from contextlib import asynccontextmanager
 from typing import Any
 
-from rhosocial.github_ci_tracker.adapters.mcp.server import (
+from rhosocial.github_actions_tracker.adapters.mcp.server import (
     _DatabaseBoundApp,
     _UnboundContainer,
 )
-from rhosocial.github_ci_tracker.database import MODELS
+from rhosocial.github_actions_tracker.database import MODELS
 
 # The adapter class it replaces: imported by dotted path so monkeypatch
 # replaces the classmethod the adapter actually calls.
-db_module = importlib.import_module("rhosocial.github_ci_tracker.database")
+db_module = importlib.import_module("rhosocial.github_actions_tracker.database")
 
 
 class _FakeDatabase:

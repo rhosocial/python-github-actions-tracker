@@ -58,8 +58,8 @@ docker compose --env-file docker/stack.env up -d
 
 | Destination | Image | Secrets (Settings -> Secrets and variables -> Actions) |
 |---|---|---|
-| Aliyun | `registry.cn-shanghai.aliyuncs.com/vistart_public/citracker` | `ALIYUN_REGISTRY_USERNAME` / `ALIYUN_REGISTRY_PASSWORD` |
-| Docker Hub | `docker.io/vistart/citracker` | `DOCKERHUB_REGISTRY_USERNAME` / `DOCKERHUB_REGISTRY_PASSWORD` |
+| Aliyun | `registry.cn-shanghai.aliyuncs.com/vistart_public/github-actions-tracker` | `ALIYUN_REGISTRY_USERNAME` / `ALIYUN_REGISTRY_PASSWORD` |
+| Docker Hub | `docker.io/vistart/github-actions-tracker` | `DOCKERHUB_REGISTRY_USERNAME` / `DOCKERHUB_REGISTRY_PASSWORD` |
 
 Each destination is independent: a missing pair is **skipped** (the run summary
 says which), and the other still publishes. With neither pair present the
@@ -72,46 +72,46 @@ honoured, which is how a rollback works (`gh workflow run images.yml --ref
 "Which build is running" no longer comes from the tag — it comes from
 `build.revision`, which `/readyz` and `ci_status` report from inside the
 container, and from the stamp the workflow bakes in at build time. Pinning a
-deployment still works: point `CITRACKER_IMAGE` at a registry address and let
+deployment still works: point `GHAT_IMAGE` at a registry address and let
 `build.revision` say what you pulled.
 
 For a local check no registry is involved:
-`CITRACKER_IMAGE=citracker:local docker compose build`, then
-`CITRACKER_IMAGE=citracker:local docker compose up -d`.
+`GHAT_IMAGE=github-actions-tracker:local docker compose build`, then
+`GHAT_IMAGE=github-actions-tracker:local docker compose up -d`.
 
 ## Replacing a PAT
 
 1. Edit the token file the compose stack mounts read-only (or the
-   `CITRACKER_BOOTSTRAP_PAT` value).
-2. Re-run init: `docker compose --env-file docker/stack.env run --rm -e CITRACKER_INITDB=force init`.
+   `GHAT_BOOTSTRAP_PAT` value).
+2. Re-run init: `docker compose --env-file docker/stack.env run --rm -e GHAT_INITDB=force init`.
 
-Prefer `CITRACKER_BOOTSTRAP_PAT_FILE` over `_PAT`: an inline value is visible in
+Prefer `GHAT_BOOTSTRAP_PAT_FILE` over `_PAT`: an inline value is visible in
 `docker inspect`, and a leaked token should be revoked at GitHub immediately.
 
 ## Legacy / manual mode
 
 ```bash
-docker compose --env-file docker/stack.env run --rm -e CITRACKER_INITDB=skip init
-docker compose exec web rhosocial-github-ci-tracker-db init   # tables only, idempotent
-docker compose exec web rhosocial-github-ci-tracker credential pat ensure --name work --token <PAT>
+docker compose --env-file docker/stack.env run --rm -e GHAT_INITDB=skip init
+docker compose exec web rhosocial-github-actions-tracker-db init   # tables only, idempotent
+docker compose exec web rhosocial-github-actions-tracker credential pat ensure --name work --token <PAT>
 ```
 
 ## Database maintenance
 
 ```bash
-docker compose exec web rhosocial-github-ci-tracker-db is-initialized
-docker compose exec web rhosocial-github-ci-tracker-db stats
-docker compose exec web rhosocial-github-ci-tracker-db usage
-docker compose exec web rhosocial-github-ci-tracker-db usage --json
-docker compose exec web rhosocial-github-ci-tracker-db cleanup --runs-before 90d --logs-before 365d
-docker compose exec web rhosocial-github-ci-tracker-db partitions --list
-docker compose exec web rhosocial-github-ci-tracker-db partitions --ensure 2
-docker compose exec web rhosocial-github-ci-tracker-db partitions --drop-before 6m           # dry run
-docker compose exec web rhosocial-github-ci-tracker-db partitions --drop-before 6m --drop-old
-docker compose exec web rhosocial-github-ci-tracker-db deliveries --unhandled --limit 20
-docker compose exec web rhosocial-github-ci-tracker-db cleanup --deliveries-before 30d
-docker compose exec web rhosocial-github-ci-tracker-db reset --yes
-docker compose exec web rhosocial-github-ci-tracker-db drop --yes
+docker compose exec web rhosocial-github-actions-tracker-db is-initialized
+docker compose exec web rhosocial-github-actions-tracker-db stats
+docker compose exec web rhosocial-github-actions-tracker-db usage
+docker compose exec web rhosocial-github-actions-tracker-db usage --json
+docker compose exec web rhosocial-github-actions-tracker-db cleanup --runs-before 90d --logs-before 365d
+docker compose exec web rhosocial-github-actions-tracker-db partitions --list
+docker compose exec web rhosocial-github-actions-tracker-db partitions --ensure 2
+docker compose exec web rhosocial-github-actions-tracker-db partitions --drop-before 6m           # dry run
+docker compose exec web rhosocial-github-actions-tracker-db partitions --drop-before 6m --drop-old
+docker compose exec web rhosocial-github-actions-tracker-db deliveries --unhandled --limit 20
+docker compose exec web rhosocial-github-actions-tracker-db cleanup --deliveries-before 30d
+docker compose exec web rhosocial-github-actions-tracker-db reset --yes
+docker compose exec web rhosocial-github-actions-tracker-db drop --yes
 ```
 
 `stats` counts rows; `usage` weighs the database. They answer different

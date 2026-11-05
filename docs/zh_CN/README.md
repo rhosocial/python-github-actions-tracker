@@ -1,4 +1,4 @@
-# python-github-ci-tracker — 简体中文
+# python-github-actions-tracker — 简体中文
 
 ## 目录
 
@@ -31,5 +31,5 @@
 
 ## 状态
 
-中文内容正在补充。根目录的 [README.zh-CN.md](https://github.com/rhosocial/python-github-ci-tracker/blob/main/README.zh-CN.md) 说明项目做什么；
+中文内容正在补充。根目录的 [README.zh-CN.md](https://github.com/rhosocial/python-github-actions-tracker/blob/main/README.zh-CN.md) 说明项目做什么；
 本目录下每一页是教程，随服务一起长大。

@@ -4,7 +4,7 @@
 ``RemoteProtocolError`` is a ``TransportError`` but not a ``NetworkError``, so
 the old ``except (TimeoutException, NetworkError)`` let it escape untyped: the
 caller saw ``internal_error: RemoteProtocolError: Server disconnected...`` and
-could only conclude that citracker was broken.
+could only conclude that the tracker was broken.
 
 The other half is the retry policy. A dispatch that timed out may already have
 been accepted by GitHub; retrying it starts a second run. Only idempotent
@@ -19,9 +19,9 @@ from typing import Any
 import httpx2
 import pytest
 
-from rhosocial.github_ci_tracker.adapters.mcp.result import error_result
-from rhosocial.github_ci_tracker.core.exceptions import UpstreamUnavailableError
-from rhosocial.github_ci_tracker.services.github.client import AsyncGithubClient
+from rhosocial.github_actions_tracker.adapters.mcp.result import error_result
+from rhosocial.github_actions_tracker.core.exceptions import UpstreamUnavailableError
+from rhosocial.github_actions_tracker.services.github.client import AsyncGithubClient
 
 REPO = "acme/demo"
 

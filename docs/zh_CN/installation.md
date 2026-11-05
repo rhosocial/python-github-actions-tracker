@@ -6,25 +6,25 @@
 行为——差别只在首次初始化由谁触发、进程由谁守护。
 
 ```bash
-pip install rhosocial-github-ci-tracker
+pip install rhosocial-github-actions-tracker
 ```
 
 ### 原生部署：四条命令
 
 ```bash
 # 1. 建库建表（有建库权限时会连库一起建好；托管服务加 --no-create-database）
-rhosocial-github-ci-tracker-db init
+rhosocial-github-actions-tracker-db init
 
 # 2. 登记凭据，等价于容器里 20-pat.sh 做的事：
-rhosocial-github-ci-tracker credential pat ensure \
-  --name default --token-file /path/to/citracker-pat --probe-repo owner/repo
+rhosocial-github-actions-tracker credential pat ensure \
+  --name default --token-file /path/to/github-actions-tracker-pat --probe-repo owner/repo
 
 # 3. 两个常驻进程（各开一个终端，或交给服务管理器）：
-rhosocial-github-ci-tracker serve all    # REST :8000 + webhook :18080
-rhosocial-github-ci-tracker serve mcp    # MCP :8001
+rhosocial-github-actions-tracker serve all    # REST :8000 + webhook :18080
+rhosocial-github-actions-tracker serve mcp    # MCP :8001
 ```
 
-compose 文件 `environment:` 里那一串配置，在原生部署里全部来自 `CITRACKER_*` 环境变量，
+compose 文件 `environment:` 里那一串配置，在原生部署里全部来自 `GHAT_*` 环境变量，
 两个命令都读：数据库坐标、API key、webhook secret、TLS 路径、PAT 名。除此之外不需要别的
 东西——没有配置文件，没有 init 目录，也没有数据卷。`docker/stack.env.example` 是一份现成的
 清单，一个容器都不跑也能照它逐项设环境变量。
@@ -59,21 +59,21 @@ asyncio.set_event_loop(asyncio.SelectorEventLoop(selectors.SelectSelector()))
 两个进程互相独立，分别守护即可，谁都不需要另一个。一个角色一个 unit，最清楚：
 
 ```ini
-# /etc/systemd/system/citracker-web.service
+# /etc/systemd/system/tracker-web.service
 [Unit]
-Description=citracker — REST 与 webhook
+Description=the tracker — REST 与 webhook
 After=network-online.target
 
 [Service]
-EnvironmentFile=/etc/citracker/env
-ExecStart=/opt/citracker/venv/bin/rhosocial-github-ci-tracker serve all
+EnvironmentFile=/etc/the tracker/env
+ExecStart=/opt/the tracker/venv/bin/rhosocial-github-actions-tracker serve all
 Restart=unless-stopped
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-MCP 监听照抄一份，`ExecStart` 换成 `serve mcp`。`EnvironmentFile` 就是 `CITRACKER_*` 的
+MCP 监听照抄一份，`ExecStart` 换成 `serve mcp`。`EnvironmentFile` 就是 `GHAT_*` 的
 落脚处——相当于原生的 `docker/stack.env`，同样属于"不入库"那一类。
 
 最短路径（外部已有 PostgreSQL，证书就绪）：
@@ -90,12 +90,12 @@ curl -k https://127.0.0.1:18080/readyz        # {"status":"ready",...}
 ### 镜像
 
 ```text
-registry.cn-shanghai.aliyuncs.com/vistart_public/citracker:latest        # 国内
-docker.io/vistart/citracker:latest                                       # 国外
+registry.cn-shanghai.aliyuncs.com/vistart_public/github-actions-tracker:latest        # 国内
+docker.io/vistart/github-actions-tracker:latest                                       # 国外
 ```
 
 只有一个标签：`latest`。它指向 main 最近一次成功发布，因此"拉到的是哪一版"由镜像内部的
-`build.revision` 回答（`/readyz`、`ci_status` 都会报），固定版本部署则是把 `CITRACKER_IMAGE`
+`build.revision` 回答（`/readyz`、`ci_status` 都会报），固定版本部署则是把 `GHAT_IMAGE`
 指向某个 registry 地址，再用 `build.revision` 核对。
 
 `workflow_dispatch` 在 `main` 上是正常发布；在某个提交上运行是**刻意的重发**——这就是回滚的
@@ -110,7 +110,7 @@ feature 代码不会变成生产要拉的东西。
 - 代理是**运行时**选择：全球用户不需要；中国大陆用户在自己的 compose / 环境里注入即可，见
   [运行时代理](operations.md#运行时代理仅中国大陆)。
 - 自建：`docker buildx bake --load`（amd64 + arm64，本机只加载当前架构）；全平台用
-  `docker buildx bake citracker-all --push`。
+  `docker buildx bake github-actions-tracker-all --push`。
 
 ### ARM64 与 ARM NAS
 
@@ -123,8 +123,8 @@ NAS 本来就一直开着，而“CI 现在什么状态”这类问题正适合�
 ```bash
 uname -m                                    # aarch64 → 用 arm64 镜像
 docker version --format '{{.Server.Arch}}'
-docker pull docker.io/vistart/citracker:latest         # 自动取宿主架构
-docker image inspect docker.io/vistart/citracker:latest --format '{{.Architecture}}'
+docker pull docker.io/vistart/github-actions-tracker:latest         # 自动取宿主架构
+docker image inspect docker.io/vistart/github-actions-tracker:latest --format '{{.Architecture}}'
 ```
 
 两家都有支持容器管理的 64 位 ARM 机型，**以下只是举例，不是兼容性清单**：Synology 在
@@ -137,7 +137,7 @@ DSM 7.2 上的 Container Manager（DS223、DS423 等 `aarch64` 机型；低端 `
 
 - **先看内存，别急着看 CPU。** 服务是两个 `serve` 进程加 PostgreSQL，都放在同一台机器上，
   建议至少留 2 GB。NAS 兼做数据库的话，要么把 PostgreSQL 的 `shared_buffers` 调小，要么
-  让 `CITRACKER_DB_*` 指向别处的数据库——服务不挑数据库在哪。
+  让 `GHAT_DB_*` 指向别处的数据库——服务不挑数据库在哪。
 - **日志卷不要和备份挤在同一块机械盘上。** 日志是这个服务写入量最大的部分；
   `db partitions --drop-before` 之所以快，是因为删的是整张表（一次元数据操作），而不是
   逐行删除，这需要底层文件系统配合。
@@ -161,24 +161,24 @@ DSM 7.2 上的 Container Manager（DS223、DS423 等 `aarch64` 机型；低端 `
 但要把 init.d 目录挂进去（否则首次启动会明确报错，而不是带病启动）：
 
 ```bash
-docker run -d --name citracker-web --restart unless-stopped \
+docker run -d --name tracker-web --restart unless-stopped \
   -p 18080:18080 \
   -v /path/to/certs:/certs:ro \
   -v "$PWD/docker/init.d:/docker-entrypoint-init.d:ro" \
-  -e CITRACKER_DB_HOST=<db-host> -e CITRACKER_DB_PORT=5432 \
-  -e CITRACKER_DB_USER=<user> -e CITRACKER_DB_PASSWORD=<password> \
-  -e CITRACKER_DB_NAME=citracker \
-  -e CITRACKER_API_KEY=<bearer> \
-  -e CITRACKER_WEBHOOK_SECRET=<github-webhook-secret> \
-  -e CITRACKER_BOOTSTRAP_PAT=<fine-grained-pat> \
-  -e CITRACKER_WEBHOOK_SSL_CERTFILE=/certs/fullchain.pem \
-  -e CITRACKER_WEBHOOK_SSL_KEYFILE=/certs/privkey.pem \
-  registry.cn-shanghai.aliyuncs.com/vistart_public/citracker:latest   # 国内
-  # docker.io/vistart/citracker:latest                                 # 国外，二选一
+  -e GHAT_DB_HOST=<db-host> -e GHAT_DB_PORT=5432 \
+  -e GHAT_DB_USER=<user> -e GHAT_DB_PASSWORD=<password> \
+  -e GHAT_DB_NAME=the tracker \
+  -e GHAT_API_KEY=<bearer> \
+  -e GHAT_WEBHOOK_SECRET=<github-webhook-secret> \
+  -e GHAT_BOOTSTRAP_PAT=<fine-grained-pat> \
+  -e GHAT_WEBHOOK_SSL_CERTFILE=/certs/fullchain.pem \
+  -e GHAT_WEBHOOK_SSL_KEYFILE=/certs/privkey.pem \
+  registry.cn-shanghai.aliyuncs.com/vistart_public/github-actions-tracker:latest   # 国内
+  # docker.io/vistart/github-actions-tracker:latest                                 # 国外，二选一
 ```
 
 首次启动时容器执行 `10-schema.sh` 与 `20-pat.sh`，随后开始服务；再次启动检测到表已存在就跳过。
-多个容器共用一个库时，只让其中一个承担初始化（其余设 `CITRACKER_INITDB=skip`），或按 compose
+多个容器共用一个库时，只让其中一个承担初始化（其余设 `GHAT_INITDB=skip`），或按 compose
 的方式先运行一次性的 `init` 服务。
 
 **初始化不会清空已有数据。** `10-schema.sh` 只做 `CREATE DATABASE`（库不存在时）与
@@ -187,53 +187,53 @@ docker run -d --name citracker-web --restart unless-stopped \
 
 | 命令 | 影响 |
 |---|---|
-| `rhosocial-github-ci-tracker-db reset --yes` | 删除并重建全部 `ct_*` 表，凭据行一起清空，库本身保留 |
-| `rhosocial-github-ci-tracker-db drop --yes` | 删除整个数据库（拒绝删 `--maintenance-db`） |
+| `rhosocial-github-actions-tracker-db reset --yes` | 删除并重建全部 `ghat_*` 表，凭据行一起清空，库本身保留 |
+| `rhosocial-github-actions-tracker-db drop --yes` | 删除整个数据库（拒绝删 `--maintenance-db`） |
 | `docker compose ... down -v` | 一体化形态下删除数据卷，等于删库 |
 
 只有在上表三条之后，才需要重新跑一次 `force init` 恢复 schema 与凭据。
 
-`CITRACKER_PUBLIC_BASE_URL` 是 MCP 返回的绝对 action URL 使用的外部地址，也是 webhook 回调 URL 的
+`GHAT_PUBLIC_BASE_URL` 是 MCP 返回的绝对 action URL 使用的外部地址，也是 webhook 回调 URL 的
 默认前缀。全部环境变量：
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `CITRACKER_DB_HOST/PORT` | `localhost:5432`（compose 内为 `postgres:5432`） | PostgreSQL 坐标 |
-| `CITRACKER_DB_USER/PASSWORD/NAME` | `root` / `password` / `test_db` | 数据库账号与库名 |
-| `CITRACKER_DB_SSLMODE` | `prefer` | libpq sslmode |
-| `CITRACKER_POOL_MIN/MAX` | `1` / `10` | 连接池。每个在处理的请求占一条连接，长轮询也算，见[连接池](operations.md#连接池一个请求占一条连接) |
-| `CITRACKER_API_KEY` | 空 | REST / MCP 的 Bearer；空表示不鉴权（启动告警），公网必须设置 |
-| `CITRACKER_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听 |
-| `CITRACKER_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |
-| `CITRACKER_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook 监听 |
-| `CITRACKER_WEBHOOK_SECRET` | 空 | HMAC 密钥，与 GitHub webhook 配置一致 |
-| `CITRACKER_WEBHOOK_URL` | 空 | 创建 webhook 时的默认回调 URL |
-| `CITRACKER_PUBLIC_BASE_URL` | 空 | MCP action URL 的绝对前缀 |
-| `CITRACKER_WEBHOOK_SSL_CERTFILE/KEYFILE` | 空 | webhook 的 fullchain 与私钥路径；空表示明文 HTTP |
-| `CITRACKER_DEFAULT_EVENTS` | `workflow_run,workflow_job` | 订阅的 webhook 事件 |
-| `CITRACKER_WAIT_MAX_SECONDS` | `300` | `wait_for_run` 单次可等待的上限（`timeout_seconds` 默认 45 秒，超过会被截断）。工具回报的 `p50/p90` 与 `suggested_timeout_seconds` 也受它约束 |
-| `CITRACKER_LOG_CAPTURE` | `1` | 是否采集 step 日志。`0/false/no/off` 关闭后，所有日志读取都走整 job 的合并文本（引入 step 日志之前的行为） |
-| `CITRACKER_LOG_CAPTURE_WINDOW_MINUTES` | `60` | run 结束后多久之内仍尝试采集 step 分片。这是**实测值**，不是官方承诺；调大没有坏处，调小会少抓 |
-| `CITRACKER_LOG_LEVEL` | `INFO` | 日志级别；日志一律走 stdout/stderr |
-| `CITRACKER_INITDB` | `auto` | 首次启动是否执行 init.d 脚本：`auto`（表不存在时执行）/ `force` / `skip` |
-| `CITRACKER_INITDB_DIR` | `/docker-entrypoint-init.d` | init.d 脚本目录；compose 只读挂载 `./docker/init.d` |
-| `CITRACKER_LEGACY` | `0` | `1` 等价于 `CITRACKER_INITDB=skip`（legacy 部署） |
-| `CITRACKER_BOOTSTRAP_PAT` | 空 | 首次初始化注入的 fine-grained PAT（由 `20-pat.sh` 读取） |
-| `CITRACKER_BOOTSTRAP_PAT_FILE` | 空 | 从文件读取 PAT，避免令牌出现在 `docker inspect` |
-| `CITRACKER_BOOTSTRAP_PAT_NAME` | `default` | 凭据别名（CLI 中显示为 `pat/<name>`） |
-| `CITRACKER_BOOTSTRAP_PROBE_REPO` | 空 | 用来验证 Actions 写权限的 `owner/repo` |
-| `CITRACKER_IMAGE` | 发布镜像 | compose 使用的镜像；本地构建后设为 `citracker:local` |
-| `CITRACKER_WEBHOOK_PORT_HOST` | `18080` | 宿主发布的 webhook 端口（容器内固定 18080） |
-| `CITRACKER_MCP_PORT_HOST` | `8001` | 宿主发布的 MCP 端口（容器内固定 8001） |
-| `CITRACKER_OAUTH_ISSUER` | 空 | **预留**：OAuth 模式下的 issuer；当前不可用，见下方说明 |
-| `CITRACKER_RESOURCE_URL` | 空 | **预留**：OAuth 模式下本服务的 resource 标识；当前不可用 |
+| `GHAT_DB_HOST/PORT` | `localhost:5432`（compose 内为 `postgres:5432`） | PostgreSQL 坐标 |
+| `GHAT_DB_USER/PASSWORD/NAME` | `root` / `password` / `test_db` | 数据库账号与库名 |
+| `GHAT_DB_SSLMODE` | `prefer` | libpq sslmode |
+| `GHAT_POOL_MIN/MAX` | `1` / `10` | 连接池。每个在处理的请求占一条连接，长轮询也算，见[连接池](operations.md#连接池一个请求占一条连接) |
+| `GHAT_API_KEY` | 空 | REST / MCP 的 Bearer；空表示不鉴权（启动告警），公网必须设置 |
+| `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听 |
+| `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |
+| `GHAT_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook 监听 |
+| `GHAT_WEBHOOK_SECRET` | 空 | HMAC 密钥，与 GitHub webhook 配置一致 |
+| `GHAT_WEBHOOK_URL` | 空 | 创建 webhook 时的默认回调 URL |
+| `GHAT_PUBLIC_BASE_URL` | 空 | MCP action URL 的绝对前缀 |
+| `GHAT_WEBHOOK_SSL_CERTFILE/KEYFILE` | 空 | webhook 的 fullchain 与私钥路径；空表示明文 HTTP |
+| `GHAT_DEFAULT_EVENTS` | `workflow_run,workflow_job` | 订阅的 webhook 事件 |
+| `GHAT_WAIT_MAX_SECONDS` | `300` | `wait_for_run` 单次可等待的上限（`timeout_seconds` 默认 45 秒，超过会被截断）。工具回报的 `p50/p90` 与 `suggested_timeout_seconds` 也受它约束 |
+| `GHAT_LOG_CAPTURE` | `1` | 是否采集 step 日志。`0/false/no/off` 关闭后，所有日志读取都走整 job 的合并文本（引入 step 日志之前的行为） |
+| `GHAT_LOG_CAPTURE_WINDOW_MINUTES` | `60` | run 结束后多久之内仍尝试采集 step 分片。这是**实测值**，不是官方承诺；调大没有坏处，调小会少抓 |
+| `GHAT_LOG_LEVEL` | `INFO` | 日志级别；日志一律走 stdout/stderr |
+| `GHAT_INITDB` | `auto` | 首次启动是否执行 init.d 脚本：`auto`（表不存在时执行）/ `force` / `skip` |
+| `GHAT_INITDB_DIR` | `/docker-entrypoint-init.d` | init.d 脚本目录；compose 只读挂载 `./docker/init.d` |
+| `GHAT_LEGACY` | `0` | `1` 等价于 `GHAT_INITDB=skip`（legacy 部署） |
+| `GHAT_BOOTSTRAP_PAT` | 空 | 首次初始化注入的 fine-grained PAT（由 `20-pat.sh` 读取） |
+| `GHAT_BOOTSTRAP_PAT_FILE` | 空 | 从文件读取 PAT，避免令牌出现在 `docker inspect` |
+| `GHAT_BOOTSTRAP_PAT_NAME` | `default` | 凭据别名（CLI 中显示为 `pat/<name>`） |
+| `GHAT_BOOTSTRAP_PROBE_REPO` | 空 | 用来验证 Actions 写权限的 `owner/repo` |
+| `GHAT_IMAGE` | 发布镜像 | compose 使用的镜像；本地构建后设为 `github-actions-tracker:local` |
+| `GHAT_WEBHOOK_PORT_HOST` | `18080` | 宿主发布的 webhook 端口（容器内固定 18080） |
+| `GHAT_MCP_PORT_HOST` | `8001` | 宿主发布的 MCP 端口（容器内固定 8001） |
+| `GHAT_OAUTH_ISSUER` | 空 | **预留**：OAuth 模式下的 issuer；当前不可用，见下方说明 |
+| `GHAT_RESOURCE_URL` | 空 | **预留**：OAuth 模式下本服务的 resource 标识；当前不可用 |
 
 #### 凭据方式：当前只有静态 Bearer
 
-本服务目前**只提供静态 Bearer 鉴权**（`CITRACKER_API_KEY`），MCP 与 REST 共用同一个 key，
-CLI 不使用它。代码里保留了 OAuth 2.1 的分支（`CITRACKER_OAUTH_ISSUER`、`CITRACKER_RESOURCE_URL`），
+本服务目前**只提供静态 Bearer 鉴权**（`GHAT_API_KEY`），MCP 与 REST 共用同一个 key，
+CLI 不使用它。代码里保留了 OAuth 2.1 的分支（`GHAT_OAUTH_ISSUER`、`GHAT_RESOURCE_URL`），
 但本项目不附带授权服务器，也没有可用的 JWKS 来源，因此**不要把这两个变量当作可用功能**：
-只设置 `CITRACKER_OAUTH_ISSUER` 而没有 verifier 时，服务仍会按 Bearer 模式启动。等中心授权
+只设置 `GHAT_OAUTH_ISSUER` 而没有 verifier 时，服务仍会按 Bearer 模式启动。等中心授权
 服务器落地后，这一节会改写。
 
 ### TLS 证书目录
@@ -249,8 +249,8 @@ cp <证书目录>/privkey.pem  docker/certs/
 然后在环境里指向容器内路径：
 
 ```dotenv
-CITRACKER_WEBHOOK_SSL_CERTFILE=/certs/fullchain.pem
-CITRACKER_WEBHOOK_SSL_KEYFILE=/certs/privkey.pem
+GHAT_WEBHOOK_SSL_CERTFILE=/certs/fullchain.pem
+GHAT_WEBHOOK_SSL_KEYFILE=/certs/privkey.pem
 ```
 
 `docker-compose.yml` 已把 `./docker/certs` 只读挂载到 `/certs`。证书续期后替换宿主机文件并重启

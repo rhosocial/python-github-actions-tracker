@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 import pytest
 from conftest import FakeGithub
 
-from rhosocial.github_ci_tracker.controllers import RunData
-from rhosocial.github_ci_tracker.controllers.query import QueryController
-from rhosocial.github_ci_tracker.controllers.run import RunController
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.controllers import RunData
+from rhosocial.github_actions_tracker.controllers.query import QueryController
+from rhosocial.github_actions_tracker.controllers.run import RunController
+from rhosocial.github_actions_tracker.core.exceptions import (
     AttemptNotFoundError,
     GithubAPIError,
     JobNotFoundError,
@@ -29,15 +29,15 @@ from rhosocial.github_ci_tracker.core.exceptions import (
     RunNotFoundError,
     WorkflowNotFoundError,
 )
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRepository,
     AsyncWorkflow,
     AsyncWorkflowRun,
 )
-from rhosocial.github_ci_tracker.models.attempt import AsyncRunAttempt
-from rhosocial.github_ci_tracker.models.log import AsyncJobLog
-from rhosocial.github_ci_tracker.services.github import GithubRepositories, GithubRuns
+from rhosocial.github_actions_tracker.models.attempt import AsyncRunAttempt
+from rhosocial.github_actions_tracker.models.log import AsyncJobLog
+from rhosocial.github_actions_tracker.services.github import GithubRepositories, GithubRuns
 
 REPO = "acme/demo"
 RUN_ID = 500
@@ -680,7 +680,7 @@ class TestRunIdentity:
         ``recent_runs(workflow=...)`` answered with every workflow's runs and
         said nothing about it.
         """
-        from rhosocial.github_ci_tracker.models import AsyncWorkflow
+        from rhosocial.github_actions_tracker.models import AsyncWorkflow
 
         repo = await _tracked()
         cached = await AsyncWorkflow.find_one(AsyncWorkflow.c.repository_id == (repo.id or 0))

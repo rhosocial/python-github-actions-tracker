@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 from rhosocial.activerecord.connection.pool import PoolStats
 
-from rhosocial.github_ci_tracker.adapters.mcp.tools.status import _pool_payload
+from rhosocial.github_actions_tracker.adapters.mcp.tools.status import _pool_payload
 
 
 def _container(stats: PoolStats, max_size: int = 10) -> SimpleNamespace:

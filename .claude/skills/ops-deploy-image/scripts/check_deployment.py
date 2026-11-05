@@ -25,7 +25,7 @@ def _request(
     url: str, *, method: str = "GET", headers: dict[str, str] | None = None, body: object = None
 ) -> tuple[int, bytes, object]:
     data = None
-    request_headers = {"User-Agent": "citracker-deploy-check"}
+    request_headers = {"User-Agent": "ghat-deploy-check"}
     if headers:
         request_headers.update(headers)
     if body is not None:
@@ -195,8 +195,8 @@ def main() -> int:
     content_type = _header(response_headers, "content-type")
     record(
         "metrics answer in Prometheus text",
-        status == 200 and "text/plain" in content_type and b"citracker_" in body,
-        {"status": status, "content_type": content_type, "has_counters": b"citracker_" in body},
+        status == 200 and "text/plain" in content_type and b"ghat_" in body,
+        {"status": status, "content_type": content_type, "has_counters": b"ghat_" in body},
     )
 
     # A real MCP handshake: initialize, then tools/list. Both go over the same socket a

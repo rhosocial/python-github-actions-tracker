@@ -4,8 +4,8 @@
 
 ```
 get_job_log(job_id)                        the failed steps (or the merged document)
-get_job_log(job_id, whole_job=true)        the job's merged document (ct_job_logs)
-get_job_log(job_id, step=N)                that step's own file (ct_step_logs)
+get_job_log(job_id, whole_job=true)        the job's merged document (ghat_job_logs)
+get_job_log(job_id, step=N)                that step's own file (ghat_step_logs)
 get_job_log(job_id, failed_steps_only=true)   the text of every failed step
 search_job_log(job_id, query)              search the merged document
 search_job_log(job_id, query, step=N)      search one step's document
@@ -90,8 +90,8 @@ the split (before `capture.window_closes_at`).
 ## Which month a log belongs to
 
 Every log row carries the **bucket** it belongs to: the first day of the UTC
-month its job finished. `ct_jobs.log_bucket` holds the same value, and
-`ct_steps.log_bucket` copies it, so a read that has the job (or the step) in hand
+month its job finished. `ghat_jobs.log_bucket` holds the same value, and
+`ghat_steps.log_bucket` copies it, so a read that has the job (or the step) in hand
 knows the month without another query.
 
 The bucket is derived, never independently stored: the write path computes it

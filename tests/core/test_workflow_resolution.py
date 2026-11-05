@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import pytest
 
-from rhosocial.github_ci_tracker.controllers import RepositoryData
-from rhosocial.github_ci_tracker.core.exceptions import WorkflowNotFoundError
-from rhosocial.github_ci_tracker.models import AsyncRepository, AsyncWorkflow
+from rhosocial.github_actions_tracker.controllers import RepositoryData
+from rhosocial.github_actions_tracker.core.exceptions import WorkflowNotFoundError
+from rhosocial.github_actions_tracker.models import AsyncRepository, AsyncWorkflow
 
 REPO = "acme/demo"
 

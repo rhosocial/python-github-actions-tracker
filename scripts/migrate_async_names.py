@@ -12,7 +12,7 @@ FILES = [
         Path(__file__).parent.parent
         / "src"
         / "rhosocial"
-        / "github_ci_tracker"
+        / "github_actions_tracker"
         / "core"
         / "services.py"
     ),
@@ -20,7 +20,7 @@ FILES = [
         Path(__file__).parent.parent
         / "src"
         / "rhosocial"
-        / "github_ci_tracker"
+        / "github_actions_tracker"
         / "core"
         / "facade.py"
     ),

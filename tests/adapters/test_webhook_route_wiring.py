@@ -19,7 +19,7 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from rhosocial.github_ci_tracker.adapters.rest.routes.webhooks import github_webhook
+from rhosocial.github_actions_tracker.adapters.rest.routes.webhooks import github_webhook
 
 
 def _request(body: bytes, headers: list[tuple[bytes, bytes]] | None = None) -> Request:
@@ -41,7 +41,7 @@ def _request(body: bytes, headers: list[tuple[bytes, bytes]] | None = None) -> R
         "query_string": b"",
         "headers": headers or [],
         "client": ("127.0.0.1", 1234),
-        "server": ("citracker.test", 443),
+        "server": ("tracker.test", 443),
         "app": _App(),
     }
     return Request(scope, receive=receive)
@@ -70,7 +70,7 @@ class _App:
 
 def test_the_route_reaches_its_own_signature_check(monkeypatch) -> None:
     """A forged delivery is refused before anything reaches the database."""
-    monkeypatch.setenv("CITRACKER_WEBHOOK_SECRET", "s3cret")
+    monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
     request = _request(
         json.dumps({"action": "completed"}).encode(),
         [
@@ -106,7 +106,7 @@ def _disconnected_request() -> Request:
         "query_string": b"",
         "headers": [(b"x-github-delivery", b"d-aborted")],
         "client": ("127.0.0.1", 1234),
-        "server": ("citracker.test", 443),
+        "server": ("tracker.test", 443),
         "app": _App(),
     }
     return Request(scope, receive=receive)
@@ -119,7 +119,7 @@ def test_a_client_that_hangs_up_mid_body_is_not_a_server_error(monkeypatch) -> N
     application`` -- one traceback per aborted delivery, all of it noise the
     operator cannot act on.
     """
-    monkeypatch.setenv("CITRACKER_WEBHOOK_SECRET", "s3cret")
+    monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
 
     result = asyncio.run(github_webhook(_disconnected_request()))
 

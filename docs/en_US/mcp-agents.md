@@ -1,8 +1,8 @@
 # Connecting coding agents over MCP
 
-citracker speaks MCP over Streamable HTTP at `http://127.0.0.1:8001/mcp` (or
+the tracker speaks MCP over Streamable HTTP at `http://127.0.0.1:8001/mcp` (or
 `https://<host>:8001/mcp` when TLS is in front), with a static Bearer key when
-`CITRACKER_API_KEY` is set. This page is not the protocol reference — it is how
+`GHAT_API_KEY` is set. This page is not the protocol reference — it is how
 the four coding agents most people actually run manage MCP configuration, what
 each one stores where, and the exact snippets that connect them to this service.
 
@@ -36,14 +36,14 @@ committed), and `user` (all projects). The CLI writes the file for you:
 
 ```bash
 # Local deployment, no API key configured:
-claude mcp add --transport http citracker http://127.0.0.1:8001/mcp
+claude mcp add --transport http the tracker http://127.0.0.1:8001/mcp
 
 # TLS in front, API key set:
-claude mcp add --transport http citracker https://citracker.example.com:8001/mcp \
-  --header "Authorization: Bearer <CITRACKER_API_KEY>"
+claude mcp add --transport http the tracker https://tracker.example.com:8001/mcp \
+  --header "Authorization: Bearer <GHAT_API_KEY>"
 
 # Share with the team through the repository:
-claude mcp add --transport http citracker http://127.0.0.1:8001/mcp --scope project
+claude mcp add --transport http the tracker http://127.0.0.1:8001/mcp --scope project
 ```
 
 The same thing as committed JSON (`.mcp.json`):
@@ -51,10 +51,10 @@ The same thing as committed JSON (`.mcp.json`):
 ```json
 {
   "mcpServers": {
-    "citracker": {
+    "the tracker": {
       "type": "http",
       "url": "http://127.0.0.1:8001/mcp",
-      "headers": { "Authorization": "Bearer ${CITRACKER_API_KEY}" }
+      "headers": { "Authorization": "Bearer ${GHAT_API_KEY}" }
     }
   }
 }
@@ -83,22 +83,22 @@ transport is spelled per server: stdio takes `command` + `args`; Streamable HTTP
 takes `url` and its authentication travels separately.
 
 ```toml
-[mcp_servers.citracker]
+[mcp_servers.the tracker]
 url = "http://127.0.0.1:8001/mcp"
 
 # TLS in front, API key set:
-[mcp_servers.citracker]
-url = "https://citracker.example.com:8001/mcp"
-bearer_token_env_var = "CITRACKER_API_KEY"
+[mcp_servers.the tracker]
+url = "https://tracker.example.com:8001/mcp"
+bearer_token_env_var = "GHAT_API_KEY"
 tool_timeout_sec = 120
 ```
 
 The CLI form (writes the same file):
 
 ```bash
-codex mcp add citracker --url http://127.0.0.1:8001/mcp
+codex mcp add the tracker --url http://127.0.0.1:8001/mcp
 codex mcp list          # servers and their connection state
-codex mcp login citracker   # only for OAuth servers; this one uses a Bearer key
+codex mcp login the tracker   # only for OAuth servers; this one uses a Bearer key
 ```
 
 One `tool_timeout_sec` note that matters for this service specifically:
@@ -119,12 +119,12 @@ explicitly:
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "citracker": {
+    "the tracker": {
       "type": "remote",
       "url": "http://127.0.0.1:8001/mcp",
       "enabled": true,
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:CITRACKER_API_KEY}" }
+      "headers": { "Authorization": "Bearer {env:GHAT_API_KEY}" }
     }
   }
 }
@@ -139,7 +139,7 @@ explicitly:
   Codex applies (raise it above the wait ceiling if you plan to use that tool).
 
 Verify with `opencode mcp list`, or debug a failing server with
-`opencode mcp debug citracker`, which tests HTTP connectivity and prints the
+`opencode mcp debug the tracker`, which tests HTTP connectivity and prints the
 auth state.
 
 ## Command Code
@@ -151,10 +151,10 @@ project), `project` (`.mcp.json`, version controlled) and `user`
 when the same name appears twice.
 
 ```bash
-cmd mcp add --transport http citracker http://127.0.0.1:8001/mcp
+cmd mcp add --transport http the tracker http://127.0.0.1:8001/mcp
 
-cmd mcp add --transport http citracker https://citracker.example.com:8001/mcp \
-  --header "Authorization: Bearer <CITRACKER_API_KEY>"
+cmd mcp add --transport http the tracker https://tracker.example.com:8001/mcp \
+  --header "Authorization: Bearer <GHAT_API_KEY>"
 ```
 
 As JSON (the schema uses `transport`, with `type` accepted as an alias, so a
@@ -163,10 +163,10 @@ Claude Code `.mcp.json` block pastes in unchanged):
 ```json
 {
   "mcpServers": {
-    "citracker": {
+    "the tracker": {
       "transport": "http",
       "url": "http://127.0.0.1:8001/mcp",
-      "headers": { "Authorization": "Bearer ${CITRACKER_API_KEY}" }
+      "headers": { "Authorization": "Bearer ${GHAT_API_KEY}" }
     }
   }
 }
@@ -180,7 +180,7 @@ connected, and the tool count is shown).
 Two conveniences worth knowing: `/import` pulls MCP servers from other agents
 (`/import claude`, `/import codex`, `/import opencode`, ...), so an existing
 setup migrates in one command; and its tools are prefixed
-`mcp__citracker__<tool>`, which matters if you write rules that reference them.
+`mcp__tracker__<tool>`, which matters if you write rules that reference them.
 
 ## Choosing where the configuration lives
 
@@ -189,10 +189,10 @@ The scope question is the same everywhere, and the answer is the same too:
 - **A repository's `.mcp.json` / `.codex/config.toml` is a shared file.** Put
   the deployment's *address* in it — that is useful to the whole team. Do not
   put a key in it; every one of these agents can read the key from the
-  environment (`${CITRACKER_API_KEY}`, `{env:...}`,
+  environment (`${GHAT_API_KEY}`, `{env:...}`,
   `bearer_token_env_var`), and the environment is where a secret belongs.
 - **A user-scope entry is for a personal deployment.** A laptop-local
-  citracker with no API key is a user-scope or local-scope server; the project
+  the tracker with no API key is a user-scope or local-scope server; the project
   file would publish `127.0.0.1` addresses to teammates whose deployment is
   elsewhere.
 - **Approval gates are per machine.** Claude Code's pending-approval state and

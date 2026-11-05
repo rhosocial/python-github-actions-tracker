@@ -17,7 +17,7 @@
     in the router's own UPnP / port-forwarding page.
 
 .PARAMETER ExternalPort
-    Port opened on the WAN side. Default from CITRACKER_WEBHOOK_PORT in .env.
+    Port opened on the WAN side. Default from GHAT_WEBHOOK_PORT in .env.
 
 .PARAMETER InternalPort
     Port on this machine. Default 18080.
@@ -45,7 +45,7 @@ param(
     [string]$Protocol = 'TCP',
     [ValidateSet('Add', 'Remove')]
     [string]$Action = 'Add',
-    [string]$Description = 'citracker',
+    [string]$Description = 'github-actions-tracker',
     [switch]$List
 )
 
@@ -62,7 +62,7 @@ function Get-ConfiguredPort {
         $path = Join-Path $root $name
         if (Test-Path $path) {
             foreach ($line in Get-Content $path) {
-                if ($line -match '^\s*CITRACKER_WEBHOOK_PORT\s*=\s*(\d+)') {
+                if ($line -match '^\s*GHAT_WEBHOOK_PORT\s*=\s*(\d+)') {
                     return [int]$Matches[1]
                 }
             }

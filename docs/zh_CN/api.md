@@ -8,14 +8,14 @@ MCP 适配层通过 Streamable HTTP 暴露，默认端点是 `http://127.0.0.1:8
 ### 启动 MCP 服务
 
 ```bash
-# 默认 0.0.0.0:8001；端口可用 CITRACKER_MCP_PORT 调整
-rhosocial-github-ci-tracker serve mcp
+# 默认 0.0.0.0:8001；端口可用 GHAT_MCP_PORT 调整
+rhosocial-github-actions-tracker serve mcp
 
 # 仅本机使用时，建议显式绑定 loopback
-rhosocial-github-ci-tracker serve mcp --host 127.0.0.1 --port 8001
+rhosocial-github-actions-tracker serve mcp --host 127.0.0.1 --port 8001
 ```
 
-`CITRACKER_API_KEY` 留空是允许的：此时 MCP 不启用 Bearer 校验，启动日志会给出告警。
+`GHAT_API_KEY` 留空是允许的：此时 MCP 不启用 Bearer 校验，启动日志会给出告警。
 公网部署必须提供该 key，这由部署者自行保证；本服务不会因为 key 为空而拒绝启动。
 
 MCP 工具与 REST、CLI 共用同一套业务核心。首次接入建议先调用 `ci_status`、`list_repos`
@@ -32,13 +32,13 @@ MCP 工具与 REST、CLI 共用同一套业务核心。首次接入建议先调�
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "citracker": {
+    "the tracker": {
       "type": "remote",
       "url": "http://127.0.0.1:8001/mcp",
       "enabled": true,
       "oauth": false,
       "headers": {
-        "Authorization": "Bearer {env:CITRACKER_API_KEY}"
+        "Authorization": "Bearer {env:GHAT_API_KEY}"
       }
     }
   }
@@ -47,7 +47,7 @@ MCP 工具与 REST、CLI 共用同一套业务核心。首次接入建议先调�
 
 - `oauth: false`：本服务用静态 Bearer，不做 OAuth；关掉自动探测，避免 key 打错时 OpenCode
   去开浏览器走一遍发现流程。
-- `{env:CITRACKER_API_KEY}`：加载时从进程环境展开。OpenCode 进程必须能读到该变量；从桌面
+- `{env:GHAT_API_KEY}`：加载时从进程环境展开。OpenCode 进程必须能读到该变量；从桌面
   图标启动时读不到 shell 里临时设置的变量，此时可把令牌直接写进全局配置（该文件不入库）。
 - 四家主流 agent（Claude Code、Codex、OpenCode、Command Code）的完整配置与作用域模型见
   [编码 Agent 接入 MCP](mcp-agents.md)。
@@ -58,17 +58,17 @@ MCP 工具与 REST、CLI 共用同一套业务核心。首次接入建议先调�
 opencode mcp list
 ```
 
-显示 `citracker connected` 即接通。异常时先用 `opencode mcp debug citracker` 查看 HTTP 与
+显示 `the tracker connected` 即接通。异常时先用 `opencode mcp debug the tracker` 查看 HTTP 与
 鉴权细节，或在 TUI 里用 `/mcps` 重连。
 
 ### 鉴权
 
-MCP 与 REST 共用 `CITRACKER_API_KEY`。设置了该变量时，`/mcp` 要求
+MCP 与 REST 共用 `GHAT_API_KEY`。设置了该变量时，`/mcp` 要求
 `Authorization: Bearer <key>`，与上面的客户端配置一致；比较是常量时间的，错误的令牌
-由 SDK 以 `401` 拒绝。该 key 代表 operator，持有 `citracker:read`、`citracker:write`
-与未使用的 `citracker:admin` 全部 scope，请像保护 REST key 一样保护它。
+由 SDK 以 `401` 拒绝。该 key 代表 operator，持有 `ghat:read`、`ghat:write`
+与未使用的 `ghat:admin` 全部 scope，请像保护 REST key 一样保护它。
 
-`CITRACKER_API_KEY` 为空时，MCP 和 REST 都不鉴权，启动日志会分别打印
+`GHAT_API_KEY` 为空时，MCP 和 REST 都不鉴权，启动日志会分别打印
 `MCP bearer verification is disabled` / `REST API authentication is disabled` 告警。
 这是受支持的部署方式（本机、内网、或由前置网关鉴权），但公网直连时必须由部署者提供
 key。CLI 不使用这个 key，`credential`、`serve webhook` 等命令在 key 为空时照常运行。
@@ -83,51 +83,51 @@ key。CLI 不使用这个 key，`credential`、`serve webhook` 等命令在 key 
 中文：
 
 ```text
-用 citracker 看一下 rhosocial/python-activerecord 在 main 上最新一次 test.yml 的结果。
+用 the tracker 看一下 rhosocial/python-activerecord 在 main 上最新一次 test.yml 的结果。
 如果还在跑，等到它结束再告诉我；失败了就指出是哪个 job、哪个 step，并把关键错误行贴出来。
 ```
 
 ```text
-用 citracker 一次性看一下 python-activerecord 系列 15 个仓库各自最新一次运行的状态，
+用 the tracker 一次性看一下 python-activerecord 系列 15 个仓库各自最新一次运行的状态，
 汇总成一张表：仓库 / 结论 / 分支 / 耗时，失败的要标出来。
 ```
 
 ```text
-用 citracker 统计一下 python-activerecord 系列里，过去三次运行中哪些仓库连续失败，
+用 the tracker 统计一下 python-activerecord 系列里，过去三次运行中哪些仓库连续失败，
 以及每个失败仓库最近一次失败是哪个 job、哪个 step。
 ```
 
 ```text
 我刚推了 3 个后端仓库（mysql / postgres / mariadb）的 fix/column-constraint-gates 分支，
-用 citracker 分别查一下各自最新一次的运行状态，汇总成一张表：仓库 / 结论 / 耗时 / 失败 job。
+用 the tracker 分别查一下各自最新一次的运行状态，汇总成一张表：仓库 / 结论 / 耗时 / 失败 job。
 ```
 
 ```text
-用 citracker 触发 rhosocial/python-activerecord-postgres 的 test.yml（ref: main），
+用 the tracker 触发 rhosocial/python-activerecord-postgres 的 test.yml（ref: main），
 然后跟踪到结束。失败了先别重跑，把失败原因给我。
 ```
 
 English:
 
 ```text
-Use citracker to check the latest test.yml run for rhosocial/python-activerecord on main.
+Use the tracker to check the latest test.yml run for rhosocial/python-activerecord on main.
 If it is still running, wait until it finishes. If it failed, tell me which job and step
 failed and show the key error lines.
 ```
 
 ```text
 I just pushed fix/column-constraint-gates to three backend repos (mysql, postgres, mariadb).
-Ask citracker for the latest run in each and give me one table: repo / conclusion / duration /
+Ask the tracker for the latest run in each and give me one table: repo / conclusion / duration /
 failing job.
 ```
 
 ```text
-Ask citracker for the newest run of all fifteen python-activerecord repositories in one go,
+Ask the tracker for the newest run of all fifteen python-activerecord repositories in one go,
 then give me only the ones that are red, with the failing job and step for each.
 ```
 
 ```text
-Use citracker to dispatch test.yml on rhosocial/python-activerecord-postgres (ref: main) and
+Use the tracker to dispatch test.yml on rhosocial/python-activerecord-postgres (ref: main) and
 track it to completion. If it fails, do not re-run: report the failure first.
 ```
 
@@ -147,7 +147,7 @@ track it to completion. If it fails, do not re-run: report the failure first.
 |---|---|---|
 | 概览 | `recent_runs` | 一批仓库各自最近 N 次运行的**摘要**，一次调用回答"这些仓库现在什么状态"。上限 20 个仓库 × 10 条；某个仓库失败只在原位报错，不影响其他仓库 |
 | 定位 | `find_runs` | 单个仓库按分支/提交/PR/工作流/状态查；每次都读 GitHub，所以能补上漏收的 webhook |
-| 等待 | `wait_for_run` | 单次阻塞默认 45 秒，上限由 `CITRACKER_WAIT_MAX_SECONDS` 决定（默认 300 秒）。返回 `timed_out=true` 表示**还在跑，不是失败**，再调一次即可 |
+| 等待 | `wait_for_run` | 单次阻塞默认 45 秒，上限由 `GHAT_WAIT_MAX_SECONDS` 决定（默认 300 秒）。返回 `timed_out=true` 表示**还在跑，不是失败**，再调一次即可 |
 | 归因 | `get_run` → `get_job` → `get_job_log` | `get_run` 给 job 名册与 `failed`；`get_job` 给该 job 的每个 step 与 `has_log`；`get_job_log` 读那一个 step 的文本 |
 
 选择建议：跨多仓库问"谁红了"用 `recent_runs`；盯一个仓库的某次提交或某条 PR 用 `find_runs`。一次投递的写入在 `pool.transaction()` 里，失败则整体回滚；连接由请求上下文解析，不写模型类属性。
@@ -259,19 +259,19 @@ GitHub 有两个日志来源，本项目都用：
 
 | 来源 | 内容 | 可得性 |
 |---|---|---|
-| `GET /actions/jobs/{id}/logs` | 一个 job 的合并文本 | 90 天内随时可读，存进 `ct_job_logs` |
+| `GET /actions/jobs/{id}/logs` | 一个 job 的合并文本 | 90 天内随时可读，存进 `ghat_job_logs` |
 | `GET /actions/runs/{id}/logs` | zip：合并文件 + `<job>/<step 号>_<step 名>.txt` + `system.txt` | 按 step 拆分的文件**只在 run 结束后约一小时内由 GitHub 提供**，之后同一归档只剩合并文件，边界不可恢复 |
 
 **一小时是取回（采集）的截止时间，不是保存期限。** 一旦某个 step 的文本被取回并写进
-`ct_step_logs`，它就是本服务的普通数据：与 GitHub 的保留期无关，读多少次、隔多久读都一样。
+`ghat_step_logs`，它就是本服务的普通数据：与 GitHub 的保留期无关，读多少次、隔多久读都一样。
 截止时间唯一决定的是"还能不能再补采"，不影响"已经采到的能不能读"。
 
 三条边界，一次说清：
 
 | 问题 | 答案 |
 |---|---|
-| 多久之内必须取回？ | run 结束后 `CITRACKER_LOG_CAPTURE_WINDOW_MINUTES`（默认 60 分钟）；过了只能读该 job 的合并日志 |
-| 取回之后能存多久？ | 没有时间上限。`ct_step_logs` / `ct_job_logs` 与其它表一样长期保留，读路径不做任何时效判断 |
+| 多久之内必须取回？ | run 结束后 `GHAT_LOG_CAPTURE_WINDOW_MINUTES`（默认 60 分钟）；过了只能读该 job 的合并日志 |
+| 取回之后能存多久？ | 没有时间上限。`ghat_step_logs` / `ghat_job_logs` 与其它表一样长期保留，读路径不做任何时效判断 |
 | 什么会让已存的日志消失？ | 只有运维显式清理：`db cleanup --logs-before <时长>`（默认不动），或 `db reset` / `db drop`；仓库退订也会删掉该仓库的数据 |
 
 因此 step 日志是**采集**，不是随时可读：
@@ -282,7 +282,7 @@ GitHub 有两个日志来源，本项目都用：
 - 归档文件是**异步写入**的，run 刚结束时可能只到了几份。读取路径会为此重试：
   每次重新拉归档，间隔 60 秒，最多 6 次；404/5xx 也算"还没好"，同样重试；
   webhook 只做单次尝试，不占用投递时间；
-- 存进 `ct_step_logs`，与 step 一对一、允许缺失；`system.txt` 不入库；
+- 存进 `ghat_step_logs`，与 step 一对一、允许缺失；`system.txt` 不入库；
 - 没赶上采集就**如实返回缺失**（`reason` 是 `capture_closed` / `not_a_step_archive` 等），
   绝不拿另一个 step 的文本、也不从合并文本里猜边界；
 - 一个 job 的 step 全都没有日志时，调用方读该 job 的合并日志自行分析——这是设计上的退路。
@@ -370,7 +370,7 @@ search_job_log(repository=..., job_id=..., query="ModuleNotFound", step=6)
 - 让 agent 反复调 `wait_for_run`（默认每次 45 秒，`timed_out` 就再来一次）；
 - 或者先用 `find_runs` 确认 run 存在，把 run id 记下来，过一会儿再查。
 
-`wait_for_run` 单次时长由调用方传 `timeout_seconds` 决定，上限是 `CITRACKER_WAIT_MAX_SECONDS`。
+`wait_for_run` 单次时长由调用方传 `timeout_seconds` 决定，上限是 `GHAT_WAIT_MAX_SECONDS`。
 把它调大可以一次等更久，但**客户端自己的执行超时必须相应放宽**，否则请求会先被客户端掐断。
 OpenCode 的 `mcp.timeout.execution` 默认 12 小时，通常不用改。
 
@@ -378,7 +378,7 @@ OpenCode 的 `mcp.timeout.execution` 默认 12 小时，通常不用改。
 
 - `trigger_workflow` / `rerun_run` 返回 `typical_duration_seconds: {samples, p50_seconds, p90_seconds}`；
 - `wait_for_run` 超时时返回 `observed`（同样三项）和 `suggested_timeout_seconds`（p90 向上取整，
-  夹在 `[10, CITRACKER_WAIT_MAX_SECONDS]`），hint 会写清"再等约 N 秒"；
+  夹在 `[10, GHAT_WAIT_MAX_SECONDS]`），hint 会写清"再等约 N 秒"；
 - p90 超过单次上限时，hint 会明确说"这是单次上限，需要不止一次等待"；
 - 新订阅或新 workflow 没有历史，这两个字段是 `null`——此时没有可依据的时长，不要编一个。
 
@@ -390,17 +390,17 @@ OpenCode 的 `mcp.timeout.execution` 默认 12 小时，通常不用改。
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `opencode mcp list` 显示 `needs authentication` | 没配 `oauth: false`，OpenCode 去做 OAuth 发现 | 补上 `oauth: false`，本服务只支持静态 Bearer |
-| `connected` 但每次调用都 401 | 客户端 header 里的 key 与服务端 `CITRACKER_API_KEY` 不一致 | 两边用同一个值；从桌面图标启动的 OpenCode 读不到 shell 临时变量，可写进全局配置 |
-| 连接被拒绝 / `fetch failed` | 8001 没有发布到宿主，或绑到了 `127.0.0.1` | 看 `docker compose ps` 的 PORTS 列；需要从别的主机访问时把 `CITRACKER_MCP_PORT_HOST` 打开并确认防火墙 |
-| 容器 `Up` 但**所有调用 500**、`/readyz` 503 或 500 | 数据库连不上：`CITRACKER_DB_HOST` 是动态 DNS，IP 变了以后容器里缓存的旧地址失效。日志里是 `Failed to connect to PostgreSQL: ... server closed the connection unexpectedly` | 先 `docker compose ps` 看是否 `(healthy)`（compose 已给 web/mcp 配 `/readyz` 健康检查）；再在宿主上用同一账号 `Test-NetConnection <host> -Port <port>` 对比解析结果；**重启 web 和 mcp** 让它们重新解析，不需要重建镜像 |
-| 容器 `(unhealthy)` | 同上，或数据库确实宕了 | `docker logs citracker-mcp-1 --tail 30`；数据库恢复后 `docker restart` 即可 |
-| 日志里成片 `Failed to acquire connection within 30.0 seconds` | 连接池耗尽：`Pool stats` 里 `in_use≈max_size` 是并发饱和；`available=0, in_use=0` 是旧版本的许可泄漏 | 前者调大 `CITRACKER_POOL_MAX`（长轮询也占连接）；后者重启容器，并升级到含 `a55ebbd9` 的镜像。详见[连接池](operations.md#连接池一个请求占一条连接) |
+| `connected` 但每次调用都 401 | 客户端 header 里的 key 与服务端 `GHAT_API_KEY` 不一致 | 两边用同一个值；从桌面图标启动的 OpenCode 读不到 shell 临时变量，可写进全局配置 |
+| 连接被拒绝 / `fetch failed` | 8001 没有发布到宿主，或绑到了 `127.0.0.1` | 看 `docker compose ps` 的 PORTS 列；需要从别的主机访问时把 `GHAT_MCP_PORT_HOST` 打开并确认防火墙 |
+| 容器 `Up` 但**所有调用 500**、`/readyz` 503 或 500 | 数据库连不上：`GHAT_DB_HOST` 是动态 DNS，IP 变了以后容器里缓存的旧地址失效。日志里是 `Failed to connect to PostgreSQL: ... server closed the connection unexpectedly` | 先 `docker compose ps` 看是否 `(healthy)`（compose 已给 web/mcp 配 `/readyz` 健康检查）；再在宿主上用同一账号 `Test-NetConnection <host> -Port <port>` 对比解析结果；**重启 web 和 mcp** 让它们重新解析，不需要重建镜像 |
+| 容器 `(unhealthy)` | 同上，或数据库确实宕了 | `docker logs the tracker-mcp-1 --tail 30`；数据库恢复后 `docker restart` 即可 |
+| 日志里成片 `Failed to acquire connection within 30.0 seconds` | 连接池耗尽：`Pool stats` 里 `in_use≈max_size` 是并发饱和；`available=0, in_use=0` 是旧版本的许可泄漏 | 前者调大 `GHAT_POOL_MAX`（长轮询也占连接）；后者重启容器，并升级到含 `a55ebbd9` 的镜像。详见[连接池](operations.md#连接池一个请求占一条连接) |
 | `docker compose pull` 之后 `up -d` / `docker start` / `docker rm -f` 全部卡住 | 本机 Docker Desktop 的容器运行时被卡住（与上文单文件 bind mount 那条不同，这条与挂载无关，`pull` 完新镜像后出现） | 退出并重启 Docker Desktop，再跑一次 `up -d`；不需要动 compose 文件 |
 | webhook 日志里出现过 `ClientDisconnect` 的 ASGI traceback | GitHub 在发送中途放弃（它自己超时），旧版本把它当成未处理异常打了整段堆栈 | 含本次修复的镜像只记一行 `client disconnected before the body arrived`；GitHub 会重投，或下一次 `find_runs` 补齐，无需处理 |
-| `init` 退出码 1、web/mcp 停在 `Created` | 新镜像一启动就失败（典型是 import 环：`ImportError: cannot import name ... from partially initialized module`）。`up -d` 只会说 init 失败，web/mcp 根本不会启动 | 先看 `docker logs citracker-init-1 --tail 40` 拿真实异常；修好重建镜像再 `up -d`。`ps` 里的 `Created` 不是"在跑"，是"没起来" |
+| `init` 退出码 1、web/mcp 停在 `Created` | 新镜像一启动就失败（典型是 import 环：`ImportError: cannot import name ... from partially initialized module`）。`up -d` 只会说 init 失败，web/mcp 根本不会启动 | 先看 `docker logs the tracker-init-1 --tail 40` 拿真实异常；修好重建镜像再 `up -d`。`ps` 里的 `Created` 不是"在跑"，是"没起来" |
 | 工具报 `Error executing tool ...` | 这是**预期**的失败形态：MCP 层 `isError: true`，文本是 JSON 信封 | 读信封里的 `code` / `hint` / `action_url`。`repository_not_subscribed` 要运营方加仓库，不是你换参数能解决的 |
 | `repository_not_subscribed` | 该仓库没订阅 | 按 `action_url` 加订阅，或在容器里 `repo subscribe --name owner/repo --credential pat/work` |
-| `wait_for_run` 一直 `timed_out` | 任务比单次上限长 | 继续调；或调大 `CITRACKER_WAIT_MAX_SECONDS` 并同步放宽客户端执行超时 |
+| `wait_for_run` 一直 `timed_out` | 任务比单次上限长 | 继续调；或调大 `GHAT_WAIT_MAX_SECONDS` 并同步放宽客户端执行超时 |
 | `trigger_*` 被拒 | 令牌没有 Actions 写权限 | 看 `ci_status` 的 `can_trigger` 与 `trigger_scope`；权限问题由运营方处理 |
 | 触发后不确定是否成功 | `trigger_workflow` 非幂等，响应不明确 | **先 `find_runs` 核对**，不要重试——重试会起第二次运行 |
 | 日志看起来"就这么多" | 窗口被截断（`truncated: true`） | 用 `next_from_line` / `next_to_line` 续读，或换 `grep` 定位 |

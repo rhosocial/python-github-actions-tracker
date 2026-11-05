@@ -19,8 +19,8 @@ from datetime import date
 
 import pytest
 
-from rhosocial.github_ci_tracker.schema.model import SCHEMA, partition_name
-from rhosocial.github_ci_tracker.schema.partitions import (
+from rhosocial.github_actions_tracker.schema.model import SCHEMA, partition_name
+from rhosocial.github_actions_tracker.schema.partitions import (
     PARTITIONED_TABLES,
     _bucket_from_bound,
     month_start,
@@ -67,12 +67,12 @@ class TestTheNames:
         """``<table>_YYYY_MM`` -- derived, never stored, so ``--ensure``,
         ``--list`` and the read path cannot disagree about which partition a
         month lives in."""
-        assert partition_name("ct_job_logs", date(2026, 9, 1)) == "ct_job_logs_2026_09"
-        assert partition_name("ct_step_logs", date(2026, 12, 1)) == "ct_step_logs_2026_12"
+        assert partition_name("ghat_job_logs", date(2026, 9, 1)) == "ghat_job_logs_2026_09"
+        assert partition_name("ghat_step_logs", date(2026, 12, 1)) == "ghat_step_logs_2026_12"
 
     def test_a_name_is_stable_across_repeated_calls(self) -> None:
-        assert partition_name("ct_job_logs", date(2026, 9, 1)) == partition_name(
-            "ct_job_logs", month_start(date(2026, 9, 20))
+        assert partition_name("ghat_job_logs", date(2026, 9, 1)) == partition_name(
+            "ghat_job_logs", month_start(date(2026, 9, 20))
         )
 
 
@@ -80,7 +80,7 @@ class TestThePair:
     def test_both_log_tables_are_partitioned_together(self) -> None:
         """The capture path writes both tables, so one without the other
         *manufactures* the failure rather than preventing it."""
-        assert PARTITIONED_TABLES == ("ct_job_logs", "ct_step_logs")
+        assert PARTITIONED_TABLES == ("ghat_job_logs", "ghat_step_logs")
 
     def test_the_partitioned_tables_are_the_schema_s_log_tables(self) -> None:
         assert set(PARTITIONED_TABLES) <= {table.name for table in SCHEMA.all_tables()}
@@ -88,8 +88,8 @@ class TestThePair:
     def test_no_other_table_is_in_the_pair(self) -> None:
         """The delivery ledger is queried by time and dropped by age; a month of
         it is a metadata operation nobody needs yet."""
-        assert "ct_webhook_delivery" not in PARTITIONED_TABLES
-        assert "ct_jobs" not in PARTITIONED_TABLES
+        assert "ghat_webhook_delivery" not in PARTITIONED_TABLES
+        assert "ghat_jobs" not in PARTITIONED_TABLES
 
 
 class TestTheBounds:

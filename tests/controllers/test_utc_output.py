@@ -12,11 +12,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from rhosocial.github_ci_tracker.controllers import RepositoryData, RunData
-from rhosocial.github_ci_tracker.controllers.status import StatusController
-from rhosocial.github_ci_tracker.controllers.webhook import DeliveryLedger
-from rhosocial.github_ci_tracker.models import AsyncWebhookDelivery
-from rhosocial.github_ci_tracker.views import (
+from rhosocial.github_actions_tracker.controllers import RepositoryData, RunData
+from rhosocial.github_actions_tracker.controllers.status import StatusController
+from rhosocial.github_actions_tracker.controllers.webhook import DeliveryLedger
+from rhosocial.github_actions_tracker.models import AsyncWebhookDelivery
+from rhosocial.github_actions_tracker.views import (
     _to_job_record,
     _to_run_record,
     _to_step_record,
@@ -135,7 +135,7 @@ class TestTokenRecordIsUTC:
         """The token routes serialize these fields too."""
         from types import SimpleNamespace
 
-        from rhosocial.github_ci_tracker.controllers.token import TokenController
+        from rhosocial.github_actions_tracker.controllers.token import TokenController
 
         record = SimpleNamespace(
             id=1,

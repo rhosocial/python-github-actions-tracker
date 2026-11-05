@@ -12,7 +12,7 @@ import asyncio
 from collections.abc import Sequence
 from typing import Any
 
-from rhosocial.github_ci_tracker.schema import TABLES, missing_tables
+from rhosocial.github_actions_tracker.schema import TABLES, missing_tables
 
 
 class _Result:
@@ -40,10 +40,10 @@ def test_a_complete_schema_has_nothing_missing() -> None:
 
 
 def test_partial_schemas_are_reported_in_full() -> None:
-    present = [name for name in TABLES if name != "ct_pat_credentials"]
+    present = [name for name in TABLES if name != "ghat_pat_credentials"]
     backend = _Backend([(name,) for name in present])
 
-    assert asyncio.run(missing_tables(backend)) == ("ct_pat_credentials",)
+    assert asyncio.run(missing_tables(backend)) == ("ghat_pat_credentials",)
 
 
 def test_mapping_rows_are_accepted() -> None:

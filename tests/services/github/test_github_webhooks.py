@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from rhosocial.github_ci_tracker.services.github import GithubWebhooks, WebhookManager
+from rhosocial.github_actions_tracker.services.github import GithubWebhooks, WebhookManager
 
 REPO = "acme/demo"
 

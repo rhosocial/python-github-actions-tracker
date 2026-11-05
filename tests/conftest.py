@@ -6,7 +6,7 @@ bound to one connection, the schema is rebuilt from scratch, and GitHub is
 driven through :class:`FakeGithub` -- an in-memory stand-in for the async
 client, so no HTTP call to GitHub is ever attempted.
 
-The server comes from the environment (``CITRACKER_DB_HOST`` and friends, or a
+The server comes from the environment (``GHAT_DB_HOST`` and friends, or a
 scenarios file); :mod:`tests.pg` owns that contract, and a test without a
 configured server skips rather than invents one.
 
@@ -31,10 +31,10 @@ import pytest_asyncio
 from rhosocial.activerecord.backend.impl.postgres.backend import AsyncPostgresBackend
 from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnectionConfig
 
-from rhosocial.github_ci_tracker.core.exceptions import GithubAPIError
-from rhosocial.github_ci_tracker.credentials import AsyncPatCredential
-from rhosocial.github_ci_tracker.database import SET_TIME_ZONE
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.core.exceptions import GithubAPIError
+from rhosocial.github_actions_tracker.credentials import AsyncPatCredential
+from rhosocial.github_actions_tracker.database import SET_TIME_ZONE
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncJobLog,
     AsyncRepository,
@@ -46,7 +46,7 @@ from rhosocial.github_ci_tracker.models import (
     AsyncWorkflow,
     AsyncWorkflowRun,
 )
-from rhosocial.github_ci_tracker.schema import TABLES, create_all
+from rhosocial.github_actions_tracker.schema import TABLES, create_all
 
 #: Every async model bound by the :func:`bound` fixture.
 #: The session-scoped backend :func:`bound_schema` reuses. None until the
@@ -401,8 +401,8 @@ async def bound(bound_models: AsyncPostgresBackend) -> AsyncIterator[None]:
 
 def make_token_service(client: FakeGithub | None = None):
     """The credential service over a fake probe."""
-    from rhosocial.github_ci_tracker.controllers.token import TokenController
-    from rhosocial.github_ci_tracker.services.github import GithubCredentials
+    from rhosocial.github_actions_tracker.controllers.token import TokenController
+    from rhosocial.github_actions_tracker.services.github import GithubCredentials
 
     return TokenController(probe=GithubCredentials(client or FakeGithub()))
 
@@ -421,10 +421,13 @@ def make_webhook_service(
     controllers, so every webhook test would otherwise repeat the same six
     lines of wiring and drift from the container's.
     """
-    from rhosocial.github_ci_tracker.controllers import RepositoryData, RunData
-    from rhosocial.github_ci_tracker.controllers.run import RunController
-    from rhosocial.github_ci_tracker.controllers.webhook import DeliveryLedger, WebhookController
-    from rhosocial.github_ci_tracker.services.github import GithubRuns, GithubWebhooks
+    from rhosocial.github_actions_tracker.controllers import RepositoryData, RunData
+    from rhosocial.github_actions_tracker.controllers.run import RunController
+    from rhosocial.github_actions_tracker.controllers.webhook import (
+        DeliveryLedger,
+        WebhookController,
+    )
+    from rhosocial.github_actions_tracker.services.github import GithubRuns, GithubWebhooks
 
     fake = client or FakeGithub()
     readers = GithubRuns(fake, credential=credential)
@@ -450,11 +453,11 @@ def fake_client() -> FakeGithub:
 
 def make_repository_service(client: FakeGithub | None = None, **kwargs: Any):
     """The subscription service over a fake transport."""
-    from rhosocial.github_ci_tracker.controllers import RepositoryData, RunData
-    from rhosocial.github_ci_tracker.controllers.query import QueryController
-    from rhosocial.github_ci_tracker.controllers.repository import RepositoryController
-    from rhosocial.github_ci_tracker.controllers.run import RunController
-    from rhosocial.github_ci_tracker.services.github import (
+    from rhosocial.github_actions_tracker.controllers import RepositoryData, RunData
+    from rhosocial.github_actions_tracker.controllers.query import QueryController
+    from rhosocial.github_actions_tracker.controllers.repository import RepositoryController
+    from rhosocial.github_actions_tracker.controllers.run import RunController
+    from rhosocial.github_actions_tracker.services.github import (
         GithubRepositories,
         GithubRuns,
         GithubWebhooks,
@@ -745,15 +748,15 @@ def pg_scenario() -> dict[str, Any]:
     scenario = resolve_scenario()
     if scenario is None:
         pytest.skip(
-            "no PostgreSQL configured: set CITRACKER_DB_HOST (or PGHOST), or point "
-            "CITRACKER_TEST_PG_SCENARIO_FILE at a scenarios file"
+            "no PostgreSQL configured: set GHAT_DB_HOST (or PGHOST), or point "
+            "GHAT_TEST_PG_SCENARIO_FILE at a scenarios file"
         )
     return scenario
 
 
 @pytest_asyncio.fixture(scope="session")
 async def pg_database(pg_scenario: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
-    """Ensure ``citracker_test`` exists on that server, then hand back its address.
+    """Ensure ``ghat_test`` exists on that server, then hand back its address.
 
     The database is named once, for every run, and created rather than assumed: a
     suite that needs a database the operator already made by hand is a suite that
@@ -767,7 +770,7 @@ async def pg_database(pg_scenario: dict[str, Any]) -> AsyncIterator[dict[str, An
     """
     from pg import TEST_DATABASE
 
-    from rhosocial.github_ci_tracker.database import PostgresServer
+    from rhosocial.github_actions_tracker.database import PostgresServer
 
     config = PostgresConnectionConfig(**{**pg_scenario, "database": TEST_DATABASE})
     await PostgresServer(config).ensure()
@@ -802,8 +805,8 @@ async def bound_schema(
             resolved = resolve_scenario()
             if resolved is None:
                 pytest.skip(
-                    "no PostgreSQL configured: set CITRACKER_DB_HOST (or PGHOST), or point "
-                    "CITRACKER_TEST_PG_SCENARIO_FILE at a scenarios file"
+                    "no PostgreSQL configured: set GHAT_DB_HOST (or PGHOST), or point "
+                    "GHAT_TEST_PG_SCENARIO_FILE at a scenarios file"
                 )
             scenario = dict(resolved or {})
         from pg import TEST_DATABASE
@@ -836,7 +839,7 @@ async def bound_schema(
         # constraint instead of the missing month.
         from datetime import date
 
-        from rhosocial.github_ci_tracker.schema.partitions import ensure_spanning
+        from rhosocial.github_actions_tracker.schema.partitions import ensure_spanning
 
         await ensure_spanning(backend, date(2026, 1, 1), date(2027, 12, 1))
         _SESSION_BACKEND = backend
@@ -860,6 +863,6 @@ async def bound_schema(
 
 @pytest_asyncio.fixture
 async def bound_models(pg_database: dict[str, Any]) -> AsyncIterator[AsyncPostgresBackend]:
-    """One clean schema in ``citracker_test``, with every async twin bound to it."""
+    """One clean schema in ``ghat_test``, with every async twin bound to it."""
     async with bound_schema(ASYNC_MODELS, pg_database) as backend:
         yield backend

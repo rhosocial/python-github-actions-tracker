@@ -1,5 +1,5 @@
 # tests/adapters/test_cli_gate.py
-"""The CLI is authorised by database access, not by CITRACKER_API_KEY.
+"""The CLI is authorised by database access, not by GHAT_API_KEY.
 
 Only the protocol surfaces (REST, MCP) use the key. These tests pin the two
 commands that were previously blocked by the global gate even though neither
@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from rhosocial.github_ci_tracker.adapters.cli import main as cli
+from rhosocial.github_actions_tracker.adapters.cli import main as cli
 
 
 def test_serve_webhook_runs_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """The webhook receiver authenticates GitHub, not the operator."""
-    monkeypatch.delenv("CITRACKER_API_KEY", raising=False)
+    monkeypatch.delenv("GHAT_API_KEY", raising=False)
     seen: dict[str, str] = {}
 
     def fake_serve(args: object, api_key: str) -> None:
@@ -31,7 +31,7 @@ def test_serve_webhook_runs_without_api_key(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_credential_runs_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """The credential command manages the database; the key is not its input."""
-    monkeypatch.delenv("CITRACKER_API_KEY", raising=False)
+    monkeypatch.delenv("GHAT_API_KEY", raising=False)
     called: list[str] = []
 
     def fake_run_with_db(runner: object, args: object) -> None:

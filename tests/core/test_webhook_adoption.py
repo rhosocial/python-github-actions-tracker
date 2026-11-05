@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from conftest import make_webhook_service
 
-from rhosocial.github_ci_tracker.models import AsyncRepository, AsyncWorkflowRun
+from rhosocial.github_actions_tracker.models import AsyncRepository, AsyncWorkflowRun
 
 REPO = "acme/demo"
 RUN_ID = 7777

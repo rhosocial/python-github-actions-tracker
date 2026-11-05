@@ -1,6 +1,6 @@
 # 目录
 
-* [python-github-ci-tracker — 简体中文](README.md)
+* [python-github-actions-tracker — 简体中文](README.md)
 
 ## 概览
 

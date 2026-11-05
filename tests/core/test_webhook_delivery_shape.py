@@ -19,7 +19,7 @@ import json
 
 from conftest import make_webhook_service
 
-from rhosocial.github_ci_tracker.models import AsyncWebhookDelivery
+from rhosocial.github_actions_tracker.models import AsyncWebhookDelivery
 
 REPO = "acme/demo"
 

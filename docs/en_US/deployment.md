@@ -53,7 +53,7 @@ the schema still arrives on first boot.
 
 ### 2. Is the database connection over a public network?
 
-`CITRACKER_DB_SSLMODE=prefer` (the default) encrypts when the server offers it and does
+`GHAT_DB_SSLMODE=prefer` (the default) encrypts when the server offers it and does
 not prove the server is who it claims. That is fine on a private link. Across the internet
 — any managed database, anything in another datacentre — use `verify-full` with the CA
 bundle and a host that is a *name* the certificate is issued for. An IP address cannot be
@@ -97,7 +97,7 @@ repository, select:
 | Administration: Read and write, repository hooks | only if the CLI will manage the webhook |
 | Metadata: Read | automatic and required |
 
-Inject it from a file (`CITRACKER_BOOTSTRAP_PAT_FILE`, mounted read-only) so the token
+Inject it from a file (`GHAT_BOOTSTRAP_PAT_FILE`, mounted read-only) so the token
 never reaches `docker inspect` or a process list, then verify it with the skill's
 `check_pat.py`: reads are observed, Actions *write* stays unproven — proving it means
 spending CI minutes, and a green check that lies is worse than an honest gap.
@@ -105,8 +105,8 @@ spending CI minutes, and a green check that lies is worse than an honest gap.
 ### 4. Who can reach the MCP listener
 
 - **Local or on a private network**: no certificate, no API key. Leave
-  `CITRACKER_API_KEY` empty; the listener warns at startup and serves.
-- **Public, or shared inside an organisation**: set `CITRACKER_API_KEY` — every MCP and
+  `GHAT_API_KEY` empty; the listener warns at startup and serves.
+- **Public, or shared inside an organisation**: set `GHAT_API_KEY` — every MCP and
   REST call then needs `Authorization: Bearer <key>` — and put TLS in front of port 8001
   the same way the webhook listener has it. An open MCP endpoint is an open
   `trigger_workflow`: every caller spends **your** CI minutes.
@@ -114,7 +114,7 @@ spending CI minutes, and a green check that lies is worse than an honest gap.
 ## TLS
 
 TLS material lives outside the image: mount a directory at `/certs` and point
-`CITRACKER_WEBHOOK_SSL_CERTFILE` / `_KEYFILE` at the two files inside it. GitHub
+`GHAT_WEBHOOK_SSL_CERTFILE` / `_KEYFILE` at the two files inside it. GitHub
 requires an HTTPS callback for webhooks.
 
 ### The certificate is checked before a boot binds it
@@ -130,24 +130,24 @@ worth less than the reason it would have given.
 | `key_unreadable` / `key_not_a_key` | the key file is absent or unparseable; an *encrypted* key says so by name | decrypt it as part of the deployment |
 | `key_mismatch` | the key and the certificate carry different public keys | the commonest accident: a renewed certificate with the old key |
 | `cert_expired` / `cert_not_yet_valid` | outside the validity window (`not_yet_valid` names the clock) | renew, or check the machine's time |
-| `cert_expiring` | within `CITRACKER_WEBHOOK_SSL_EXPIRY_WARN_DAYS` (default 30) | renew on your schedule |
-| `cert_hostname_mismatch` | the names the certificate covers do not include the configured host | issue for the host, or set `CITRACKER_WEBHOOK_SSL_HOSTNAME` |
-| `cert_chain_unverified` | no path to a trusted root — the wording separates self-signed from a missing intermediate | full chain, or `CITRACKER_WEBHOOK_SSL_CAFILE` |
+| `cert_expiring` | within `GHAT_WEBHOOK_SSL_EXPIRY_WARN_DAYS` (default 30) | renew on your schedule |
+| `cert_hostname_mismatch` | the names the certificate covers do not include the configured host | issue for the host, or set `GHAT_WEBHOOK_SSL_HOSTNAME` |
+| `cert_chain_unverified` | no path to a trusted root — the wording separates self-signed from a missing intermediate | full chain, or `GHAT_WEBHOOK_SSL_CAFILE` |
 | `cert_revoked` / `cert_revocation_unknown` | a responder said revoked / could not be reached | reissue; `unknown` never blocks |
 | `cert_weak_algorithm` | RSA under 2048, ECC under 256, or a SHA-1 signature | renew; this one is a note, not a warning |
 
-Hostname checking needs a hostname: `CITRACKER_WEBHOOK_SSL_HOSTNAME` first, then
-the host in `CITRACKER_PUBLIC_BASE_URL`, then `CITRACKER_WEBHOOK_URL`. With none
+Hostname checking needs a hostname: `GHAT_WEBHOOK_SSL_HOSTNAME` first, then
+the host in `GHAT_PUBLIC_BASE_URL`, then `GHAT_WEBHOOK_URL`. With none
 of the three, the check is skipped rather than guessing one.
 
 Revocation is off by default — it is the only check that touches the network
-from the startup path. `CITRACKER_WEBHOOK_SSL_CRLFILE` reads a local list;
-`CITRACKER_WEBHOOK_SSL_CHECK_OCSP=1` asks the certificate's responder with a
+from the startup path. `GHAT_WEBHOOK_SSL_CRLFILE` reads a local list;
+`GHAT_WEBHOOK_SSL_CHECK_OCSP=1` asks the certificate's responder with a
 3-second bound and soft-fails.
 
 ```bash
-rhosocial-github-ci-tracker cert             # human-readable
-rhosocial-github-ci-tracker cert --json      # for a rotation script
+rhosocial-github-actions-tracker cert             # human-readable
+rhosocial-github-actions-tracker cert --json      # for a rotation script
 ```
 
 The exit code is `0` when nothing was found and `2` when something was — which
@@ -178,7 +178,7 @@ Three facts about the shape:
 
 ```yaml
 scrape_configs:
-  - job_name: citracker
+  - job_name: the tracker
     static_configs:
-      - targets: ["citracker-web:8000"]
+      - targets: ["tracker-web:8000"]
 ```

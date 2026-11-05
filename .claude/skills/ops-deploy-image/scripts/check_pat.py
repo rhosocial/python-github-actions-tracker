@@ -41,7 +41,7 @@ def _get(url: str, token: str) -> tuple[int, object]:
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "citracker-deploy-check",
+            "User-Agent": "ghat-deploy-check",
         },
     )
     try:

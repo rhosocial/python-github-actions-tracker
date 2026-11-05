@@ -24,18 +24,18 @@ from conftest import FakeGithub, bound_schema
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from rhosocial.github_ci_tracker.adapters.common.errors import from_core_exception
-from rhosocial.github_ci_tracker.adapters.rest.app import create_app
-from rhosocial.github_ci_tracker.container import Container
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.adapters.common.errors import from_core_exception
+from rhosocial.github_actions_tracker.adapters.rest.app import create_app
+from rhosocial.github_actions_tracker.container import Container
+from rhosocial.github_actions_tracker.core.exceptions import (
     GithubAPIError,
     RateLimitError,
     RepositoryNotFoundError,
     WorkflowNotFoundError,
 )
-from rhosocial.github_ci_tracker.credentials import AsyncPatCredential
-from rhosocial.github_ci_tracker.models import AsyncRepository, AsyncWorkflow
-from rhosocial.github_ci_tracker.models.binding import AsyncRepositoryBinding
+from rhosocial.github_actions_tracker.credentials import AsyncPatCredential
+from rhosocial.github_actions_tracker.models import AsyncRepository, AsyncWorkflow
+from rhosocial.github_actions_tracker.models.binding import AsyncRepositoryBinding
 
 API_KEY = "test-api-key"
 AUTH = {"Authorization": f"Bearer {API_KEY}"}
@@ -69,9 +69,9 @@ def _build_app(
 ) -> FastAPI:
     """Create the REST app wired to the fake client and the test lifespan."""
     if api_key is None:
-        monkeypatch.delenv("CITRACKER_API_KEY", raising=False)
+        monkeypatch.delenv("GHAT_API_KEY", raising=False)
     else:
-        monkeypatch.setenv("CITRACKER_API_KEY", api_key)
+        monkeypatch.setenv("GHAT_API_KEY", api_key)
     app = create_app(Container.build(client=fake_client))
     app.router.lifespan_context = _test_lifespan
     return app
@@ -203,10 +203,10 @@ def test_latest_run_without_runs_returns_null(
 
 def test_the_failed_logs_projection_keeps_every_reference() -> None:
     """The grouping's repeats must survive the REST shape, not collapse to one."""
-    from rhosocial.github_ci_tracker.adapters.rest.routes.runs import (
+    from rhosocial.github_actions_tracker.adapters.rest.routes.runs import (
         _run_failures_response,
     )
-    from rhosocial.github_ci_tracker.views import (
+    from rhosocial.github_actions_tracker.views import (
         FailedStepRef,
         FailureGroup,
         RunFailuresView,
@@ -296,7 +296,7 @@ async def _trigger_lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def _build_trigger_app(monkeypatch: pytest.MonkeyPatch, fake_client: FakeGithub) -> FastAPI:
     """Create the REST app wired to the fake client and the trigger lifespan."""
-    monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+    monkeypatch.setenv("GHAT_API_KEY", API_KEY)
     # The container, with the transport faked: the route then sees the same
     # controllers a server builds.
     app = create_app(Container.build(client=fake_client))
@@ -364,8 +364,8 @@ def test_core_exception_vocabulary() -> None:
 
 def test_the_log_response_carries_the_step_sections() -> None:
     """The REST view must expose the same source/sections the facade returns."""
-    from rhosocial.github_ci_tracker.adapters.rest.routes.jobs import _logs_response
-    from rhosocial.github_ci_tracker.views import JobLogsView, StepSection
+    from rhosocial.github_actions_tracker.adapters.rest.routes.jobs import _logs_response
+    from rhosocial.github_actions_tracker.views import JobLogsView, StepSection
 
     view = JobLogsView(
         job_id=7,

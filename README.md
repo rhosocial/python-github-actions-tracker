@@ -1,12 +1,12 @@
 # python-ci-tracker
 
-[![CI](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml)
-[![Image build](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/vistart/citracker)](https://hub.docker.com/r/vistart/citracker)
-[![Docker Image Size](https://img.shields.io/docker/image-size/vistart/citracker/latest)](https://hub.docker.com/r/vistart/citracker/tags)
+[![CI](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/test.yml)
+[![Image build](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/images.yml/badge.svg)](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/images.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/vistart/github-actions-tracker)](https://hub.docker.com/r/vistart/github-actions-tracker)
+[![Docker Image Size](https://img.shields.io/docker/image-size/vistart/github-actions-tracker/latest)](https://hub.docker.com/r/vistart/github-actions-tracker/tags)
 [![Python](https://img.shields.io/badge/python-3.15-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](https://rhosocial.github.io/python-github-ci-tracker/)
+[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](https://rhosocial.github.io/python-github-actions-tracker/)
 
 **A self-hosted service that answers "what happened in CI" — over MCP, REST and a CLI.**
 
@@ -30,7 +30,7 @@ English | [简体中文](README.zh-CN.md)
 | **Trigger and wait, without burning minutes** | `trigger_workflow` dispatches on request; `if_absent=true` answers "this commit already ran" without starting a second run. `rerun_run(failed_only=true)` repeats only the jobs that broke, after a local check that there *are* failed jobs. `wait_for_run` is a bounded long poll whose timeout comes from the workflow's own history. |
 | **PostgreSQL, and it says so** | Log tables are partitioned by month so old data is one `DROP TABLE`; a trigram index accelerates searching them (`pg_trgm`, ~1× the log text in disk); the schema is the service's own renderer; the test suite runs against a real server. |
 | **A budget from real time, not the queue** | Every run read carries `timings`: the jobs' span, the queue, and the span of the jobs that passed — the numbers a wait is sized from, so a queue behind other repositories does not inflate the p50/p90. `db usage` and `ci_status.storage` report what the database actually holds. |
-| **One image, two registries** | `images.yml` publishes the same multi-arch build to Aliyun (`vistart_public/citracker`) and Docker Hub (`vistart/citracker`), tagged `latest`. Each destination has its own secrets, so either can be absent. It runs only when asked for, and `build.revision` — not a tag — says which build is running. |
+| **One image, two registries** | `images.yml` publishes the same multi-arch build to Aliyun (`vistart_public/github-actions-tracker`) and Docker Hub (`vistart/github-actions-tracker`), tagged `latest`. Each destination has its own secrets, so either can be absent. It runs only when asked for, and `build.revision` — not a tag — says which build is running. |
 | **Metrics in the standard format** | `GET /metrics` on the REST listener answers with the Prometheus text format: webhook deliveries, GitHub calls by status code, tool calls by outcome, connection-pool gauges via `ci_status.health`. Process-local counters; sum across instances in the scraper. |
 
 ## Why you would use it
@@ -77,19 +77,19 @@ and what each agent's approval gate does, is
 [Coding agents over MCP](docs/en_US/mcp-agents.md):
 
 ```bash
-claude mcp add --transport http citracker http://127.0.0.1:8001/mcp   # Claude Code
-codex mcp add citracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
-opencode:  "mcp": { "citracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
-cmd mcp add --transport http citracker http://127.0.0.1:8001/mcp      # Command Code
+claude mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp   # Claude Code
+codex mcp add github_actions_tracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
+opencode:  "mcp": { "github_actions_tracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
+cmd mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp      # Command Code
 ```
 
-With `CITRACKER_API_KEY` set, add `--header "Authorization: Bearer <key>"`
+With `GHAT_API_KEY` set, add `--header "Authorization: Bearer <key>"`
 (Claude Code, Command Code), `bearer_token_env_var` (Codex) or an
 `Authorization` header with `oauth: false` (OpenCode).
 
 ## Where the details live
 
-Read it online (no checkout needed): <https://rhosocial.github.io/python-github-ci-tracker/> · [简体中文](https://rhosocial.github.io/python-github-ci-tracker/zh_CN/)
+Read it online (no checkout needed): <https://rhosocial.github.io/python-github-actions-tracker/> · [简体中文](https://rhosocial.github.io/python-github-actions-tracker/zh_CN/)
 
 - [Documentation (English)](docs/en_US/README.md) — deployment, the API, the
   CLI, development

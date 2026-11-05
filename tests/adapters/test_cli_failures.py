@@ -13,8 +13,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from rhosocial.github_ci_tracker.adapters.cli.commands import failures as failures_command
-from rhosocial.github_ci_tracker.views import FailedStepRef, FailureGroup, RunFailuresView
+from rhosocial.github_actions_tracker.adapters.cli.commands import failures as failures_command
+from rhosocial.github_actions_tracker.views import FailedStepRef, FailureGroup, RunFailuresView
 
 
 def _args(*, format: str = "text", tail: int = 2) -> argparse.Namespace:

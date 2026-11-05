@@ -13,12 +13,12 @@ import asyncio
 
 from rhosocial.mcpserver import SELF_ISSUED, ResourceEndpoints
 
-from rhosocial.github_ci_tracker.adapters.mcp.auth import (
+from rhosocial.github_actions_tracker.adapters.mcp.auth import (
     STATIC_SUBJECT,
     StaticBearerCredentialSource,
 )
-from rhosocial.github_ci_tracker.adapters.mcp.scopes import SCOPES
-from rhosocial.github_ci_tracker.adapters.mcp.server import create_mcp_app
+from rhosocial.github_actions_tracker.adapters.mcp.scopes import SCOPES
+from rhosocial.github_actions_tracker.adapters.mcp.server import create_mcp_app
 
 KEY = "sm_test_key"
 
@@ -69,15 +69,15 @@ def test_sdk_token_carries_the_scopes() -> None:
 
 def test_api_key_selects_the_authenticated_stack(monkeypatch) -> None:
     """A configured key must produce the ASGI layers, not the bare SDK app."""
-    monkeypatch.setenv("CITRACKER_API_KEY", KEY)
-    monkeypatch.delenv("CITRACKER_OAUTH_ISSUER", raising=False)
+    monkeypatch.setenv("GHAT_API_KEY", KEY)
+    monkeypatch.delenv("GHAT_OAUTH_ISSUER", raising=False)
 
     assert any(isinstance(layer, ResourceEndpoints) for layer in _layers(create_mcp_app()))
 
 
 def test_without_credentials_the_development_fallback_stays(monkeypatch) -> None:
     """No key and no issuer is the unauthenticated local-only mode."""
-    monkeypatch.delenv("CITRACKER_API_KEY", raising=False)
-    monkeypatch.delenv("CITRACKER_OAUTH_ISSUER", raising=False)
+    monkeypatch.delenv("GHAT_API_KEY", raising=False)
+    monkeypatch.delenv("GHAT_OAUTH_ISSUER", raising=False)
 
     assert not any(isinstance(layer, ResourceEndpoints) for layer in _layers(create_mcp_app()))

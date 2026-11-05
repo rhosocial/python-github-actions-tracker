@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRepository,
     AsyncWorkflowRun,
@@ -230,7 +230,7 @@ class TestUpdateFromRemote:
 class TestAttemptOwnsTheState:
     async def test_the_attempt_row_holds_status_and_timestamps(self, bound) -> None:
         """The run row has no status column; the attempt is the record of it."""
-        from rhosocial.github_ci_tracker.models.attempt import AsyncRunAttempt
+        from rhosocial.github_actions_tracker.models.attempt import AsyncRunAttempt
 
         repo = await _make_repo()
         run = await AsyncWorkflowRun.adopt_from_remote(

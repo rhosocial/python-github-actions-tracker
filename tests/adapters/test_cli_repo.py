@@ -22,8 +22,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from rhosocial.github_ci_tracker.adapters.cli.commands import repo as repo_command
-from rhosocial.github_ci_tracker.core.exceptions import RepositoryNotFoundError
+from rhosocial.github_actions_tracker.adapters.cli.commands import repo as repo_command
+from rhosocial.github_actions_tracker.core.exceptions import RepositoryNotFoundError
 
 
 class _Repositories:

@@ -20,9 +20,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
-from rhosocial.github_ci_tracker.core.exceptions import RepositoryNotFoundError
-from rhosocial.github_ci_tracker.views import RepositoryRuns
+from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
+from rhosocial.github_actions_tracker.core.exceptions import RepositoryNotFoundError
+from rhosocial.github_actions_tracker.views import RepositoryRuns
 
 #: Importing the module is what registers the tool; grabbing the closure is how
 #: the test calls it without spinning up a transport.

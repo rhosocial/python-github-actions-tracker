@@ -1,7 +1,7 @@
 # 用编码 Agent 通过 MCP 接入
 
-citracker 的 MCP 端点是 `http://127.0.0.1:8001/mcp`（Streamable HTTP；有 TLS 时换成
-`https://<主机>:8001/mcp`）。配置了 `CITRACKER_API_KEY` 就启用静态 Bearer 认证。这一页
+the tracker 的 MCP 端点是 `http://127.0.0.1:8001/mcp`（Streamable HTTP；有 TLS 时换成
+`https://<主机>:8001/mcp`）。配置了 `GHAT_API_KEY` 就启用静态 Bearer 认证。这一页
 不重复协议本身，只讲四款主流编码 agent 各自如何管理 MCP：配置文件放哪、作用域怎么分，
 以及接入本服务的现成配置片段。
 
@@ -32,14 +32,14 @@ CLI 命令）、OpenAI Codex（TOML）、OpenCode（JSON，内置 OAuth）、Com
 
 ```bash
 # 本地部署，没配 API key：
-claude mcp add --transport http citracker http://127.0.0.1:8001/mcp
+claude mcp add --transport http the tracker http://127.0.0.1:8001/mcp
 
 # 前面有 TLS、配了 key：
-claude mcp add --transport http citracker https://citracker.example.com:8001/mcp \
-  --header "Authorization: Bearer <CITRACKER_API_KEY>"
+claude mcp add --transport http the tracker https://tracker.example.com:8001/mcp \
+  --header "Authorization: Bearer <GHAT_API_KEY>"
 
 # 想让全组共用，写进仓库：
-claude mcp add --transport http citracker http://127.0.0.1:8001/mcp --scope project
+claude mcp add --transport http the tracker http://127.0.0.1:8001/mcp --scope project
 ```
 
 也可以直接提交 JSON 文件（`.mcp.json`）：
@@ -47,10 +47,10 @@ claude mcp add --transport http citracker http://127.0.0.1:8001/mcp --scope proj
 ```json
 {
   "mcpServers": {
-    "citracker": {
+    "the tracker": {
       "type": "http",
       "url": "http://127.0.0.1:8001/mcp",
-      "headers": { "Authorization": "Bearer ${CITRACKER_API_KEY}" }
+      "headers": { "Authorization": "Bearer ${GHAT_API_KEY}" }
     }
   }
 }
@@ -75,22 +75,22 @@ Codex 把 MCP 配置放在 `~/.codex/config.toml`，项目级配置放在 `.code
 单独声明传输方式：stdio 用 `command` 加 `args`，Streamable HTTP 用 `url`，认证单独配置。
 
 ```toml
-[mcp_servers.citracker]
+[mcp_servers.the tracker]
 url = "http://127.0.0.1:8001/mcp"
 
 # 有 TLS、配置了 key：
-[mcp_servers.citracker]
-url = "https://citracker.example.com:8001/mcp"
-bearer_token_env_var = "CITRACKER_API_KEY"
+[mcp_servers.the tracker]
+url = "https://tracker.example.com:8001/mcp"
+bearer_token_env_var = "GHAT_API_KEY"
 tool_timeout_sec = 120
 ```
 
 CLI 写法（写的是同一个文件）：
 
 ```bash
-codex mcp add citracker --url http://127.0.0.1:8001/mcp
+codex mcp add the tracker --url http://127.0.0.1:8001/mcp
 codex mcp list          # 服务器与连接状态
-codex mcp login citracker   # 只有 OAuth 服务器需要；本服务用 Bearer key
+codex mcp login the tracker   # 只有 OAuth 服务器需要；本服务用 Bearer key
 ```
 
 一条针对本服务的提醒：`wait_for_run` 是有界长轮询，单次调用跑上几十秒很正常，而常见的
@@ -107,12 +107,12 @@ OpenCode 读 `opencode.json(c)`：全局一份、项目一份，另外支持组�
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "citracker": {
+    "the tracker": {
       "type": "remote",
       "url": "http://127.0.0.1:8001/mcp",
       "enabled": true,
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:CITRACKER_API_KEY}" }
+      "headers": { "Authorization": "Bearer {env:GHAT_API_KEY}" }
     }
   }
 }
@@ -120,13 +120,13 @@ OpenCode 读 `opencode.json(c)`：全局一份、项目一份，另外支持组�
 
 - `oauth: false`：本服务用静态 Bearer，不走 OAuth。不写这一项的话，一次 401 会让
   OpenCode 打开浏览器走一遍发现流程，而不是走你配置的请求头。
-- `{env:CITRACKER_API_KEY}` 在加载时从进程环境取值。注意 OpenCode 进程得能读到这个变量：
+- `{env:GHAT_API_KEY}` 在加载时从进程环境取值。注意 OpenCode 进程得能读到这个变量：
   从桌面图标启动时，shell 里 `export` 的变量是读不到的，此时应把 key 直接写进全局配置
   文件（该文件不入库）。
 - `timeout` 同时管请求和工具调用。Codex 那条提醒在这里同样成立：打算用 `wait_for_run`
   就把它调大。
 
-连不上时用 `opencode mcp list` 看，或跑 `opencode mcp debug citracker`——它会测 HTTP
+连不上时用 `opencode mcp list` 看，或跑 `opencode mcp debug the tracker`——它会测 HTTP
 连通性并打印鉴权状态。
 
 ## Command Code
@@ -137,10 +137,10 @@ Command Code 的 MCP 用法和 Claude Code 几乎一样，只是命令前缀换�
 `local` > `project` > `user`。
 
 ```bash
-cmd mcp add --transport http citracker http://127.0.0.1:8001/mcp
+cmd mcp add --transport http the tracker http://127.0.0.1:8001/mcp
 
-cmd mcp add --transport http citracker https://citracker.example.com:8001/mcp \
-  --header "Authorization: Bearer <CITRACKER_API_KEY>"
+cmd mcp add --transport http the tracker https://tracker.example.com:8001/mcp \
+  --header "Authorization: Bearer <GHAT_API_KEY>"
 ```
 
 JSON 形式（字段名用 `transport`，也接受 `type`，所以 Claude Code 的 `.mcp.json` 可以
@@ -149,10 +149,10 @@ JSON 形式（字段名用 `transport`，也接受 `type`，所以 Claude Code �
 ```json
 {
   "mcpServers": {
-    "citracker": {
+    "the tracker": {
       "transport": "http",
       "url": "http://127.0.0.1:8001/mcp",
-      "headers": { "Authorization": "Bearer ${CITRACKER_API_KEY}" }
+      "headers": { "Authorization": "Bearer ${GHAT_API_KEY}" }
     }
   }
 }
@@ -164,16 +164,16 @@ JSON 形式（字段名用 `transport`，也接受 `type`，所以 Claude Code �
 
 两个顺手的特性：`/import` 能把其它 agent 的 MCP 服务器直接搬过来（`/import claude`、
 `/import codex`、`/import opencode`……），一条命令就能把存量配置迁移完；它的工具名带
-`mcp__citracker__<tool>` 前缀，写引用工具的规则时用得上。
+`mcp__tracker__<tool>` 前缀，写引用工具的规则时用得上。
 
 ## 配置放哪一级
 
 配置放哪一级，四家的考虑相同：
 
 - 仓库里的 `.mcp.json` / `.codex/config.toml` 是共享文件，适合放部署的**地址**，对全组
-  都有用；但不要把 key 写进去。四家都支持从环境变量读取（`${CITRACKER_API_KEY}`、
+  都有用；但不要把 key 写进去。四家都支持从环境变量读取（`${GHAT_API_KEY}`、
   `{env:...}`、`bearer_token_env_var`），密钥应该放在环境里。
-- 用户级配置留给个人部署。笔记本上自己跑的 citracker（没配 key）适合 user 或 local
+- 用户级配置留给个人部署。笔记本上自己跑的 the tracker（没配 key）适合 user 或 local
   作用域；写进项目文件，等于把 `127.0.0.1` 这样的地址推给部署位置不同的同事。
 - 批准机制在每台机器上各有一道：Claude Code 的「待批准」、Codex 的「受信任项目」，目的
   都是防止克隆下来的仓库不经检查就加载工具。这一步没法用脚本绕过，也不应该能绕过。

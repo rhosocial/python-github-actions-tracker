@@ -8,7 +8,7 @@
     updates the existing rule instead of creating a second one.
 
 .PARAMETER Port
-    TCP port to open. Default comes from CITRACKER_WEBHOOK_PORT in the
+    TCP port to open. Default comes from GHAT_WEBHOOK_PORT in the
     project's .env file (falling back to 18080).
 
 .PARAMETER Action
@@ -37,7 +37,7 @@ $RuleName = "CI Tracker Webhook (TCP {0})"
 
 function Get-ConfiguredPort {
     <#
-      Reads CITRACKER_WEBHOOK_PORT from the project .env so the script and the
+      Reads GHAT_WEBHOOK_PORT from the project .env so the script and the
       service agree on the port without a hard-coded constant.
     #>
     $root = Split-Path -Parent $PSScriptRoot
@@ -45,7 +45,7 @@ function Get-ConfiguredPort {
         $path = Join-Path $root $name
         if (Test-Path $path) {
             foreach ($line in Get-Content $path) {
-                if ($line -match '^\s*CITRACKER_WEBHOOK_PORT\s*=\s*(\d+)') {
+                if ($line -match '^\s*GHAT_WEBHOOK_PORT\s*=\s*(\d+)') {
                     return [int]$Matches[1]
                 }
             }

@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from conftest import FakeGithub
 
-from rhosocial.github_ci_tracker.controllers import RunData
-from rhosocial.github_ci_tracker.controllers.run import RunController
-from rhosocial.github_ci_tracker.models import AsyncJob, AsyncRepository, AsyncStep
-from rhosocial.github_ci_tracker.models.run import AsyncWorkflowRun
-from rhosocial.github_ci_tracker.services.github import GithubRuns
+from rhosocial.github_actions_tracker.controllers import RunData
+from rhosocial.github_actions_tracker.controllers.run import RunController
+from rhosocial.github_actions_tracker.models import AsyncJob, AsyncRepository, AsyncStep
+from rhosocial.github_actions_tracker.models.run import AsyncWorkflowRun
+from rhosocial.github_actions_tracker.services.github import GithubRuns
 
 REPO = "acme/demo"
 RUN_ID = 500

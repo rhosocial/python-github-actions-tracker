@@ -25,13 +25,13 @@ import asyncio
 
 from conftest import FakeGithub
 
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.core.exceptions import (
     GithubAPIError,
     TokenPermissionError,
     TriggerFailedError,
 )
-from rhosocial.github_ci_tracker.credentials import AsyncPatCredential, get_provider
-from rhosocial.github_ci_tracker.services.github.client import PROBE_REF, AsyncGithubClient
+from rhosocial.github_actions_tracker.credentials import AsyncPatCredential, get_provider
+from rhosocial.github_actions_tracker.services.github.client import PROBE_REF, AsyncGithubClient
 
 REPO = "acme/demo"
 

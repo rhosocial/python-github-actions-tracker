@@ -1,8 +1,8 @@
 # .github/workflows/images.yml
 #
 # Publishes the service image to the registries a deployment can reach:
-# Aliyun (`registry.cn-shanghai.aliyuncs.com/vistart_public/citracker`, domestic
-# China) and Docker Hub (`docker.io/vistart/citracker`, everywhere else). Each
+# Aliyun (`registry.cn-shanghai.aliyuncs.com/vistart_public/github-actions-tracker`, domestic
+# China) and Docker Hub (`docker.io/vistart/github-actions-tracker`, everywhere else). Each
 # destination is independent -- a missing pair of secrets means that one is
 # skipped, and the others still publish.
 #
@@ -55,7 +55,7 @@ env:
   # A namespace within the Aliyun account; it is not the account itself.
   ALIYUN_NAMESPACE: vistart_public
   DOCKERHUB_REGISTRY: docker.io
-  # The Docker Hub repository: `docker.io/vistart/citracker`. Same organisation
+  # The Docker Hub repository: `docker.io/vistart/github-actions-tracker`. Same organisation
   # as the Aliyun namespace, so both destinations read as one product line.
   DOCKERHUB_NAMESPACE: vistart
   IMAGE: citracker

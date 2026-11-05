@@ -17,13 +17,13 @@ from __future__ import annotations
 
 from conftest import make_webhook_service
 
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncRepository,
     AsyncWebhookDelivery,
     AsyncWorkflow,
     AsyncWorkflowRun,
 )
-from rhosocial.github_ci_tracker.models.webhook_delivery import (
+from rhosocial.github_actions_tracker.models.webhook_delivery import (
     EVENT_WORKFLOW_JOB,
     EVENT_WORKFLOW_RUN,
     REASON_IGNORED,
@@ -196,8 +196,8 @@ class TestRedelivery:
 
 class TestHealthStreams:
     async def test_streams_are_reported_separately(self, bound) -> None:
-        from rhosocial.github_ci_tracker.adapters.mcp.tools.status import _health_snapshot
-        from rhosocial.github_ci_tracker.container import Container
+        from rhosocial.github_actions_tracker.adapters.mcp.tools.status import _health_snapshot
+        from rhosocial.github_actions_tracker.container import Container
 
         await _tracked_run()
         service = make_webhook_service()

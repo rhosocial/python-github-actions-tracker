@@ -20,19 +20,19 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from conftest import FakeGithub
 
-from rhosocial.github_ci_tracker.controllers import RunData
-from rhosocial.github_ci_tracker.controllers.run import RunController
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.controllers import RunData
+from rhosocial.github_actions_tracker.controllers.run import RunController
+from rhosocial.github_actions_tracker.core.exceptions import (
     GithubAPIError,
     RepositoryNotFoundError,
     RunNotFoundError,
 )
-from rhosocial.github_ci_tracker.models import AsyncRepository
-from rhosocial.github_ci_tracker.models.attempt import AsyncRunAttempt
-from rhosocial.github_ci_tracker.models.job import AsyncJob
-from rhosocial.github_ci_tracker.models.run import AsyncWorkflowRun
-from rhosocial.github_ci_tracker.models.step import AsyncStep
-from rhosocial.github_ci_tracker.services.github import GithubRuns
+from rhosocial.github_actions_tracker.models import AsyncRepository
+from rhosocial.github_actions_tracker.models.attempt import AsyncRunAttempt
+from rhosocial.github_actions_tracker.models.job import AsyncJob
+from rhosocial.github_actions_tracker.models.run import AsyncWorkflowRun
+from rhosocial.github_actions_tracker.models.step import AsyncStep
+from rhosocial.github_actions_tracker.services.github import GithubRuns
 
 REPO = "acme/demo"
 RUN_ID = 500
@@ -219,7 +219,7 @@ class TestDurationSample:
 
     async def _adopt(self, runs: list[dict]) -> int:
         """Adopt runs and the one job each carries, so a job span exists."""
-        from rhosocial.github_ci_tracker.models import AsyncJob, AsyncWorkflow
+        from rhosocial.github_actions_tracker.models import AsyncJob, AsyncWorkflow
 
         repo = await _tracked()
         workflow = None
@@ -267,7 +267,7 @@ class TestDurationSample:
 
     async def test_a_fresh_workflow_has_no_sample(self, bound) -> None:
         repo = await _tracked()
-        from rhosocial.github_ci_tracker.models import AsyncWorkflow
+        from rhosocial.github_actions_tracker.models import AsyncWorkflow
 
         workflow = AsyncWorkflow(
             repository_id=repo.id or 0,

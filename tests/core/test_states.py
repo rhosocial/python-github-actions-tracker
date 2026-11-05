@@ -12,8 +12,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from rhosocial.github_ci_tracker.core.exceptions import InvalidStateTransitionError
-from rhosocial.github_ci_tracker.models.states import (
+from rhosocial.github_actions_tracker.core.exceptions import InvalidStateTransitionError
+from rhosocial.github_actions_tracker.models.states import (
     JOB_TRANSITIONS,
     KIND_JOB,
     KIND_RUN,

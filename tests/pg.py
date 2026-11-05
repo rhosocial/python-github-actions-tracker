@@ -2,13 +2,13 @@
 """Where a PostgreSQL test server comes from.
 
 The rule: the **environment always wins over the file**. CI supplies a service
-container through the same ``CITRACKER_DB_*`` variables the application reads, and
+container through the same ``GHAT_DB_*`` variables the application reads, and
 a stale file on a developer's disk must not redirect a CI run at a server that is
 not there. A developer names a scenarios file -- the sibling
 ``python-activerecord-postgres`` repository ships one with a ``postgres_18``
 entry -- or simply exports the variables.
 
-The database is always ``citracker_test``, whatever a scenarios file says: the YAML
+The database is always ``ghat_test``, whatever a scenarios file says: the YAML
 is shared with another project and names *its* database. Everything else (host,
 port, user, password, sslmode) comes from the environment, or from the file when
 the environment is silent.
@@ -30,14 +30,14 @@ import yaml
 #: The database this project's tests run in, on whichever server the environment
 #: names. Constant on purpose: a second database name would split test state
 #: across two places for no gain.
-TEST_DATABASE = "citracker_test"
+TEST_DATABASE = "ghat_test"
 
 #: Where a scenarios file may be named. The second name is the sibling project's,
 #: so one file serves both without either hard-coding the other's path.
-SCENARIO_FILE_ENV = "CITRACKER_TEST_PG_SCENARIO_FILE"
+SCENARIO_FILE_ENV = "GHAT_TEST_PG_SCENARIO_FILE"
 SCENARIO_FILE_ALIAS = "POSTGRES_SCENARIOS_CONFIG_PATH"
 #: Which scenario to read from that file.
-SCENARIO_NAME_ENV = "CITRACKER_TEST_PG_SCENARIO"
+SCENARIO_NAME_ENV = "GHAT_TEST_PG_SCENARIO"
 SCENARIO_NAME = "postgres_18"
 #: The conventional location, relative to this repository. Deliberately absent
 #: from the tree: a committed scenario would make every run reach for a server
@@ -45,14 +45,14 @@ SCENARIO_NAME = "postgres_18"
 SCENARIO_FILE = Path("tests") / "config" / "postgres_scenarios.yaml"
 
 #: Connection field -> the environment variables that override it, first wins.
-#: ``CITRACKER_DB_*`` is what the application reads, so a CI job that configures
+#: ``GHAT_DB_*`` is what the application reads, so a CI job that configures
 #: the database once configures the tests too; ``PG*`` is the libpq convention.
 FIELD_ENV: dict[str, tuple[str, ...]] = {
-    "host": ("CITRACKER_DB_HOST", "PGHOST"),
-    "port": ("CITRACKER_DB_PORT", "PGPORT"),
-    "username": ("CITRACKER_DB_USER", "PGUSER"),
-    "password": ("CITRACKER_DB_PASSWORD", "PGPASSWORD"),
-    "sslmode": ("CITRACKER_DB_SSLMODE", "PGSSLMODE"),
+    "host": ("GHAT_DB_HOST", "PGHOST"),
+    "port": ("GHAT_DB_PORT", "PGPORT"),
+    "username": ("GHAT_DB_USER", "PGUSER"),
+    "password": ("GHAT_DB_PASSWORD", "PGPASSWORD"),
+    "sslmode": ("GHAT_DB_SSLMODE", "PGSSLMODE"),
 }
 
 

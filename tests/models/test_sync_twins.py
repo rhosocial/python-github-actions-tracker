@@ -23,8 +23,8 @@ import pytest
 from rhosocial.activerecord.backend.impl.postgres.backend import PostgresBackend
 from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnectionConfig
 
-from rhosocial.github_ci_tracker import models
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker import models
+from rhosocial.github_actions_tracker.models import (
     Job,
     JobLog,
     Repository,
@@ -84,7 +84,7 @@ def test_a_whole_chain_round_trips_through_the_sync_twins(sync_postgres) -> None
     attempt.save()
     from datetime import datetime, timezone
 
-    from rhosocial.github_ci_tracker.models import bucket_of
+    from rhosocial.github_actions_tracker.models import bucket_of
 
     job = Job(
         attempt_id=attempt.id or 0,

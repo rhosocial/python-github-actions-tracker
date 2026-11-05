@@ -26,10 +26,10 @@ CITracker 的镜像与部署文件。镜像只包含 Python 运行时和服务�
 docker buildx bake --load
 
 # 全量：八个平台，推送到仓库（一次构建产出多架构 manifest）
-docker buildx bake citracker-all --push
+docker buildx bake github-actions-tracker-all --push
 
 # 指定单个平台
-docker buildx bake --set citracker.platform=linux/amd64 --load
+docker buildx bake --set github-actions-tracker.platform=linux/amd64 --load
 ```
 
 依赖来源是两个 sibling 仓库的分支（main 用于 mcpserver），与 CI 检出的 ref 相同；
@@ -56,7 +56,7 @@ mcp    serve mcp   MCP 8001（按需对外）
 ```powershell
 # 1. 配置（两个文件都在 docker/ 下，均被 git 忽略）
 cp docker\stack.env.example docker\stack.env
-#    填 CITRACKER_WEBHOOK_SECRET、CITRACKER_API_KEY、数据库、PAT
+#    填 GHAT_WEBHOOK_SECRET、GHAT_API_KEY、数据库、PAT
 cp <证书目录>\fullchain.pem docker\certs\
 cp <证书目录>\privkey.pem  docker\certs\
 
@@ -68,7 +68,7 @@ curl https://<你的域名>:18080/readyz   # 就绪：含一次数据库往返
 docker compose logs -f init web mcp
 ```
 
-`stack.env` 里以 `CITRACKER_DB_*` 指向外部数据库；`CITRACKER_DB_HOST` 不设时 compose
+`stack.env` 里以 `GHAT_DB_*` 指向外部数据库；`GHAT_DB_HOST` 不设时 compose
 默认用 `postgres`（只有一体化形态才有这个主机名），所以外置形态必须显式设置。
 
 ## 形态二：一体化 postgres:18
@@ -90,20 +90,20 @@ overlay 只新增 `postgres:18`，并强制 `init` / `web` / `mcp` 使用 `postg
 
 | 脚本 | 作用 |
 |---|---|
-| `10-schema.sh` | `rhosocial-github-ci-tracker-db init`：库不存在则先建库，再建全部表（幂等） |
+| `10-schema.sh` | `rhosocial-github-actions-tracker-db init`：库不存在则先建库，再建全部表（幂等） |
 | `20-pat.sh` | 配置了 PAT 时执行 `credential pat ensure`：不存在则新增，存在则原地轮换 |
 
 “首次”按数据库状态判定，不看容器文件系统：runner 先执行
-`rhosocial-github-ci-tracker-db is-initialized`，全部 `ct_*` 表都存在就跳过脚本，否则执行。
+`rhosocial-github-actions-tracker-db is-initialized`，全部 `ghat_*` 表都存在就跳过脚本，否则执行。
 因此容器重建、镜像升级都不会重复初始化。`web` / `mcp` 显式设置
-`CITRACKER_INITDB=skip`，不会与 `init` 抢着建表或轮换同一个凭据。
+`GHAT_INITDB=skip`，不会与 `init` 抢着建表或轮换同一个凭据。
 
 `20-pat.sh` 从环境读取以下变量（`docker/stack.env`）：
 
 ```dotenv
-CITRACKER_BOOTSTRAP_PAT=github_pat_xxx
-CITRACKER_BOOTSTRAP_PAT_NAME=work
-CITRACKER_BOOTSTRAP_PROBE_REPO=owner/repo
+GHAT_BOOTSTRAP_PAT=github_pat_xxx
+GHAT_BOOTSTRAP_PAT_NAME=work
+GHAT_BOOTSTRAP_PROBE_REPO=owner/repo
 ```
 
 `credential pat ensure` 会先在 GitHub 校验令牌，再写库：校验失败则 `init` 失败，坏令牌不会
@@ -111,7 +111,7 @@ CITRACKER_BOOTSTRAP_PROBE_REPO=owner/repo
 write`、`Metadata: Read`；需要自动创建 webhook 时再加 `Administration: Read and write`。
 
 不想让令牌出现在 `docker inspect` 时用文件形式：把令牌放进一个**目录**，把该目录只读挂载进
-`init`，并设置 `CITRACKER_BOOTSTRAP_PAT_FILE=/run/secrets/citracker-pat`。脚本用
+`init`，并设置 `GHAT_BOOTSTRAP_PAT_FILE=/run/secrets/github-actions-tracker-pat`。脚本用
 `--token-file` / `--token-stdin` 传递，令牌不会出现在进程参数里。
 
 > **挂目录，不要挂单个文件。** Docker Desktop 的 Hyper-V 后端上，单文件 bind mount 会让容器
@@ -128,7 +128,7 @@ write`、`Metadata: Read`；需要自动创建 webhook 时再加 `Administration
 首次启动之后脚本不会自动再跑。改过脚本、或首次启动时还没配 PAT，之后补上令牌时：
 
 ```powershell
-docker compose run --rm -e CITRACKER_INITDB=force init
+docker compose run --rm -e GHAT_INITDB=force init
 ```
 
 也可以在 `docker/init.d/` 里加自己的 `*.sh`（按文件名排序，任一失败即停止）。这些脚本是部署
@@ -137,43 +137,43 @@ docker compose run --rm -e CITRACKER_INITDB=force init
 手工方式（不使用 init.d 时）：
 
 ```powershell
-docker compose exec web rhosocial-github-ci-tracker credential pat ensure `
+docker compose exec web rhosocial-github-actions-tracker credential pat ensure `
   --name work --token <PAT> --probe-repo owner/repo
-docker compose exec web rhosocial-github-ci-tracker credential pat show `
+docker compose exec web rhosocial-github-actions-tracker credential pat show `
   --name work --probe-repo owner/repo
 ```
 
 ## legacy / 手工模式
 
 ```dotenv
-CITRACKER_INITDB=skip
+GHAT_INITDB=skip
 ```
 
-`init` 不执行任何脚本，`web` / `mcp` 也不建表、不碰 PAT。`CITRACKER_LEGACY=1` 是等价写法。
+`init` 不执行任何脚本，`web` / `mcp` 也不建表、不碰 PAT。`GHAT_LEGACY=1` 是等价写法。
 
 legacy 模式下自行执行：
 
 ```powershell
-docker compose run --rm web rhosocial-github-ci-tracker-db init
-docker compose exec web rhosocial-github-ci-tracker credential pat add --name work --token <PAT>
+docker compose run --rm web rhosocial-github-actions-tracker-db init
+docker compose exec web rhosocial-github-actions-tracker credential pat add --name work --token <PAT>
 ```
 
 ## 清理
 
 ```powershell
-docker compose exec web rhosocial-github-ci-tracker-db is-initialized   # 0=已初始化
-docker compose exec web rhosocial-github-ci-tracker-db stats           # 各表行数
-docker compose exec web rhosocial-github-ci-tracker-db usage           # 库总大小 / 每表体积 / pg_trgm
-docker compose exec web rhosocial-github-ci-tracker-db cleanup --runs-before 90d --logs-before 365d
-docker compose exec web rhosocial-github-ci-tracker-db reset --yes    # 删表重建
-docker compose exec web rhosocial-github-ci-tracker-db drop --yes     # 删整个库
+docker compose exec web rhosocial-github-actions-tracker-db is-initialized   # 0=已初始化
+docker compose exec web rhosocial-github-actions-tracker-db stats           # 各表行数
+docker compose exec web rhosocial-github-actions-tracker-db usage           # 库总大小 / 每表体积 / pg_trgm
+docker compose exec web rhosocial-github-actions-tracker-db cleanup --runs-before 90d --logs-before 365d
+docker compose exec web rhosocial-github-actions-tracker-db reset --yes    # 删表重建
+docker compose exec web rhosocial-github-actions-tracker-db drop --yes     # 删整个库
 docker compose -f docker-compose.yml -f docker-compose.bundled.yml down -v
 ```
 
 `reset` 会删掉全部表（包括凭据行）。之后要恢复自动注入：
 
 ```powershell
-docker compose run --rm -e CITRACKER_INITDB=force init
+docker compose run --rm -e GHAT_INITDB=force init
 ```
 
 ## 环境变量
@@ -182,27 +182,27 @@ docker compose run --rm -e CITRACKER_INITDB=force init
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `CITRACKER_DB_*` | `postgres:5432` / `citracker` | 数据库坐标；外置形态必须覆盖 |
-| `CITRACKER_API_KEY` | 空 | REST / MCP 的 Bearer；公网必须设置 |
-| `CITRACKER_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听，容器内 |
-| `CITRACKER_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |
-| `CITRACKER_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook 监听，**固定 18080** |
-| `CITRACKER_WEBHOOK_SECRET` | 空 | HMAC 密钥，与仓库 webhook 配置一致 |
-| `CITRACKER_WEBHOOK_SSL_CERTFILE/KEYFILE` | `/certs/*.pem` | webhook 的 fullchain 与私钥；显式置空可走前置反代 |
-| `CITRACKER_PUBLIC_BASE_URL` | 空 | MCP action URL 的绝对前缀 |
-| `CITRACKER_BOOTSTRAP_PAT[_FILE]` | 空 | 首次初始化注入的 PAT（由 `20-pat.sh` 读取） |
-| `CITRACKER_BOOTSTRAP_PAT_NAME` | `default` | 凭据别名 |
-| `CITRACKER_BOOTSTRAP_PROBE_REPO` | 空 | 验证 Actions 写权限的仓库 |
-| `CITRACKER_INITDB` | `auto` | `auto` 首次启动执行 init.d / `force` 强制执行 / `skip` 关闭 |
-| `CITRACKER_INITDB_DIR` | `/docker-entrypoint-init.d` | init.d 脚本目录（compose 只读挂载） |
-| `CITRACKER_LEGACY` | `0` | `1` 等价于 `CITRACKER_INITDB=skip` |
-| `CITRACKER_LOG_LEVEL` | `INFO` | 日志级别；一律走 stdout |
+| `GHAT_DB_*` | `postgres:5432` / `the tracker` | 数据库坐标；外置形态必须覆盖 |
+| `GHAT_API_KEY` | 空 | REST / MCP 的 Bearer；公网必须设置 |
+| `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听，容器内 |
+| `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |
+| `GHAT_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook 监听，**固定 18080** |
+| `GHAT_WEBHOOK_SECRET` | 空 | HMAC 密钥，与仓库 webhook 配置一致 |
+| `GHAT_WEBHOOK_SSL_CERTFILE/KEYFILE` | `/certs/*.pem` | webhook 的 fullchain 与私钥；显式置空可走前置反代 |
+| `GHAT_PUBLIC_BASE_URL` | 空 | MCP action URL 的绝对前缀 |
+| `GHAT_BOOTSTRAP_PAT[_FILE]` | 空 | 首次初始化注入的 PAT（由 `20-pat.sh` 读取） |
+| `GHAT_BOOTSTRAP_PAT_NAME` | `default` | 凭据别名 |
+| `GHAT_BOOTSTRAP_PROBE_REPO` | 空 | 验证 Actions 写权限的仓库 |
+| `GHAT_INITDB` | `auto` | `auto` 首次启动执行 init.d / `force` 强制执行 / `skip` 关闭 |
+| `GHAT_INITDB_DIR` | `/docker-entrypoint-init.d` | init.d 脚本目录（compose 只读挂载） |
+| `GHAT_LEGACY` | `0` | `1` 等价于 `GHAT_INITDB=skip` |
+| `GHAT_LOG_LEVEL` | `INFO` | 日志级别；一律走 stdout |
 
 ## 备注
 
 - **证书不进镜像**：只以 `-v` 只读挂载，续期后替换宿主机文件并重启 `web`。
 - **日志不持久化**：uvicorn 访问日志与应用日志都走 stdout/stderr。
-- **compose 与已在跑的实例并存**：`CITRACKER_WEBHOOK_PORT_HOST` / `CITRACKER_MCP_PORT_HOST`
+- **compose 与已在跑的实例并存**：`GHAT_WEBHOOK_PORT_HOST` / `GHAT_MCP_PORT_HOST`
   可改宿主机端口，容器内端口不变。
 - GitHub webhook 要求 https 回调：没有证书时监听器返回明文 HTTP，GitHub 会拒绝注册。
 - **宿主端口可能静默失效（WSL 镜像网络）**：`~/.wslconfig` 为 `networkingMode=mirrored` 时，

@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import pytest
 
-from rhosocial.github_ci_tracker.config import ServiceSettings
+from rhosocial.github_actions_tracker.config import ServiceSettings
 
 
 def test_webhook_tls_defaults_to_plain_http(monkeypatch: pytest.MonkeyPatch) -> None:
     """Absent variables mean no TLS, not a fallback path."""
-    monkeypatch.delenv("CITRACKER_WEBHOOK_SSL_CERTFILE", raising=False)
-    monkeypatch.delenv("CITRACKER_WEBHOOK_SSL_KEYFILE", raising=False)
+    monkeypatch.delenv("GHAT_WEBHOOK_SSL_CERTFILE", raising=False)
+    monkeypatch.delenv("GHAT_WEBHOOK_SSL_KEYFILE", raising=False)
 
     settings = ServiceSettings.from_env()
 
@@ -27,8 +27,8 @@ def test_webhook_tls_defaults_to_plain_http(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_webhook_tls_reads_cert_and_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Both pieces come from the environment, independently of each other."""
-    monkeypatch.setenv("CITRACKER_WEBHOOK_SSL_CERTFILE", "/etc/certs/fullchain.pem")
-    monkeypatch.setenv("CITRACKER_WEBHOOK_SSL_KEYFILE", "/etc/certs/privkey.pem")
+    monkeypatch.setenv("GHAT_WEBHOOK_SSL_CERTFILE", "/etc/certs/fullchain.pem")
+    monkeypatch.setenv("GHAT_WEBHOOK_SSL_KEYFILE", "/etc/certs/privkey.pem")
 
     settings = ServiceSettings.from_env()
 

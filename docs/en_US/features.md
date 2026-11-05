@@ -24,11 +24,11 @@ get_run_failed_logs(run_id)   → the failed steps of every failed job, grouped 
 
 | Source | Content | Availability |
 |---|---|---|
-| `GET /actions/jobs/{id}/logs` | a job's merged text | any time within 90 days, stored in `ct_job_logs` |
+| `GET /actions/jobs/{id}/logs` | a job's merged text | any time within 90 days, stored in `ghat_job_logs` |
 | `GET /actions/runs/{id}/logs` | zip: merged file + `<job>/<step no>_<name>.txt` | GitHub serves the split for about an hour after the run finishes |
 
 **The hour is a fetching deadline, not a retention limit.** Text fetched into
-`ct_step_logs` is ordinary data, readable forever.
+`ghat_step_logs` is ordinary data, readable forever.
 
 ## Naming a workflow: path, file name or id
 

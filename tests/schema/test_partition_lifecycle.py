@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from rhosocial.github_ci_tracker.schema import partitions
-from rhosocial.github_ci_tracker.schema.model import partition_name
+from rhosocial.github_actions_tracker.schema import partitions
+from rhosocial.github_actions_tracker.schema.model import partition_name
 
 FIRST = date(2026, 5, 1)
 THIRD = date(2026, 7, 1)
@@ -33,8 +33,8 @@ class TestEnsure:
         created = await partitions.ensure_month(_backend(), FIRST)
 
         assert created == (
-            partition_name("ct_job_logs", FIRST),
-            partition_name("ct_step_logs", FIRST),
+            partition_name("ghat_job_logs", FIRST),
+            partition_name("ghat_step_logs", FIRST),
         )
         report = await partitions.list_partitions(_backend())
         assert FIRST in {info.bucket for info in report.partitions}
@@ -57,8 +57,8 @@ class TestDrop:
 
         dropped = await partitions.drop_before(_backend(), THIRD)
 
-        assert partition_name("ct_job_logs", FIRST) in dropped
-        assert partition_name("ct_step_logs", FIRST) in dropped
+        assert partition_name("ghat_job_logs", FIRST) in dropped
+        assert partition_name("ghat_step_logs", FIRST) in dropped
         remaining = await partitions.list_partitions(_backend())
         buckets = {info.bucket for info in remaining.partitions}
         assert FIRST not in buckets
@@ -69,7 +69,7 @@ class TestDrop:
 
         dry = await partitions.drop_before(_backend(), THIRD, dry_run=True)
 
-        assert partition_name("ct_job_logs", FIRST) in dry
+        assert partition_name("ghat_job_logs", FIRST) in dry
         still = await partitions.list_partitions(_backend())
         assert FIRST in {info.bucket for info in still.partitions}
 
@@ -90,12 +90,12 @@ class TestTheAsymmetryIsVisible:
         await partitions.ensure_months(backend, [FIRST, THIRD])
         # Drop one table's partition for one month behind the framework's back,
         # exactly as a hand-run DROP would leave the database.
-        name = partition_name("ct_step_logs", FIRST)
+        name = partition_name("ghat_step_logs", FIRST)
         await backend.execute(f'DROP TABLE IF EXISTS "{name}"')
 
         report = await partitions.list_partitions(backend)
 
-        assert ("ct_job_logs", FIRST) in report.differences
+        assert ("ghat_job_logs", FIRST) in report.differences
 
 
 def _backend():
@@ -104,7 +104,7 @@ def _backend():
     Taken through a model rather than a new connection: the whole point is that
     the partitions are the ones the *read path* writes into.
     """
-    from rhosocial.github_ci_tracker.models import AsyncRepository
+    from rhosocial.github_actions_tracker.models import AsyncRepository
 
     return AsyncRepository.__backend__
 
@@ -115,7 +115,7 @@ class TestTheAcceleratorIndex:
         renderer, so the schema package creates it explicitly; this is the proof
         that the statement works against a real server.
         """
-        from rhosocial.github_ci_tracker.schema import ensure_accelerator_indexes
+        from rhosocial.github_actions_tracker.schema import ensure_accelerator_indexes
 
         created = await ensure_accelerator_indexes(_backend())
 
@@ -133,7 +133,7 @@ class TestTheAcceleratorIndex:
         the assertion matches on the *definition* (a GIN index over
         ``log_content``) rather than on a name the server rewrites.
         """
-        from rhosocial.github_ci_tracker.schema import ensure_accelerator_indexes
+        from rhosocial.github_actions_tracker.schema import ensure_accelerator_indexes
 
         backend = _backend()
         await ensure_accelerator_indexes(backend)
@@ -141,7 +141,7 @@ class TestTheAcceleratorIndex:
 
         rows = await backend.execute(
             "SELECT indexdef FROM pg_indexes WHERE tablename = %s",
-            (partition_name("ct_job_logs", FIRST),),
+            (partition_name("ghat_job_logs", FIRST),),
         )
         definitions = [row.get("indexdef") or "" for row in (rows.data or [])]
         assert any(

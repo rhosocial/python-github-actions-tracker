@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from conftest import FakeGithub, make_repository_service
 
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.core.exceptions import (
     RepositoryNotFoundError,
     TokenDeactivatedError,
     TokenExpiredError,
@@ -27,17 +27,17 @@ from rhosocial.github_ci_tracker.core.exceptions import (
     TokenRequiredError,
     ValidationError,
 )
-from rhosocial.github_ci_tracker.credentials import AsyncPatCredential, get_provider
-from rhosocial.github_ci_tracker.credentials.resolver import (
+from rhosocial.github_actions_tracker.credentials import AsyncPatCredential, get_provider
+from rhosocial.github_actions_tracker.credentials.resolver import (
     require_for_repository,
     resolve_for_repository,
 )
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRepository,
     AsyncWorkflowRun,
 )
-from rhosocial.github_ci_tracker.models.binding import AsyncRepositoryBinding
+from rhosocial.github_actions_tracker.models.binding import AsyncRepositoryBinding
 
 #: A year back: an expired credential, computed rather than dated so it cannot
 #: drift into the future and stop testing expiry at all.

@@ -23,7 +23,7 @@ import pytest
 from conftest import FakeGithub, subscribe
 from rhosocial.activerecord.backend.errors import IntegrityError
 
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncStep,
     AsyncStepLog,

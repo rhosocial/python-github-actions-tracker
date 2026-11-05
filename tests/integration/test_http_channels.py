@@ -15,7 +15,7 @@ the webhook cases deliver synthetic signed payloads for a run seeded in the
 database. The coverage is therefore deterministic and network-free -- it is the
 protocol edges the manual walks found defects in, pinned by CI.
 
-Gated on ``CITRACKER_E2E_POSTGRES=1`` (with ``CITRACKER_E2E_DB_*`` pointing at
+Gated on ``GHAT_E2E_POSTGRES=1`` (with ``GHAT_E2E_DB_*`` pointing at
 the server), so the default suite keeps running without one.
 The GitHub Actions ``channels`` job sets it with a PostgreSQL service container.
 """
@@ -41,19 +41,19 @@ from rhosocial.activerecord.backend.impl.postgres.async_support import run_corou
 from rhosocial.activerecord.backend.impl.postgres.backend import AsyncPostgresBackend
 from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnectionConfig
 
-from rhosocial.github_ci_tracker.config import DatabaseSettings, Settings
-from rhosocial.github_ci_tracker.credentials import AsyncPatCredential
-from rhosocial.github_ci_tracker.database import MODELS, Database
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.config import DatabaseSettings, Settings
+from rhosocial.github_actions_tracker.credentials import AsyncPatCredential
+from rhosocial.github_actions_tracker.database import MODELS, Database
+from rhosocial.github_actions_tracker.models import (
     AsyncRepository,
     AsyncRepositoryBinding,
     AsyncWorkflow,
     AsyncWorkflowRun,
 )
-from rhosocial.github_ci_tracker.schema import create_all
+from rhosocial.github_actions_tracker.schema import create_all
 
 #: The gate: unset in the default suite, ``1`` in the CI channels job.
-REQUIRES_POSTGRES = "CITRACKER_E2E_POSTGRES"
+REQUIRES_POSTGRES = "GHAT_E2E_POSTGRES"
 
 API_KEY = "e2e-api-key"
 WEBHOOK_SECRET = "e2e-webhook-secret"
@@ -61,18 +61,18 @@ AUTH = {"Authorization": f"Bearer {API_KEY}"}
 
 pytestmark = pytest.mark.skipif(
     not os.getenv(REQUIRES_POSTGRES),
-    reason=f"set {REQUIRES_POSTGRES}=1 with CITRACKER_E2E_DB_* to run this module",
+    reason=f"set {REQUIRES_POSTGRES}=1 with GHAT_E2E_DB_* to run this module",
 )
 
 
 def _db_settings() -> dict[str, Any]:
     """Read the E2E database coordinates, defaulting to the project ones."""
     return {
-        "host": os.getenv("CITRACKER_E2E_DB_HOST", "localhost"),
-        "port": int(os.getenv("CITRACKER_E2E_DB_PORT", "5432")),
-        "username": os.getenv("CITRACKER_E2E_DB_USER", "root"),
-        "password": os.getenv("CITRACKER_E2E_DB_PASSWORD", "password"),
-        "database": os.getenv("CITRACKER_E2E_DB_NAME", "test_db"),
+        "host": os.getenv("GHAT_E2E_DB_HOST", "localhost"),
+        "port": int(os.getenv("GHAT_E2E_DB_PORT", "5432")),
+        "username": os.getenv("GHAT_E2E_DB_USER", "root"),
+        "password": os.getenv("GHAT_E2E_DB_PASSWORD", "password"),
+        "database": os.getenv("GHAT_E2E_DB_NAME", "test_db"),
     }
 
 
@@ -205,29 +205,30 @@ def _cleanup_database(db: dict[str, Any], seed: _Seed) -> None:
         try:
             # Children first: a run row blocks its workflow, the workflow its
             # repository. A job hangs off an *attempt*, not off the run, so the
-            # hop between the jobs and the run is ct_run_attempts.
+            # hop between the jobs and the run is ghat_run_attempts.
             jobs_of_run = (
-                f"SELECT id FROM ct_jobs WHERE attempt_id IN (SELECT id FROM"
-                f" ct_run_attempts WHERE run_id IN (SELECT id FROM ct_workflow_runs"
+                f"SELECT id FROM ghat_jobs WHERE attempt_id IN (SELECT id FROM"
+                f" ghat_run_attempts WHERE run_id IN (SELECT id FROM ghat_workflow_runs"
                 f" WHERE github_run_id = {seed.run_github_id}))"
             )
             for statement in (
-                "DELETE FROM ct_step_logs WHERE step_id IN"
-                f" (SELECT id FROM ct_steps WHERE job_id IN ({jobs_of_run}))",
-                f"DELETE FROM ct_steps WHERE job_id IN ({jobs_of_run})",
-                f"DELETE FROM ct_job_logs WHERE job_id IN ({jobs_of_run})",
-                f"DELETE FROM ct_jobs WHERE attempt_id IN (SELECT id FROM ct_run_attempts"
-                f" WHERE run_id IN (SELECT id FROM ct_workflow_runs WHERE"
+                "DELETE FROM ghat_step_logs WHERE step_id IN"
+                f" (SELECT id FROM ghat_steps WHERE job_id IN ({jobs_of_run}))",
+                f"DELETE FROM ghat_steps WHERE job_id IN ({jobs_of_run})",
+                f"DELETE FROM ghat_job_logs WHERE job_id IN ({jobs_of_run})",
+                f"DELETE FROM ghat_jobs WHERE attempt_id IN (SELECT id FROM ghat_run_attempts"
+                f" WHERE run_id IN (SELECT id FROM ghat_workflow_runs WHERE"
                 f" github_run_id = {seed.run_github_id}))",
-                f"DELETE FROM ct_run_attempts WHERE run_id IN (SELECT id FROM"
-                f" ct_workflow_runs WHERE github_run_id = {seed.run_github_id})",
-                f"DELETE FROM ct_workflow_runs WHERE github_run_id = {seed.run_github_id}",
-                f"DELETE FROM ct_workflows WHERE repository_id IN (SELECT id FROM ct_repositories"
+                f"DELETE FROM ghat_run_attempts WHERE run_id IN (SELECT id FROM"
+                f" ghat_workflow_runs WHERE github_run_id = {seed.run_github_id})",
+                f"DELETE FROM ghat_workflow_runs WHERE github_run_id = {seed.run_github_id}",
+                f"DELETE FROM ghat_workflows WHERE repository_id IN "
+                "(SELECT id FROM ghat_repositories"
                 f" WHERE full_name = '{seed.repo_full_name}')",
-                f"DELETE FROM ct_repository_bindings WHERE repository_id IN (SELECT id FROM"
-                f" ct_repositories WHERE full_name = '{seed.repo_full_name}')",
-                f"DELETE FROM ct_repositories WHERE full_name = '{seed.repo_full_name}'",
-                f"DELETE FROM ct_pat_credentials WHERE name = 'e2e-{seed.tag}'",
+                f"DELETE FROM ghat_repository_bindings WHERE repository_id IN (SELECT id FROM"
+                f" ghat_repositories WHERE full_name = '{seed.repo_full_name}')",
+                f"DELETE FROM ghat_repositories WHERE full_name = '{seed.repo_full_name}'",
+                f"DELETE FROM ghat_pat_credentials WHERE name = 'e2e-{seed.tag}'",
             ):
                 await backend.execute(statement)
         finally:
@@ -243,24 +244,24 @@ def _boot_server(db: dict[str, Any], seed: _Seed) -> _Server:
     env = dict(os.environ)
     env.update(
         {
-            "CITRACKER_DB_HOST": str(db["host"]),
-            "CITRACKER_DB_PORT": str(db["port"]),
-            "CITRACKER_DB_USER": db["username"],
-            "CITRACKER_DB_PASSWORD": db["password"],
-            "CITRACKER_DB_NAME": db["database"],
-            "CITRACKER_API_KEY": API_KEY,
-            "CITRACKER_WEBHOOK_SECRET": WEBHOOK_SECRET,
-            "CITRACKER_REST_HOST": "127.0.0.1",
-            "CITRACKER_REST_PORT": str(rest_port),
-            "CITRACKER_WEBHOOK_HOST": "127.0.0.1",
-            "CITRACKER_WEBHOOK_PORT": str(webhook_port),
-            "CITRACKER_LOG_LEVEL": "INFO",
+            "GHAT_DB_HOST": str(db["host"]),
+            "GHAT_DB_PORT": str(db["port"]),
+            "GHAT_DB_USER": db["username"],
+            "GHAT_DB_PASSWORD": db["password"],
+            "GHAT_DB_NAME": db["database"],
+            "GHAT_API_KEY": API_KEY,
+            "GHAT_WEBHOOK_SECRET": WEBHOOK_SECRET,
+            "GHAT_REST_HOST": "127.0.0.1",
+            "GHAT_REST_PORT": str(rest_port),
+            "GHAT_WEBHOOK_HOST": "127.0.0.1",
+            "GHAT_WEBHOOK_PORT": str(webhook_port),
+            "GHAT_LOG_LEVEL": "INFO",
             # The module talks plain HTTP. A developer's ``.env`` may configure
             # TLS for the webhook listener (the service reads it on startup), so
             # the certificate is explicitly cleared here: ``_load_dotenv`` never
             # overrides a variable that is already set, empty included.
-            "CITRACKER_WEBHOOK_SSL_CERTFILE": "",
-            "CITRACKER_WEBHOOK_SSL_KEYFILE": "",
+            "GHAT_WEBHOOK_SSL_CERTFILE": "",
+            "GHAT_WEBHOOK_SSL_KEYFILE": "",
         }
     )
     # The suite is network-free; a proxy in the developer's environment must not
@@ -270,7 +271,13 @@ def _boot_server(db: dict[str, Any], seed: _Seed) -> _Server:
 
     project_root = Path(__file__).resolve().parents[2]
     process = subprocess.Popen(
-        [sys.executable, "-m", "rhosocial.github_ci_tracker.adapters.cli.main", "serve", "all"],
+        [
+            sys.executable,
+            "-m",
+            "rhosocial.github_actions_tracker.adapters.cli.main",
+            "serve",
+            "all",
+        ],
         cwd=project_root,
         env=env,
     )

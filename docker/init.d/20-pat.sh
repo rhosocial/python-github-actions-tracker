@@ -7,10 +7,10 @@
 # ./docker/init.d at /docker-entrypoint-init.d and passes these variables from
 # docker/stack.env:
 #
-#   CITRACKER_BOOTSTRAP_PAT          the token itself
-#   CITRACKER_BOOTSTRAP_PAT_FILE     a file holding the token (preferred)
-#   CITRACKER_BOOTSTRAP_PAT_NAME     credential alias, default `default`
-#   CITRACKER_BOOTSTRAP_PROBE_REPO   owner/repo used to verify Actions write
+#   GHAT_BOOTSTRAP_PAT          the token itself
+#   GHAT_BOOTSTRAP_PAT_FILE     a file holding the token (preferred)
+#   GHAT_BOOTSTRAP_PAT_NAME     credential alias, default `default`
+#   GHAT_BOOTSTRAP_PROBE_REPO   owner/repo used to verify Actions write
 #
 # With neither PAT nor PAT_FILE set the script is a no-op, so a deployment that
 # supplies credentials another way still starts cleanly.
@@ -21,18 +21,18 @@
 # process list, and the token is never echoed.
 set -eu
 
-name="${CITRACKER_BOOTSTRAP_PAT_NAME:-default}"
-probe="${CITRACKER_BOOTSTRAP_PROBE_REPO:-}"
-file="${CITRACKER_BOOTSTRAP_PAT_FILE:-}"
-token="${CITRACKER_BOOTSTRAP_PAT:-}"
+name="${GHAT_BOOTSTRAP_PAT_NAME:-default}"
+probe="${GHAT_BOOTSTRAP_PROBE_REPO:-}"
+file="${GHAT_BOOTSTRAP_PAT_FILE:-}"
+token="${GHAT_BOOTSTRAP_PAT:-}"
 
 if [ -z "$file" ] && [ -z "$token" ]; then
-    echo "citracker init: no PAT configured; leaving credentials untouched"
+    echo "github-actions-tracker init: no PAT configured; leaving credentials untouched"
     exit 0
 fi
 
-echo "citracker init: ensuring credential pat/$name"
-set -- rhosocial-github-ci-tracker credential pat ensure --name "$name"
+echo "github-actions-tracker init: ensuring credential pat/$name"
+set -- rhosocial-github-actions-tracker credential pat ensure --name "$name"
 if [ -n "$probe" ]; then
     set -- "$@" --probe-repo "$probe"
 fi

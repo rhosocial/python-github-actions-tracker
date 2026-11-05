@@ -4,7 +4,7 @@
 Covers the path a container's first boot takes: the database does not exist yet,
 so the bootstrap creates it, the schema is built inside it, a second run is a
 no-op, and the test cleans up after itself. Gated like the other integration
-module -- ``CITRACKER_E2E_POSTGRES=1`` with ``CITRACKER_E2E_DB_*`` -- so the
+module -- ``GHAT_E2E_POSTGRES=1`` with ``GHAT_E2E_DB_*`` -- so the
 default suite stays serverless.
 """
 
@@ -19,32 +19,32 @@ from rhosocial.activerecord.backend.impl.postgres.async_support import run_corou
 from rhosocial.activerecord.backend.impl.postgres.backend import AsyncPostgresBackend
 from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnectionConfig
 
-from rhosocial.github_ci_tracker.database import PostgresServer
-from rhosocial.github_ci_tracker.schema import create_all
+from rhosocial.github_actions_tracker.database import PostgresServer
+from rhosocial.github_actions_tracker.schema import create_all
 
-REQUIRES_POSTGRES = "CITRACKER_E2E_POSTGRES"
+REQUIRES_POSTGRES = "GHAT_E2E_POSTGRES"
 
 pytestmark = pytest.mark.skipif(
     not os.getenv(REQUIRES_POSTGRES),
-    reason=f"set {REQUIRES_POSTGRES}=1 with CITRACKER_E2E_DB_* to run this module",
+    reason=f"set {REQUIRES_POSTGRES}=1 with GHAT_E2E_DB_* to run this module",
 )
 
 
 def _db_settings() -> dict[str, Any]:
     """Read the E2E database coordinates, defaulting to the project ones."""
     return {
-        "host": os.getenv("CITRACKER_E2E_DB_HOST", "localhost"),
-        "port": int(os.getenv("CITRACKER_E2E_DB_PORT", "5432")),
-        "username": os.getenv("CITRACKER_E2E_DB_USER", "root"),
-        "password": os.getenv("CITRACKER_E2E_DB_PASSWORD", "password"),
-        "database": os.getenv("CITRACKER_E2E_DB_NAME", "test_db"),
+        "host": os.getenv("GHAT_E2E_DB_HOST", "localhost"),
+        "port": int(os.getenv("GHAT_E2E_DB_PORT", "5432")),
+        "username": os.getenv("GHAT_E2E_DB_USER", "root"),
+        "password": os.getenv("GHAT_E2E_DB_PASSWORD", "password"),
+        "database": os.getenv("GHAT_E2E_DB_NAME", "test_db"),
     }
 
 
 def test_ensure_database_creates_builds_and_cleans_up() -> None:
     """create -> build the schema inside -> second run is a no-op -> drop."""
     settings = _db_settings()
-    name = f"citracker_e2e_{uuid.uuid4().hex[:8]}"
+    name = f"ghat_e2e_{uuid.uuid4().hex[:8]}"
     config = PostgresConnectionConfig(**{**settings, "database": name})
 
     async def scenario() -> None:
@@ -57,7 +57,7 @@ def test_ensure_database_creates_builds_and_cleans_up() -> None:
         try:
             await create_all(backend)
             rows = await backend.execute(
-                "SELECT to_regclass('ct_repositories') IS NOT NULL AS table_exists"
+                "SELECT to_regclass('ghat_repositories') IS NOT NULL AS table_exists"
             )
             row = rows.data[0] if rows.data else {}
             # Rows come back as tuples or mappings depending on the driver.

@@ -26,7 +26,7 @@ docker compose -f docker-compose.yml -f docker-compose.bundled.yml \
 ```
 
 这个 overlay 只增加官方 `postgres:18` 服务，并把 `init` / `web` / `mcp` 的
-`CITRACKER_DB_HOST` 固定为 `postgres`，因此 `stack.env` 里残留的外部数据库地址不会误生效。
+`GHAT_DB_HOST` 固定为 `postgres`，因此 `stack.env` 里残留的外部数据库地址不会误生效。
 数据在命名卷 `pgdata`；`docker compose ... down` 保留数据，`down -v` 删除。
 
 ### 首次启动初始化（init.d）
@@ -37,20 +37,20 @@ docker compose -f docker-compose.yml -f docker-compose.bundled.yml \
 
 | 脚本 | 作用 |
 |---|---|
-| `docker/init.d/10-schema.sh` | `rhosocial-github-ci-tracker-db init`：库不存在则先建库，再建全部表（幂等） |
+| `docker/init.d/10-schema.sh` | `rhosocial-github-actions-tracker-db init`：库不存在则先建库，再建全部表（幂等） |
 | `docker/init.d/20-pat.sh` | 配置了 PAT 时执行 `credential pat ensure`：不存在则新增，存在则原地轮换 |
 
 “首次”由数据库状态判定，而不是容器文件系统：runner 先执行
-`rhosocial-github-ci-tracker-db is-initialized`，全部 `ct_*` 表都在就跳过脚本，否则按文件名
+`rhosocial-github-actions-tracker-db is-initialized`，全部 `ct_*` 表都在就跳过脚本，否则按文件名
 顺序执行。容器重建、镜像升级都不会重复初始化；脚本任一失败则 `init` 失败，`web` / `mcp`
 不会带着未初始化的库启动。
 
 `20-pat.sh` 从环境读取（`docker/stack.env`）：
 
 ```dotenv
-CITRACKER_BOOTSTRAP_PAT=github_pat_xxx
-CITRACKER_BOOTSTRAP_PAT_NAME=work
-CITRACKER_BOOTSTRAP_PROBE_REPO=owner/repo
+GHAT_BOOTSTRAP_PAT=github_pat_xxx
+GHAT_BOOTSTRAP_PAT_NAME=work
+GHAT_BOOTSTRAP_PROBE_REPO=owner/repo
 ```
 
 `credential pat ensure` 的语义：
@@ -58,32 +58,32 @@ CITRACKER_BOOTSTRAP_PROBE_REPO=owner/repo
 1. 数据库里没有 `pat/<name>` → **新增**；
 2. 已存在 → **原地轮换**（保留 id 与所有仓库绑定，不需要重新订阅）；
 3. 两条路径都先让 GitHub 验证令牌，验证失败则启动失败，不会把坏令牌写进数据库；
-4. 设置了 `CITRACKER_BOOTSTRAP_PROBE_REPO` 时，额外探测该仓库的 Actions 写权限，
+4. 设置了 `GHAT_BOOTSTRAP_PROBE_REPO` 时，额外探测该仓库的 Actions 写权限，
    结果决定 `can_write_actions`（触发 CI 的前提）。
 
 令牌需要的权限：`Actions: Read and write`、`Metadata: Read`；需要自动创建 webhook 时再加
 `Administration: Read and write`。
 
-不想让令牌出现在 `docker inspect` 时，用文件形式：把令牌放进一个**目录**，把该目录挂进 `init` 容器，并设置 `CITRACKER_BOOTSTRAP_PAT_FILE`，例如
-`CITRACKER_BOOTSTRAP_PAT_FILE=/run/secrets/citracker-pat`。脚本和 CLI 都支持
+不想让令牌出现在 `docker inspect` 时，用文件形式：把令牌放进一个**目录**，把该目录挂进 `init` 容器，并设置 `GHAT_BOOTSTRAP_PAT_FILE`，例如
+`GHAT_BOOTSTRAP_PAT_FILE=/run/secrets/github-actions-tracker-pat`。脚本和 CLI 都支持
 `--token-file` / `--token-stdin`，令牌不会出现在进程参数里。
 
 > **挂目录，不要挂单个文件。** 在 Docker Desktop（Hyper-V 后端）上，单文件 bind mount 会让容器在宿主机路径不可达时变成**无法删除**的状态：`docker rm -f`、`docker compose down`、`docker start` 全部阻塞，只能重启引擎。目录挂载没有这个失败模式。本仓库的本地覆盖文件就是按目录挂载的：
 
 ```yaml
 volumes:
-  - ./docker/secrets:/run/secrets:ro      # 目录，不是 ./docker/secrets/citracker-pat
+  - ./docker/secrets:/run/secrets:ro      # 目录，不是 ./docker/secrets/github-actions-tracker-pat
 ```
 
-本仓库的部署同样走这条路径：`CITRACKER_BOOTSTRAP_PAT_NAME=work`、
-`CITRACKER_BOOTSTRAP_PROBE_REPO=rhosocial/python-github-ci-tracker`，首次启动即自动新增。
+本仓库的部署同样走这条路径：`GHAT_BOOTSTRAP_PAT_NAME=work`、
+`GHAT_BOOTSTRAP_PROBE_REPO=rhosocial/python-github-actions-tracker`，首次启动即自动新增。
 
 #### 重跑初始化
 
 首次启动之后脚本不会自动再跑。改过脚本，或首次启动时还没配 PAT、之后才补上令牌时：
 
 ```bash
-docker compose run --rm -e CITRACKER_INITDB=force init
+docker compose run --rm -e GHAT_INITDB=force init
 ```
 
 也可以往 `docker/init.d/` 里加自己的 `*.sh`（按文件名排序，任一失败即停止）。这些脚本是部署
@@ -92,10 +92,10 @@ docker compose run --rm -e CITRACKER_INITDB=force init
 手工方式（不使用 init.d 时）：
 
 ```bash
-docker compose exec web rhosocial-github-ci-tracker credential pat add \
+docker compose exec web rhosocial-github-actions-tracker credential pat add \
   --name work --token <PAT> --probe-repo owner/repo
-docker compose exec web rhosocial-github-ci-tracker credential pat list
-docker compose exec web rhosocial-github-ci-tracker credential pat show --name work --probe-repo owner/repo
+docker compose exec web rhosocial-github-actions-tracker credential pat list
+docker compose exec web rhosocial-github-actions-tracker credential pat show --name work --probe-repo owner/repo
 
 ## 部署前要定的四件事
 
@@ -117,7 +117,7 @@ docker compose exec web rhosocial-github-ci-tracker credential pat show --name w
 
 ### 2. 数据库连接是否过公网
 
-`CITRACKER_DB_SSLMODE=prefer`（默认）在服务端提供时加密，但不证明服务端是谁。私网链路上
+`GHAT_DB_SSLMODE=prefer`（默认）在服务端提供时加密，但不证明服务端是谁。私网链路上
 够了；跨公网——任何托管库、任何另一个机房——就该用 `verify-full` 加 CA 包，并且
 `--host` 必须是证书签发给它的**名字**。IP 地址没法这样校验：如实说明，不要交付一个"看起来
 验过了"的配置。
@@ -154,21 +154,21 @@ GitHub 的 **fine-grained PAT 要操作者自己创建**，这里没有任何环
 | Administration: Read and write（repository hooks） | 仅当用 CLI 管理 webhook |
 | Metadata: Read | 自动且必需 |
 
-用文件注入（`CITRACKER_BOOTSTRAP_PAT_FILE`，只读挂载），令牌不进 `docker inspect`、不进进程
+用文件注入（`GHAT_BOOTSTRAP_PAT_FILE`，只读挂载），令牌不进 `docker inspect`、不进进程
 列表；然后用技能的 `check_pat.py` 验一遍：读权限是**实测**的，Actions *写* 保持**未验证**——
 证明它要花 CI 分钟，一个会说谎的绿灯比一个诚实的空缺更糟。
 
 ### 4. MCP 监听开放给谁
 
-- **本机或内网**：不需要证书、不需要 API key，`CITRACKER_API_KEY` 留空即可，监听会在启动时
+- **本机或内网**：不需要证书、不需要 API key，`GHAT_API_KEY` 留空即可，监听会在启动时
   告警并正常服务。
-- **公网或组织内共享**：设 `CITRACKER_API_KEY`——此后每次 MCP / REST 调用都要
+- **公网或组织内共享**：设 `GHAT_API_KEY`——此后每次 MCP / REST 调用都要
   `Authorization: Bearer <key>`——并按 webhook 监听同样的方式给 8001 套上 TLS。一个开放的
   MCP 端点就是一个开放的 `trigger_workflow`：每个调用方花的都是**你的** CI 分钟。
 
 ## 证书检查
 
-证书材料在镜像外：把一个目录挂到 `/certs`，`CITRACKER_WEBHOOK_SSL_CERTFILE` /
+证书材料在镜像外：把一个目录挂到 `/certs`，`GHAT_WEBHOOK_SSL_CERTFILE` /
 `_KEYFILE` 指向里面的两个文件。GitHub 要求 https 回调地址。
 
 启动绑定之前（以及 `cert`）会把这一对读一遍并报告所见。**全部是建议性质**：
@@ -181,22 +181,22 @@ GitHub 的 **fine-grained PAT 要操作者自己创建**，这里没有任何环
 | `key_unreadable` / `key_not_a_key` | 私钥缺失或不可解析；加密私钥会**点名**说它加密了 | 在部署流程里解密 |
 | `key_mismatch` | 私钥与证书的公钥不同 | 最常见的事故：换了证书没换私钥 |
 | `cert_expired` / `cert_not_yet_valid` | 不在有效窗口内（`not_yet_valid` 会点名时钟） | 续期，或查机器时间 |
-| `cert_expiring` | 距到期不足 `CITRACKER_WEBHOOK_SSL_EXPIRY_WARN_DAYS`（默认 30 天） | 按你的节奏续期 |
-| `cert_hostname_mismatch` | 证书覆盖的名字不含配置的主机名 | 为主机签发，或设 `CITRACKER_WEBHOOK_SSL_HOSTNAME` |
-| `cert_chain_unverified` | 无法连到受信根——措辞区分"自签"与"缺中间件" | 补全链，或用 `CITRACKER_WEBHOOK_SSL_CAFILE` |
+| `cert_expiring` | 距到期不足 `GHAT_WEBHOOK_SSL_EXPIRY_WARN_DAYS`（默认 30 天） | 按你的节奏续期 |
+| `cert_hostname_mismatch` | 证书覆盖的名字不含配置的主机名 | 为主机签发，或设 `GHAT_WEBHOOK_SSL_HOSTNAME` |
+| `cert_chain_unverified` | 无法连到受信根——措辞区分"自签"与"缺中间件" | 补全链，或用 `GHAT_WEBHOOK_SSL_CAFILE` |
 | `cert_revoked` / `cert_revocation_unknown` | 响应者说已吊销 / 问不到 | 重签；`unknown` 从不阻断 |
 | `cert_weak_algorithm` | RSA 不足 2048、ECC 不足 256，或 SHA-1 签名 | 续期；这条只是提示 |
 
-域名校验需要一个主机名：先 `CITRACKER_WEBHOOK_SSL_HOSTNAME`，再
-`CITRACKER_PUBLIC_BASE_URL` 的 host，最后 `CITRACKER_WEBHOOK_URL` 的 host。三者都无
+域名校验需要一个主机名：先 `GHAT_WEBHOOK_SSL_HOSTNAME`，再
+`GHAT_PUBLIC_BASE_URL` 的 host，最后 `GHAT_WEBHOOK_URL` 的 host。三者都无
 就跳过校验，而不是猜一个。
 
-吊销默认关闭——它是启动路径上唯一触网的检查。`CITRACKER_WEBHOOK_SSL_CRLFILE` 读
-本地清单；`CITRACKER_WEBHOOK_SSL_CHECK_OCSP=1` 会问证书的响应者，3 秒上限、失败不冤枉。
+吊销默认关闭——它是启动路径上唯一触网的检查。`GHAT_WEBHOOK_SSL_CRLFILE` 读
+本地清单；`GHAT_WEBHOOK_SSL_CHECK_OCSP=1` 会问证书的响应者，3 秒上限、失败不冤枉。
 
 ```bash
-rhosocial-github-ci-tracker cert             # 人读
-rhosocial-github-ci-tracker cert --json      # 给轮换脚本
+rhosocial-github-actions-tracker cert             # 人读
+rhosocial-github-actions-tracker cert --json      # 给轮换脚本
 ```
 
 退出码 `0` 表示什么都没发现，`2` 表示发现了什么——供 cron 或值班轮换分支用，
@@ -223,8 +223,8 @@ GitHub 调用按 operation 与 status code，每一次工具调用按 tool 与 o
 
 ```yaml
 scrape_configs:
-  - job_name: citracker
+  - job_name: the tracker
     static_configs:
-      - targets: ["citracker-web:8000"]
+      - targets: ["tracker-web:8000"]
 ```
 ```

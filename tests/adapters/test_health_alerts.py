@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from rhosocial.github_ci_tracker.adapters.mcp.tools.status import _health_snapshot
-from rhosocial.github_ci_tracker.container import Container
-from rhosocial.github_ci_tracker.models import AsyncWebhookDelivery
+from rhosocial.github_actions_tracker.adapters.mcp.tools.status import _health_snapshot
+from rhosocial.github_actions_tracker.container import Container
+from rhosocial.github_actions_tracker.models import AsyncWebhookDelivery
 
 
 async def _delivery(

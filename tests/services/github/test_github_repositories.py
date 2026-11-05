@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from rhosocial.github_ci_tracker.core.exceptions import TokenRequiredError
-from rhosocial.github_ci_tracker.services.github import GithubRepositories
+from rhosocial.github_actions_tracker.core.exceptions import TokenRequiredError
+from rhosocial.github_actions_tracker.services.github import GithubRepositories
 
 REPO = "acme/demo"
 

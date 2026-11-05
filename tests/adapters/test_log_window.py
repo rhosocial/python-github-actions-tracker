@@ -12,7 +12,7 @@ So the rules are the caller's: `tail`, `from_line`/`to_line`, `grep`, or nothing
 
 from __future__ import annotations
 
-from rhosocial.github_ci_tracker.adapters.mcp.logs import (
+from rhosocial.github_actions_tracker.adapters.mcp.logs import (
     DEFAULT_TAIL,
     EMPTY_GREP,
     EMPTY_LOG,

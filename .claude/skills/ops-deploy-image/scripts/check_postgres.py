@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Can this PostgreSQL serve citracker?
+"""Can this PostgreSQL serve the tracker?
 
 Standalone: ``pip install psycopg`` and run. It answers the questions that decide whether a
 first boot will succeed, and is deliberately loud about the one that differs between a

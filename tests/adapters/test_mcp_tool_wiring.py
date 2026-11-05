@@ -18,8 +18,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
-from rhosocial.github_ci_tracker.views import JobLogsView, RunRecord
+from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
+from rhosocial.github_actions_tracker.views import JobLogsView, RunRecord
 
 
 class _Recorder:

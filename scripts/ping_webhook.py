@@ -21,7 +21,7 @@ def load_token() -> str:
 
 
 async def main() -> None:
-    from rhosocial.github_ci_tracker.github.client import GithubClient
+    from rhosocial.github_actions_tracker.github.client import GithubClient
 
     client = GithubClient()
     token = load_token()

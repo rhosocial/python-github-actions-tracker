@@ -16,8 +16,8 @@ import zipfile
 import pytest
 from conftest import make_archive
 
-from rhosocial.github_ci_tracker.services.github import GithubRuns
-from rhosocial.github_ci_tracker.services.github.logs import RunLogArchive
+from rhosocial.github_actions_tracker.services.github import GithubRuns
+from rhosocial.github_actions_tracker.services.github.logs import RunLogArchive
 
 REPO = "acme/demo"
 RUN = 900_001
@@ -151,7 +151,7 @@ class TestTheGroupAndTheTransport:
         """A typo here would 404 as "no logs" and look like an expired archive."""
         import asyncio
 
-        from rhosocial.github_ci_tracker.services.github.client import AsyncGithubClient
+        from rhosocial.github_actions_tracker.services.github.client import AsyncGithubClient
 
         seen: list[str] = []
 

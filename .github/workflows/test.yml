@@ -142,12 +142,12 @@ jobs:
         env:
           # "No server" must fail here rather than skip: a wall of skips would
           # mean the job stopped covering anything and still reports green.
-          CITRACKER_TEST_PG_REQUIRED: '1'
-          CITRACKER_DB_HOST: localhost
-          CITRACKER_DB_PORT: '5432'
-          CITRACKER_DB_USER: citracker
-          CITRACKER_DB_PASSWORD: citracker
-          CITRACKER_DB_SSLMODE: prefer
+          GHAT_TEST_PG_REQUIRED: '1'
+          GHAT_DB_HOST: localhost
+          GHAT_DB_PORT: '5432'
+          GHAT_DB_USER: citracker
+          GHAT_DB_PASSWORD: citracker
+          GHAT_DB_SSLMODE: prefer
 
   channels:
     name: Protocol channels (real server, PostgreSQL)
@@ -221,23 +221,23 @@ jobs:
       - name: Initialize the database schema
         # No migrations: the DDL is the single source of truth, so the schema
         # is created, not migrated.
-        run: python -m rhosocial.github_ci_tracker.adapters.cli.db init
+        run: python -m rhosocial.github_actions_tracker.adapters.cli.db init
         env:
-          CITRACKER_DB_HOST: localhost
-          CITRACKER_DB_PORT: '5432'
-          CITRACKER_DB_USER: citracker
-          CITRACKER_DB_PASSWORD: citracker
-          CITRACKER_DB_NAME: test_db
+          GHAT_DB_HOST: localhost
+          GHAT_DB_PORT: '5432'
+          GHAT_DB_USER: citracker
+          GHAT_DB_PASSWORD: citracker
+          GHAT_DB_NAME: test_db
 
       - name: Run the channel tests
         run: pytest tests/integration -q
         env:
-          CITRACKER_E2E_POSTGRES: '1'
-          CITRACKER_E2E_DB_HOST: localhost
-          CITRACKER_E2E_DB_PORT: '5432'
-          CITRACKER_E2E_DB_USER: citracker
-          CITRACKER_E2E_DB_PASSWORD: citracker
-          CITRACKER_E2E_DB_NAME: test_db
+          GHAT_E2E_POSTGRES: '1'
+          GHAT_E2E_DB_HOST: localhost
+          GHAT_E2E_DB_PORT: '5432'
+          GHAT_E2E_DB_USER: citracker
+          GHAT_E2E_DB_PASSWORD: citracker
+          GHAT_E2E_DB_NAME: test_db
 
   models:
     name: models stand alone (PostgreSQL 18)
@@ -246,7 +246,7 @@ jobs:
     # credential provider. tests/models/test_standalone.py builds a private
     # schema inside that server and drops it again.
     #
-    # The address arrives through the same CITRACKER_DB_* variables the
+    # The address arrives through the same GHAT_DB_* variables the
     # application reads, so this job configures the database exactly once. No
     # scenarios file is involved: that is a local convenience, and depending on
     # one would make the check mean "runs on the author's machine".
@@ -308,14 +308,14 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Run the standalone model tests
-        # CITRACKER_TEST_PG_REQUIRED turns "no server" into a failure: a skip
+        # GHAT_TEST_PG_REQUIRED turns "no server" into a failure: a skip
         # here would mean the check quietly stopped covering anything.
         run: |
           pytest tests/models/test_standalone.py tests/controllers/test_run_controller_postgres.py -q -rs
         env:
-          CITRACKER_TEST_PG_REQUIRED: '1'
-          CITRACKER_DB_HOST: localhost
-          CITRACKER_DB_PORT: '5432'
-          CITRACKER_DB_USER: citracker
-          CITRACKER_DB_PASSWORD: citracker
-          CITRACKER_DB_SSLMODE: prefer
+          GHAT_TEST_PG_REQUIRED: '1'
+          GHAT_DB_HOST: localhost
+          GHAT_DB_PORT: '5432'
+          GHAT_DB_USER: citracker
+          GHAT_DB_PASSWORD: citracker
+          GHAT_DB_SSLMODE: prefer

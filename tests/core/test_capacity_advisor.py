@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from rhosocial.github_ci_tracker.introspection import (
+from rhosocial.github_actions_tracker.introspection import (
     CapacityAdvisor,
     TableUsage,
 )
@@ -75,7 +75,9 @@ class _RunsData:
 
 class TestAnEngineThatAnswers:
     async def test_the_report_carries_the_facts(self) -> None:
-        inspector = _Introspector([_Table("ct_step_logs", 40, 10), _Table("ct_job_logs", 5, 4096)])
+        inspector = _Introspector(
+            [_Table("ghat_step_logs", 40, 10), _Table("ghat_job_logs", 5, 4096)]
+        )
         advisor = CapacityAdvisor(_Connection(_Backend(inspector)), _RunsData())
 
         report = await advisor.advise()
@@ -84,7 +86,7 @@ class TestAnEngineThatAnswers:
         assert report.database_bytes == 4096
         assert report.runs_added_last_day == 7
         # Biggest first, because that is the order an operator reads.
-        assert [table.name for table in report.tables] == ["ct_job_logs", "ct_step_logs"]
+        assert [table.name for table in report.tables] == ["ghat_job_logs", "ghat_step_logs"]
         assert report.table_bytes == 4106
 
     async def test_the_extensions_are_reported_as_presence(self) -> None:
@@ -116,8 +118,8 @@ class TestTheRealEngine:
     """
 
     async def test_the_engine_this_suite_runs_on_answers(self, bound) -> None:
-        import rhosocial.github_ci_tracker.models as models
-        from rhosocial.github_ci_tracker.controllers.run import RunData
+        import rhosocial.github_actions_tracker.models as models
+        from rhosocial.github_actions_tracker.controllers.run import RunData
 
         backend = models.AsyncRepository.__backend__
 
@@ -153,13 +155,13 @@ class TestTheEngineDoesNotAnswer:
         assert "RuntimeError" in report.reason
 
     async def test_a_table_the_engine_did_not_measure_is_reported_absent(self) -> None:
-        inspector = _Introspector([_Table("ct_jobs", None, None)])
+        inspector = _Introspector([_Table("ghat_jobs", None, None)])
         advisor = CapacityAdvisor(_Connection(_Backend(inspector)), _RunsData())
 
         report = await advisor.advise()
 
         assert report.table_bytes is None
-        assert report.table("ct_jobs") == TableUsage(name="ct_jobs")
+        assert report.table("ghat_jobs") == TableUsage(name="ghat_jobs")
 
 
 class TestNoDatabaseAtAll:

@@ -17,12 +17,12 @@ from typing import Any
 import httpx2
 import pytest
 
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.core.exceptions import (
     RateLimitError,
     RunInProgressError,
     TokenPermissionError,
 )
-from rhosocial.github_ci_tracker.services.github.client import handle_error
+from rhosocial.github_actions_tracker.services.github.client import handle_error
 
 
 def _response(status: int, message: str, *, headers: dict[str, str] | None = None) -> Any:

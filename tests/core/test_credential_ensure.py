@@ -14,8 +14,8 @@ import logging
 import pytest
 from conftest import FakeGithub, make_token_service
 
-from rhosocial.github_ci_tracker.core.exceptions import TokenInvalidError
-from rhosocial.github_ci_tracker.credentials import AsyncPatCredential
+from rhosocial.github_actions_tracker.core.exceptions import TokenInvalidError
+from rhosocial.github_actions_tracker.credentials import AsyncPatCredential
 
 REPO = "acme/demo"
 

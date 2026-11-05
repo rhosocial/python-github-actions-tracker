@@ -5,7 +5,7 @@
 # the probe goes to 18080 with certificate checking off.
 $ErrorActionPreference = 'Continue'
 $base = 'https://127.0.0.1:18080'
-$key  = $env:CITRACKER_API_KEY
+$key  = $env:GHAT_API_KEY
 if (-not $key) { $key = 'test-api-key-12345' }
 
 function Try-Req($method, $url, $headers, $body) {

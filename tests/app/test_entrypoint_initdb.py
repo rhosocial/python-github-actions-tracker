@@ -55,7 +55,7 @@ def _run(
 
     code = 0 if initialized else 1
     _write(
-        bindir / "rhosocial-github-ci-tracker-db",
+        bindir / "rhosocial-github-actions-tracker-db",
         "#!/bin/sh\n"
         'case "$1" in\n'
         f"  is-initialized) exit {code} ;;\n"
@@ -71,12 +71,12 @@ def _run(
 
     env = {
         "PATH": f"{bindir}:{os.environ.get('PATH', '')}",
-        "CITRACKER_INITDB": mode,
-        "CITRACKER_INITDB_DIR": str(initdir),
+        "GHAT_INITDB": mode,
+        "GHAT_INITDB_DIR": str(initdir),
         "MARKER": str(marker),
     }
     if legacy:
-        env["CITRACKER_LEGACY"] = "1"
+        env["GHAT_LEGACY"] = "1"
 
     result = subprocess.run(
         [SH, str(ENTRYPOINT), "sh", "-c", "echo served"],
@@ -174,7 +174,7 @@ def test_an_unknown_mode_is_refused(tmp_path: Path) -> None:
 
     assert result.returncode != 0
     assert _marker(marker) == []
-    assert "invalid CITRACKER_INITDB" in result.stdout
+    assert "invalid GHAT_INITDB" in result.stdout
 
 
 @pytest.mark.parametrize("script", sorted(INIT_DIR.glob("*.sh")), ids=lambda p: p.name)
@@ -193,7 +193,7 @@ def _run_pat_script(tmp_path: Path, env: dict[str, str]) -> tuple[list[str], str
     args_file = tmp_path / "args.txt"
     token_file = tmp_path / "token.txt"
     _write(
-        bindir / "rhosocial-github-ci-tracker",
+        bindir / "rhosocial-github-actions-tracker",
         '#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGS_FILE"\ncat > "$TOKEN_FILE"\n',
         0o755,
     )
@@ -222,9 +222,9 @@ def test_the_pat_script_passes_the_token_on_stdin(tmp_path: Path) -> None:
     args, stdin = _run_pat_script(
         tmp_path,
         {
-            "CITRACKER_BOOTSTRAP_PAT": "github_pat_example",
-            "CITRACKER_BOOTSTRAP_PAT_NAME": "work",
-            "CITRACKER_BOOTSTRAP_PROBE_REPO": "owner/repo",
+            "GHAT_BOOTSTRAP_PAT": "github_pat_example",
+            "GHAT_BOOTSTRAP_PAT_NAME": "work",
+            "GHAT_BOOTSTRAP_PROBE_REPO": "owner/repo",
         },
     )
 

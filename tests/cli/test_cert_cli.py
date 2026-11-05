@@ -15,8 +15,8 @@ import json
 
 import pytest
 
-from rhosocial.github_ci_tracker.adapters.cli.commands import cert as cert_command
-from rhosocial.github_ci_tracker.certificates import CERT_EXPIRED, KEY_MISMATCH
+from rhosocial.github_actions_tracker.adapters.cli.commands import cert as cert_command
+from rhosocial.github_actions_tracker.certificates import CERT_EXPIRED, KEY_MISMATCH
 
 
 def _args(certfile: str, keyfile: str, *, hostname: str = "", json_output: bool = False):

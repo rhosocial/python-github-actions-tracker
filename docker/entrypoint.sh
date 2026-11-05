@@ -3,20 +3,20 @@
 #
 # The image carries no operational bootstrap: schema creation and credential
 # provisioning are deployment concerns, so they live in scripts under
-# CITRACKER_INITDB_DIR (default /docker-entrypoint-init.d), the same mechanism
+# GHAT_INITDB_DIR (default /docker-entrypoint-init.d), the same mechanism
 # the official database images use. On the first boot the entrypoint runs every
 # *.sh there in lexical order; once the schema is in place the scripts are
 # skipped, and a deployment that manages its own schema opts out entirely.
 #
-# Modes (CITRACKER_INITDB):
+# Modes (GHAT_INITDB):
 #
-#   auto   (default) run the scripts when `rhosocial-github-ci-tracker-db
+#   auto   (default) run the scripts when `rhosocial-github-actions-tracker-db
 #          is-initialized` reports that the schema is absent
 #   force  run the scripts regardless; use it after `db reset`, or to reconcile
 #          a credential added after the first boot
 #   skip   never run the scripts; the deployment owns schema and credentials
 #
-# CITRACKER_LEGACY=1 is kept as a spelling for skip.
+# GHAT_LEGACY=1 is kept as a spelling for skip.
 #
 # The scripts receive the container environment (database coordinates, PAT,
 # ...) and are mounted read-only by compose: nothing here is part of the image.
@@ -26,11 +26,11 @@
 # Logs go to stdout/stderr by design: `docker logs` is the log reader.
 set -eu
 
-INITDB_DIR="${CITRACKER_INITDB_DIR:-/docker-entrypoint-init.d}"
-INITDB_MODE="${CITRACKER_INITDB:-auto}"
+INITDB_DIR="${GHAT_INITDB_DIR:-/docker-entrypoint-init.d}"
+INITDB_MODE="${GHAT_INITDB:-auto}"
 
 log() {
-    echo "citracker: $*"
+    echo "github-actions-tracker: $*"
 }
 
 # Accept the same spellings as the Python settings helper, so a value copied
@@ -48,22 +48,22 @@ is_true() {
 should_initialize() {
     case "$INITDB_MODE" in
         skip | SKIP | Skip | none | NONE | None)
-            log "CITRACKER_INITDB=$INITDB_MODE: init scripts disabled"
+            log "GHAT_INITDB=$INITDB_MODE: init scripts disabled"
             return 1
             ;;
         force | FORCE | Force | always | ALWAYS | Always)
-            log "CITRACKER_INITDB=$INITDB_MODE: running init scripts"
+            log "GHAT_INITDB=$INITDB_MODE: running init scripts"
             return 0
             ;;
         auto | AUTO | Auto | "")
             ;;
         *)
-            log "invalid CITRACKER_INITDB='$INITDB_MODE'; use auto, force or skip"
+            log "invalid GHAT_INITDB='$INITDB_MODE'; use auto, force or skip"
             return 2
             ;;
     esac
 
-    if rhosocial-github-ci-tracker-db is-initialized; then
+    if rhosocial-github-actions-tracker-db is-initialized; then
         log "schema already initialized; skipping init scripts"
         return 1
     fi
@@ -78,7 +78,7 @@ should_initialize() {
 run_init_scripts() {
     if [ ! -d "$INITDB_DIR" ]; then
         log "no init script directory at $INITDB_DIR"
-        log "mount one there, or set CITRACKER_INITDB=skip to manage the schema yourself"
+        log "mount one there, or set GHAT_INITDB=skip to manage the schema yourself"
         return 1
     fi
 
@@ -92,14 +92,14 @@ run_init_scripts() {
 
     if [ "$found" -eq 0 ]; then
         log "no *.sh scripts in $INITDB_DIR"
-        log "mount one there, or set CITRACKER_INITDB=skip to manage the schema yourself"
+        log "mount one there, or set GHAT_INITDB=skip to manage the schema yourself"
         return 1
     fi
 
     log "init scripts completed"
 }
 
-if is_true "${CITRACKER_LEGACY:-0}"; then
+if is_true "${GHAT_LEGACY:-0}"; then
     log "legacy mode: init scripts disabled"
     exec "$@"
 fi

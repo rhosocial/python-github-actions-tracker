@@ -8,7 +8,7 @@ that is fine, so the concurrency case is its own type.
 
 from __future__ import annotations
 
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.core.exceptions import (
     GithubAPIError,
     RateLimitError,
     RunInProgressError,

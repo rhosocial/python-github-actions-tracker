@@ -6,7 +6,7 @@ alone never identifies one execution. Measured on a public run with two
 attempts: attempt 1 started at ``07:32:41Z`` while the run row had already been
 overwritten with attempt 2's ``08:55:41Z``. Before this table existed, storing
 the run overwrote the earlier execution's state and the only thing telling the
-two apart was an integer on ``ct_jobs``.
+two apart was an integer on ``ghat_jobs``.
 
 The point of these tests is that the earlier attempt's state *survives* -- which
 is the whole reason the table exists.
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from conftest import FakeGithub, subscribe
 
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRunAttempt,
     AsyncWorkflowRun,

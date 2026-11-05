@@ -1,12 +1,12 @@
 # python-ci-tracker
 
-[![CI](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/test.yml)
-[![Image build](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml/badge.svg)](https://github.com/rhosocial/python-github-ci-tracker/actions/workflows/images.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/vistart/citracker)](https://hub.docker.com/r/vistart/citracker)
-[![Docker Image Size](https://img.shields.io/docker/image-size/vistart/citracker/latest)](https://hub.docker.com/r/vistart/citracker/tags)
+[![CI](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/test.yml)
+[![Image build](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/images.yml/badge.svg)](https://github.com/rhosocial/python-github-actions-tracker/actions/workflows/images.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/vistart/github-actions-tracker)](https://hub.docker.com/r/vistart/github-actions-tracker)
+[![Docker Image Size](https://img.shields.io/docker/image-size/vistart/github-actions-tracker/latest)](https://hub.docker.com/r/vistart/github-actions-tracker/tags)
 [![Python](https://img.shields.io/badge/python-3.15-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](https://rhosocial.github.io/python-github-ci-tracker/)
+[![Docs](https://img.shields.io/badge/docs-en_US_%2F_zh__CN-green.svg)](https://rhosocial.github.io/python-github-actions-tracker/)
 
 **一个自建服务，回答"刚才那次 CI 到底怎么了"——通过 MCP、REST、CLI 三种接口。**
 
@@ -30,7 +30,7 @@ GitHub 还能回答时，绝不用缓存充当真相。
 | **明确只支持 PostgreSQL** | 日志表按月分区，清旧数据是一次 `DROP TABLE`；三元组索引（`pg_trgm`，硬盘开销约为日志文本的 1 倍）加快搜索；schema 由服务自己的渲染器生成；测试套件跑在真实数据库上 |
 
 | **预算来自真实耗时，不含排队** | 每次读 run 都带 `timings`：job 的跨度、排队时间、通过 job 的跨度——等待预算依据的就是它们，被别处仓库堵在队列里的时间不会抬高 p50/p90。`db usage` 与 `ci_status.storage` 报告数据库实际占用 |
-| **一个镜像，两个 registry** | `images.yml` 把同一个多架构构建发布到阿里云（`vistart_public/citracker`）与 Docker Hub（`vistart/citracker`），tag 只有 `latest`。两处各自一套 secret，缺一个也不影响另一个。只在被要求时才运行，"跑的是哪一版"由 `build.revision` 回答 |
+| **一个镜像，两个 registry** | `images.yml` 把同一个多架构构建发布到阿里云（`vistart_public/github-actions-tracker`）与 Docker Hub（`vistart/github-actions-tracker`），tag 只有 `latest`。两处各自一套 secret，缺一个也不影响另一个。只在被要求时才运行，"跑的是哪一版"由 `build.revision` 回答 |
 | **标准格式的指标** | REST 监听上的 `GET /metrics` 以 Prometheus 文本格式回答：webhook 投递、GitHub 调用（按 status code）、工具调用（按 outcome），连接池 gauge 经 `ci_status.health`。进程内计数，跨实例由抓取方求和 |
 
 ## 为什么用
@@ -68,19 +68,19 @@ MCP 端点是 `http://127.0.0.1:8001/mcp`（Streamable HTTP）。每个 agent �
 （含共享文件的形态、各家的批准关卡）见[编码 Agent 接入 MCP](docs/zh_CN/mcp-agents.md)：
 
 ```bash
-claude mcp add --transport http citracker http://127.0.0.1:8001/mcp   # Claude Code
-codex mcp add citracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
-opencode:  "mcp": { "citracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
-cmd mcp add --transport http citracker http://127.0.0.1:8001/mcp      # Command Code
+claude mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp   # Claude Code
+codex mcp add github_actions_tracker --url http://127.0.0.1:8001/mcp               # Codex (TOML)
+opencode:  "mcp": { "github_actions_tracker": { "type": "remote", "url": "…", "oauth": false } }   # opencode.json
+cmd mcp add --transport http github_actions_tracker http://127.0.0.1:8001/mcp      # Command Code
 ```
 
-配置了 `CITRACKER_API_KEY` 时，Claude Code / Command Code 加
+配置了 `GHAT_API_KEY` 时，Claude Code / Command Code 加
 `--header "Authorization: Bearer <key>"`，Codex 用 `bearer_token_env_var`，
 OpenCode 用 `Authorization` 头并写 `oauth: false`。
 
 ## 细节在哪里
 
-在线阅读（无需 checkout）：<https://rhosocial.github.io/python-github-ci-tracker/zh_CN/> · [English](https://rhosocial.github.io/python-github-ci-tracker/)
+在线阅读（无需 checkout）：<https://rhosocial.github.io/python-github-actions-tracker/zh_CN/> · [English](https://rhosocial.github.io/python-github-actions-tracker/)
 
 - [文档（简体中文）](docs/zh_CN/README.md)——部署、接口、CLI、开发
 - [Documentation (English)](docs/en_US/README.md)

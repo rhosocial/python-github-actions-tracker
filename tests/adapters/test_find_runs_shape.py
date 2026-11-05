@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
+from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
 
 #: The query controller the registered tools serve from, set by ``_patch``.
 _SERVICE: object = None
@@ -65,7 +65,7 @@ class _StubService:
         return list(self._runs)
 
     async def attach_failed_jobs(self, runs: list[object]) -> None:
-        from rhosocial.github_ci_tracker.views import JobFailure
+        from rhosocial.github_actions_tracker.views import JobFailure
 
         self.attached += len(runs)
         for run in runs:

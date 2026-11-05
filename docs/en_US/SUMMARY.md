@@ -1,6 +1,6 @@
 # Summary
 
-* [python-github-ci-tracker — English](README.md)
+* [python-github-actions-tracker — English](README.md)
 
 ## Overview
 

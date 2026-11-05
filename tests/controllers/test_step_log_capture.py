@@ -22,16 +22,16 @@ from datetime import datetime, timedelta, timezone
 
 from conftest import FakeGithub, make_archive, subscribe
 
-from rhosocial.github_ci_tracker.config import LogSettings
-from rhosocial.github_ci_tracker.controllers import RunData, RunLogCapture
-from rhosocial.github_ci_tracker.controllers.query import QueryController
-from rhosocial.github_ci_tracker.controllers.run import RunController
-from rhosocial.github_ci_tracker.models import (
+from rhosocial.github_actions_tracker.config import LogSettings
+from rhosocial.github_actions_tracker.controllers import RunData, RunLogCapture
+from rhosocial.github_actions_tracker.controllers.query import QueryController
+from rhosocial.github_actions_tracker.controllers.run import RunController
+from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncStepLog,
     AsyncWorkflowRun,
 )
-from rhosocial.github_ci_tracker.services.github import GithubRepositories, GithubRuns
+from rhosocial.github_actions_tracker.services.github import GithubRepositories, GithubRuns
 
 REPO = "acme/demo"
 RUN_ID = 900_500
@@ -341,7 +341,7 @@ class TestTheJobSummary:
         Treating that as a failure made ``failed_steps_only`` report green steps
         for a run whose step rows had not been filled in yet.
         """
-        from rhosocial.github_ci_tracker.models import AsyncStep
+        from rhosocial.github_actions_tracker.models import AsyncStep
 
         fake = _fake()
         await _ready(fake)
@@ -389,7 +389,7 @@ class TestTheJobDelivery:
 
 class TestArchiveNotReady:
     async def test_a_404_is_retried_by_a_read_until_the_archive_appears(self, bound) -> None:
-        from rhosocial.github_ci_tracker.core.exceptions import GithubAPIError
+        from rhosocial.github_actions_tracker.core.exceptions import GithubAPIError
 
         fake = _fake()
         repo, run, job = await _ready(fake)
@@ -412,7 +412,7 @@ class TestArchiveNotReady:
         assert report.error is None
 
     async def test_a_404_without_retry_still_reports_unavailable(self, bound) -> None:
-        from rhosocial.github_ci_tracker.core.exceptions import GithubAPIError
+        from rhosocial.github_actions_tracker.core.exceptions import GithubAPIError
 
         fake = _fake()
         repo, run, job = await _ready(fake)
@@ -593,7 +593,7 @@ class TestRunFailureGrouping:
 
     @staticmethod
     async def _write_failed_step_texts(text: str) -> None:
-        from rhosocial.github_ci_tracker.models import AsyncStep, AsyncStepLog
+        from rhosocial.github_actions_tracker.models import AsyncStep, AsyncStepLog
 
         for job in await AsyncJob.query().all():
             steps = await AsyncStep.query().where(AsyncStep.c.job_id == job.id).all()
@@ -621,7 +621,7 @@ class TestRunFailureGrouping:
         service = _query(fake)
         await self._write_failed_step_texts("one failure\n")
 
-        from rhosocial.github_ci_tracker.models import AsyncStep, AsyncStepLog
+        from rhosocial.github_actions_tracker.models import AsyncStep, AsyncStepLog
 
         job = await AsyncJob.find_one(AsyncJob.c.name == "docs")
         assert job is not None
@@ -759,7 +759,7 @@ class TestHealingAStaleJob:
         assert [step.status for step in await stored.steps()] == ["completed"] * 3
 
     async def test_a_read_repairs_a_finished_job_with_running_steps(self, bound) -> None:
-        from rhosocial.github_ci_tracker.models import AsyncStep
+        from rhosocial.github_actions_tracker.models import AsyncStep
 
         fake = _fake()
         await _ready(fake)

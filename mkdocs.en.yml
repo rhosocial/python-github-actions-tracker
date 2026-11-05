@@ -8,14 +8,14 @@
 # Navigation comes from the page's own SUMMARY.md (mkdocs-literate-nav), so the site has
 # no second table of contents to drift from the one tests/app/test_documentation.py
 # already guards.
-site_name: citracker
+site_name: GitHub Actions Tracker
 site_description: Track GitHub Actions runs, jobs, steps and logs — over MCP, REST and a CLI.
-site_url: https://rhosocial.github.io/python-github-ci-tracker/
-repo_url: https://github.com/rhosocial/python-github-ci-tracker
-repo_name: rhosocial/python-github-ci-tracker
+site_url: https://rhosocial.github.io/python-github-actions-tracker/
+repo_url: https://github.com/rhosocial/python-github-actions-tracker
+repo_name: rhosocial/python-github-actions-tracker
 copyright: >-
   Copyright &copy; 2026 rhosocial &middot;
-  <a href="/python-github-ci-tracker/privacy/">Privacy</a> &middot;
+  <a href="/python-github-actions-tracker/privacy/">Privacy</a> &middot;
   docs CC BY 4.0 &middot; code Apache-2.0
 
 # SUMMARY.md is the repository's table of contents, not a site page.
@@ -51,10 +51,10 @@ theme:
 extra:
   alternate:
     - name: English
-      link: /python-github-ci-tracker/
+      link: /python-github-actions-tracker/
       lang: en
     - name: 简体中文
-      link: /python-github-ci-tracker/zh_CN/
+      link: /python-github-actions-tracker/zh_CN/
       lang: zh
 
 nav:

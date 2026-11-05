@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from rhosocial.github_ci_tracker.models import AsyncJob, AsyncRunAttempt, AsyncWorkflowRun
+from rhosocial.github_actions_tracker.models import AsyncJob, AsyncRunAttempt, AsyncWorkflowRun
 from tests.core.test_facade_views import _run_payload, subscribe
 
 BASE = datetime(2026, 9, 20, 6, 0, tzinfo=timezone.utc)

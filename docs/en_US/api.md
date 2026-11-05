@@ -6,7 +6,7 @@ MCP is the primary surface; REST and CLI are the same flows in other shapes.
 
 ```bash
 docker compose --env-file docker/stack.env up -d mcp
-# listens on 0.0.0.0:8001; CITRACKER_MCP_PORT moves it; bind to loopback when local
+# listens on 0.0.0.0:8001; GHAT_MCP_PORT moves it; bind to loopback when local
 ```
 
 ## The tools
@@ -38,7 +38,7 @@ Claude Code, Codex, OpenCode and Command Code each manage MCP differently —
 config file, scope model, approval gates. The exact snippets that connect them
 to this service are in [Coding agents over MCP](mcp-agents.md); the endpoint is
 `http://127.0.0.1:8001/mcp` (Streamable HTTP) and the authentication is a static
-`Authorization: Bearer <CITRACKER_API_KEY>` header whenever that variable is set.
+`Authorization: Bearer <GHAT_API_KEY>` header whenever that variable is set.
 
 ## Where a run's seconds went
 
@@ -59,7 +59,7 @@ from and the number a run reports are the same measurement.
 
 ## Authentication
 
-Bearer `CITRACKER_API_KEY`. An empty key means no auth and warns at startup; on a
+Bearer `GHAT_API_KEY`. An empty key means no auth and warns at startup; on a
 public endpoint it must be set.
 
 ## Prompts that work

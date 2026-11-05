@@ -18,14 +18,14 @@ from __future__ import annotations
 import pytest
 from conftest import FakeGithub
 
-from rhosocial.github_ci_tracker.controllers import RunData
-from rhosocial.github_ci_tracker.controllers.dispatch import (
+from rhosocial.github_actions_tracker.controllers import RunData
+from rhosocial.github_actions_tracker.controllers.dispatch import (
     DispatchController,
     _dispatch_identifier,
 )
-from rhosocial.github_ci_tracker.controllers.run import RunController
-from rhosocial.github_ci_tracker.controllers.trigger import TriggerController
-from rhosocial.github_ci_tracker.core.exceptions import (
+from rhosocial.github_actions_tracker.controllers.run import RunController
+from rhosocial.github_actions_tracker.controllers.trigger import TriggerController
+from rhosocial.github_actions_tracker.core.exceptions import (
     GithubAPIError,
     RepositoryNotFoundError,
     RunInProgressError,
@@ -34,13 +34,13 @@ from rhosocial.github_ci_tracker.core.exceptions import (
     TriggerFailedError,
     ValidationError,
 )
-from rhosocial.github_ci_tracker.core.run_tracker import RunTracker
-from rhosocial.github_ci_tracker.models import AsyncJob, AsyncRepository, AsyncWorkflow
-from rhosocial.github_ci_tracker.models.attempt import AsyncRunAttempt
-from rhosocial.github_ci_tracker.models.errors import WorkflowNotFoundError
-from rhosocial.github_ci_tracker.models.run import AsyncWorkflowRun
-from rhosocial.github_ci_tracker.services.github import GithubRuns
-from rhosocial.github_ci_tracker.services.github.protocols import RunControl, RunReader
+from rhosocial.github_actions_tracker.core.run_tracker import RunTracker
+from rhosocial.github_actions_tracker.models import AsyncJob, AsyncRepository, AsyncWorkflow
+from rhosocial.github_actions_tracker.models.attempt import AsyncRunAttempt
+from rhosocial.github_actions_tracker.models.errors import WorkflowNotFoundError
+from rhosocial.github_actions_tracker.models.run import AsyncWorkflowRun
+from rhosocial.github_actions_tracker.services.github import GithubRuns
+from rhosocial.github_actions_tracker.services.github.protocols import RunControl, RunReader
 
 REPO = "acme/demo"
 RUN_ID = 500

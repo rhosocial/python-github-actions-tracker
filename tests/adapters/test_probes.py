@@ -22,16 +22,16 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from rhosocial.github_ci_tracker.adapters.mcp.server import (
+from rhosocial.github_actions_tracker.adapters.mcp.server import (
     LIVEZ_PATH,
     READYZ_PATHS,
     _DatabaseBoundApp,
     _UnboundContainer,
 )
-from rhosocial.github_ci_tracker.adapters.rest.app import create_app
-from rhosocial.github_ci_tracker.build import NUMBER_ENV, REVISION_ENV
-from rhosocial.github_ci_tracker.container import Container
-from rhosocial.github_ci_tracker.database import Database
+from rhosocial.github_actions_tracker.adapters.rest.app import create_app
+from rhosocial.github_actions_tracker.build import NUMBER_ENV, REVISION_ENV
+from rhosocial.github_actions_tracker.container import Container
+from rhosocial.github_actions_tracker.database import Database
 
 API_KEY = "probe-key"
 
@@ -85,7 +85,7 @@ def _app(container: Any) -> Any:
 
 class TestRestProbes:
     def test_liveness_never_touches_the_database(self, monkeypatch) -> None:
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
         app = _app(_container(_Database(fail=TimeoutError("unreachable"))))
 
         with TestClient(app) as client:
@@ -95,7 +95,7 @@ class TestRestProbes:
         assert response.json()["status"] == "alive"
 
     def test_readiness_reports_an_unreachable_database(self, monkeypatch) -> None:
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
         database = _Database(fail=TimeoutError("no answer within 2s"))
         app = _app(_container(database))
 
@@ -108,7 +108,7 @@ class TestRestProbes:
         assert database.pings == 1
 
     def test_readiness_is_ok_when_the_database_answers(self, monkeypatch) -> None:
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
         app = _app(_container(_Database(), schema="ok"))
 
         with TestClient(app) as client:
@@ -118,7 +118,7 @@ class TestRestProbes:
         assert response.json()["checks"] == {"container": "ok", "database": "ok", "schema": "ok"}
 
     def test_readiness_without_a_database_is_not_ready(self, monkeypatch) -> None:
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
         app = _app(_container(None))
 
         with TestClient(app) as client:
@@ -129,7 +129,7 @@ class TestRestProbes:
 
     @pytest.mark.parametrize("path", ["/health", "/healthz", "/readyz"])
     def test_the_probe_paths_need_no_api_key(self, monkeypatch, path: str) -> None:
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
         app = _app(_container(_Database()))
 
         with TestClient(app) as client:
@@ -139,18 +139,18 @@ class TestRestProbes:
 
     def test_a_missing_table_is_reported_without_failing_the_probe(self, monkeypatch) -> None:
         """``init`` creates the schema; draining the instance would not."""
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
-        app = _app(_container(_Database(), schema="missing: ct_jobs"))
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
+        app = _app(_container(_Database(), schema="missing: ghat_jobs"))
 
         with TestClient(app) as client:
             response = client.get("/readyz")
 
         assert response.status_code == 200
-        assert response.json()["checks"]["schema"] == "missing: ct_jobs"
+        assert response.json()["checks"]["schema"] == "missing: ghat_jobs"
 
     def test_both_probes_carry_the_build_stamp(self, monkeypatch) -> None:
         """``version`` cannot tell two images apart; the stamp can."""
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
         monkeypatch.setenv(REVISION_ENV, "e5815a5f5b31df495dc69638d11602df685a0e4b")
         monkeypatch.setenv(NUMBER_ENV, "42")
         app = _app(_container(_Database()))
@@ -164,7 +164,7 @@ class TestRestProbes:
         assert ready["build"]["revision"] == "e5815a5f5b31df495dc69638d11602df685a0e4b"
 
     def test_an_unstamped_build_is_reported_as_null(self, monkeypatch) -> None:
-        monkeypatch.setenv("CITRACKER_API_KEY", API_KEY)
+        monkeypatch.setenv("GHAT_API_KEY", API_KEY)
         monkeypatch.delenv(REVISION_ENV, raising=False)
         monkeypatch.delenv(NUMBER_ENV, raising=False)
         app = _app(_container(_Database()))

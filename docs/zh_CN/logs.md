@@ -4,8 +4,8 @@
 
 ```
 get_job_log(job_id)                 失败 step 的文本（或合并文本）
-get_job_log(job_id, whole_job=true) 明确要整个 job 的合并文本（ct_job_logs）
-get_job_log(job_id, step=N)         第 N 个 step 自己的文件（ct_step_logs）
+get_job_log(job_id, whole_job=true) 明确要整个 job 的合并文本（ghat_job_logs）
+get_job_log(job_id, step=N)         第 N 个 step 自己的文件（ghat_step_logs）
 get_job_log(job_id, failed_steps_only=true)   全部失败 step 的文本
 search_job_log(job_id, query)       在合并文本里搜，返回行号与上下文
 search_job_log(job_id, query, step=N)   在某个 step 的文本里搜
@@ -74,7 +74,7 @@ step 没采集到时返回 `reason`（`capture_closed` / `not_a_step_archive` �
 ## 一条日志属于哪个月
 
 每条日志行带着它所属的 **bucket**：job 完成时间所在 UTC 月的第一天。
-`ct_jobs.log_bucket` 存同一个值，`ct_steps.log_bucket` 从 job 复制——读路径手里有 job
+`ghat_jobs.log_bucket` 存同一个值，`ghat_steps.log_bucket` 从 job 复制——读路径手里有 job
 （或 step）就知道该查哪个月，不需要再查一次。
 
 bucket 是**算出来的，不是单独存的**：写入方用同一个函数（`bucket_of`）从 job 自己的

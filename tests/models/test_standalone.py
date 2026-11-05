@@ -15,12 +15,12 @@ Three checks, weakest to strongest:
    service, a client or a credential provider to work, this would fail.
 
 The first two need no database. The third needs a PostgreSQL server, and takes
-its address from the environment: ``CITRACKER_DB_*`` (the variables the
+its address from the environment: ``GHAT_DB_*`` (the variables the
 application itself reads), falling back to the libpq ``PG*`` names, merged over a
 scenario file when one is named or present. Nothing here knows where the server
-is; CI only sets variables. Locally, point ``CITRACKER_TEST_PG_SCENARIO_FILE`` at
+is; CI only sets variables. Locally, point ``GHAT_TEST_PG_SCENARIO_FILE`` at
 a scenarios file -- the sibling ``python-activerecord-postgres`` repository ships
-one with a ``postgres_18`` entry -- or just set ``CITRACKER_DB_HOST``.
+one with a ``postgres_18`` entry -- or just set ``GHAT_DB_HOST``.
 
 The runtime check works inside a private schema and drops it on the way out, so
 it neither depends on nor disturbs whatever else lives on that server.
@@ -33,12 +33,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from rhosocial.github_ci_tracker import models
+from rhosocial.github_actions_tracker import models
 
 #: The package under test, for the static scan.
 MODELS_DIR = Path(models.__file__).parent
 
-TEST_SCHEMA = "citracker_models_standalone"
+TEST_SCHEMA = "ghat_models_standalone"
 
 
 # ---------------------------------------------------------------------------
@@ -56,14 +56,14 @@ def _outbound_imports() -> list[str]:
                 module = node.module or ""
                 if node.level >= 2 and not module.startswith("models"):
                     found.append(f"{path.name}:{node.lineno} from {'.' * node.level}{module}")
-                elif node.level == 0 and module.startswith("rhosocial.github_ci_tracker"):
-                    if not module.startswith("rhosocial.github_ci_tracker.models"):
+                elif node.level == 0 and module.startswith("rhosocial.github_actions_tracker"):
+                    if not module.startswith("rhosocial.github_actions_tracker.models"):
                         found.append(f"{path.name}:{node.lineno} from {module}")
             elif isinstance(node, ast.Import):
                 for alias in node.names:
                     name = alias.name
-                    if name.startswith("rhosocial.github_ci_tracker") and not name.startswith(
-                        "rhosocial.github_ci_tracker.models"
+                    if name.startswith("rhosocial.github_actions_tracker") and not name.startswith(
+                        "rhosocial.github_actions_tracker.models"
                     ):
                         found.append(f"{path.name}:{node.lineno} import {name}")
     return found
@@ -85,9 +85,9 @@ def test_models_imports_nothing_from_the_rest_of_the_project() -> None:
 
 _PROBE = """
 import sys
-import rhosocial.github_ci_tracker.models  # noqa: F401
+import rhosocial.github_actions_tracker.models  # noqa: F401
 
-prefix = "rhosocial.github_ci_tracker."
+prefix = "rhosocial.github_actions_tracker."
 leaked = sorted(
     name
     for name in sys.modules

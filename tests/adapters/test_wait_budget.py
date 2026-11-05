@@ -20,9 +20,9 @@ import asyncio
 from types import SimpleNamespace
 from typing import Any
 
-from rhosocial.github_ci_tracker.adapters.mcp.tools import query as query_tools
-from rhosocial.github_ci_tracker.adapters.mcp.tools import trigger as trigger_tools
-from rhosocial.github_ci_tracker.views import DurationSample, RunView, RunWaitView
+from rhosocial.github_actions_tracker.adapters.mcp.tools import query as query_tools
+from rhosocial.github_actions_tracker.adapters.mcp.tools import trigger as trigger_tools
+from rhosocial.github_actions_tracker.views import DurationSample, RunView, RunWaitView
 
 SAMPLE = DurationSample(samples=5, p50_seconds=120.0, p90_seconds=240.0)
 

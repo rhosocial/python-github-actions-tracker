@@ -24,14 +24,14 @@ import pytest
 
 #: Entry points, plus the two modules on either side of the cycle.
 MODULES = [
-    "rhosocial.github_ci_tracker.adapters.cli.db",
-    "rhosocial.github_ci_tracker.adapters.cli.main",
-    "rhosocial.github_ci_tracker.database",
-    "rhosocial.github_ci_tracker.services",
-    "rhosocial.github_ci_tracker.controllers",
-    "rhosocial.github_ci_tracker.views",
-    "rhosocial.github_ci_tracker.adapters.rest.app",
-    "rhosocial.github_ci_tracker.adapters.mcp.server",
+    "rhosocial.github_actions_tracker.adapters.cli.db",
+    "rhosocial.github_actions_tracker.adapters.cli.main",
+    "rhosocial.github_actions_tracker.database",
+    "rhosocial.github_actions_tracker.services",
+    "rhosocial.github_actions_tracker.controllers",
+    "rhosocial.github_actions_tracker.views",
+    "rhosocial.github_actions_tracker.adapters.rest.app",
+    "rhosocial.github_actions_tracker.adapters.mcp.server",
 ]
 
 

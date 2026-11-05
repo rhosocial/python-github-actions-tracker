@@ -1,6 +1,6 @@
 ---
 name: ops-deploy-image
-description: Deploy citracker from the published image by asking one question at a time - PostgreSQL source, DB TLS, webhook certificate, GitHub PAT, MCP exposure - validating each answer with a standalone script before anything is started
+description: Deploy the tracker from the published image by asking one question at a time - PostgreSQL source, DB TLS, webhook certificate, GitHub PAT, MCP exposure - validating each answer with a standalone script before anything is started
 license: Apache-2.0
 compatibility: opencode
 metadata:
@@ -9,7 +9,7 @@ metadata:
   audience: operators
 ---
 
-# Deploy citracker from the image
+# Deploy the tracker from the image
 
 Walks an operator through a first deployment: **one question at a time**, each answer
 validated by a script before the next question is asked, and nothing started until every
@@ -32,7 +32,7 @@ for day-two work.
    certificate from a CA — are marked "wait for the operator". Stop there, say so plainly,
    and continue when they say it is done.
 5. **Never write a secret to a file that will be committed.** PATs go to
-   `docker/secrets/citracker-pat` (git-ignored) and are referenced by `--token-file`.
+   `docker/secrets/github-actions-tracker-pat` (git-ignored) and are referenced by `--token-file`.
 
 ## Step 0 — Pick the runtime, then check reachability
 
@@ -45,12 +45,12 @@ slow from this network, pull the Aliyun one instead:
 
 ```bash
 docker version >/dev/null && echo "docker ok"
-docker pull registry.cn-shanghai.aliyuncs.com/vistart_public/citracker:latest >/dev/null \
+docker pull registry.cn-shanghai.aliyuncs.com/vistart_public/github-actions-tracker:latest >/dev/null \
   && echo "aliyun reachable"
-docker pull docker.io/vistart/citracker:latest >/dev/null && echo "docker hub reachable"
+docker pull docker.io/vistart/github-actions-tracker:latest >/dev/null && echo "docker hub reachable"
 ```
 
-Record which registry was used; it becomes `CITRACKER_IMAGE`.
+Record which registry was used; it becomes `GHAT_IMAGE`.
 
 **B. Native Python** (no Docker at all): needs Python 3.10 or newer (3.15 is what CI and
 the image run), pip, and a route to the package — PyPI, or a local checkout to install
@@ -58,12 +58,12 @@ from:
 
 ```bash
 python --version                       # 3.10+; 3.15 is what CI runs
-pip install rhosocial-github-ci-tracker
-rhosocial-github-ci-tracker --help     # both CLIs arrive from the same wheel
-rhosocial-github-ci-tracker-db --help
+pip install rhosocial-github-actions-tracker
+rhosocial-github-actions-tracker --help     # both CLIs arrive from the same wheel
+rhosocial-github-actions-tracker-db --help
 ```
 
-Both entry points read the same `CITRACKER_*` environment variables the compose file would
+Both entry points read the same `GHAT_*` environment variables the compose file would
 have carried, so the answers collected in steps 1–5 feed either runtime unchanged.
 Windows works: the CLI installs the selector event loop psycopg's async mode needs on
 that platform. Validate the environment:
@@ -98,9 +98,9 @@ What it accepts: a reachable server, PostgreSQL 16 or newer, `pg_trgm` present, 
 ability to create the database (so `init.d` can do its job). What it reports as a
 **warning rather than a failure**: no `CREATE DATABASE` right — that is normal on most
 managed services. In that case the operator creates the database by hand, sets
-`CITRACKER_DB_NAME` to it, and the schema is created on first boot.
+`GHAT_DB_NAME` to it, and the schema is created on first boot.
 
-Record: `CITRACKER_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_NAME` / `_SSLMODE`.
+Record: `GHAT_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_NAME` / `_SSLMODE`.
 
 ## Step 2 — Does the database traffic cross a public network?
 
@@ -109,7 +109,7 @@ Ask plainly; the answer decides whether `sslmode` stays `prefer` or has to becom
 prove the server is who it claims — which is fine over a private link and not fine over the
 internet.
 
-- **No** (same host, or a private network): `CITRACKER_DB_SSLMODE=prefer`. Move on.
+- **No** (same host, or a private network): `GHAT_DB_SSLMODE=prefer`. Move on.
 - **Yes** (Supabase, a database in another datacentre, anything public): `verify-full` plus
   the CA bundle, or the deployment is one stray router away from a credential in the clear.
   Re-run with the CA file, and give `--host` as the name the CA issued for — libpq does the
@@ -165,7 +165,7 @@ acceptable for a listener only GitHub can reach — GitHub does not verify the c
 when it calls you — and not acceptable if humans will open the URL in a browser. Say which
 of the two this is; do not decide for the operator.
 
-Record: `CITRACKER_WEBHOOK_SSL_CERTFILE` / `_KEYFILE` / `_HOSTNAME`.
+Record: `GHAT_WEBHOOK_SSL_CERTFILE` / `_KEYFILE` / `_HOSTNAME`.
 
 **Why this step is not optional:** GitHub's webhook settings require an HTTPS callback URL.
 It can be switched to HTTP in the repository's webhook settings, and doing so means the
@@ -196,9 +196,9 @@ the link and the exact permission list, then stop:
 When the operator says it is done, save the token and validate it:
 
 ```bash
-printf '%s' '<token>' > docker/secrets/citracker-pat    # git-ignored
+printf '%s' '<token>' > docker/secrets/github-actions-tracker-pat    # git-ignored
 python .claude/skills/ops-deploy-image/scripts/check_pat.py \
-  --token "$(cat docker/secrets/citracker-pat)" --repo owner/repo
+  --token "$(cat docker/secrets/github-actions-tracker-pat)" --repo owner/repo
 ```
 
 The script separates **verified** (the token works and each permission was observed doing
@@ -207,9 +207,9 @@ minutes, so it reports it as unproven and says so, rather than claiming a green 
 have. A token that cannot read at all is a stop; a token that can only read is a warning
 that lists exactly which tool will refuse.
 
-Record: `CITRACKER_BOOTSTRAP_PAT_FILE=docker/secrets/citracker-pat` (relative to the
-compose file), `CITRACKER_BOOTSTRAP_PAT_NAME` (default `default`), and
-`CITRACKER_BOOTSTRAP_PROBE_REPO` if they want the boot to verify Actions write against a
+Record: `GHAT_BOOTSTRAP_PAT_FILE=docker/secrets/github-actions-tracker-pat` (relative to the
+compose file), `GHAT_BOOTSTRAP_PAT_NAME` (default `default`), and
+`GHAT_BOOTSTRAP_PROBE_REPO` if they want the boot to verify Actions write against a
 known repository.
 
 ## Step 5 — How will MCP be reached?
@@ -218,15 +218,15 @@ Two answers, two different deployments, and the second is the one people get wro
 it works fine on the day they test it.
 
 - **Local or on a private network** (`127.0.0.1`, a LAN address behind a firewall): no
-  certificate, no API key. Leave `CITRACKER_API_KEY` empty — the listener warns at startup
+  certificate, no API key. Leave `GHAT_API_KEY` empty — the listener warns at startup
   and serves, which is the honest default for a local tool.
-- **Public, or shared inside an organisation**: set `CITRACKER_API_KEY` (every MCP and REST
+- **Public, or shared inside an organisation**: set `GHAT_API_KEY` (every MCP and REST
   call then needs `Authorization: Bearer <key>`) and put TLS in front of the MCP listener
   the same way the webhook listener has it. An open MCP endpoint is an open `trigger_workflow`
   — every caller spends *your* CI minutes.
 
 Ask; do not infer from the fact that the port is bound to `0.0.0.0`. Record
-`CITRACKER_API_KEY`, and for the shared case the certificate paths once step 3 produced
+`GHAT_API_KEY`, and for the shared case the certificate paths once step 3 produced
 them.
 
 ## Step 6 — Start it, then prove it started
@@ -236,7 +236,7 @@ them.
 ```bash
 docker compose --env-file docker/stack.env up -d
 python .claude/skills/ops-deploy-image/scripts/check_deployment.py \
-  --base-url http://127.0.0.1:8001 --api-key "<CITRACKER_API_KEY>" \
+  --base-url http://127.0.0.1:8001 --api-key "<GHAT_API_KEY>" \
   --webhook-url http://127.0.0.1:18080 --expect-revision <short sha of the image>
 ```
 
@@ -248,16 +248,16 @@ platform offers):
 ```bash
 # 1) schema — creates the database too when the user may; --no-create-database
 #    for managed services where it may not:
-rhosocial-github-ci-tracker-db init
+rhosocial-github-actions-tracker-db init
 
 # 2) credential — what 20-pat.sh did in the container; token from a file, so it
 #    never reaches the process list:
-rhosocial-github-ci-tracker credential pat ensure \
-  --name default --token-file docker/secrets/citracker-pat --probe-repo owner/repo
+rhosocial-github-actions-tracker credential pat ensure \
+  --name default --token-file docker/secrets/github-actions-tracker-pat --probe-repo owner/repo
 
 # 3) the two long-running processes:
-rhosocial-github-ci-tracker serve all    # REST :8000 + webhook :18080
-rhosocial-github-ci-tracker serve mcp    # MCP :8001, its own process
+rhosocial-github-actions-tracker serve all    # REST :8000 + webhook :18080
+rhosocial-github-actions-tracker serve mcp    # MCP :8001, its own process
 ```
 
 Then the same script as path A. It cannot tell a container from a native process, and
@@ -306,9 +306,9 @@ not finished, however green its probes are.
 Rollback depends on the path, and both keep the database untouched (the schema is never
 altered in place):
 
-- **Container**: point `CITRACKER_IMAGE` at an older build and `up -d`. `sha-` tags no
+- **Container**: point `GHAT_IMAGE` at an older build and `up -d`. `sha-` tags no
   longer exist, so "an older build" means the registry digest of a previous `latest`
   (record it when you publish), or simply a re-run of the publish workflow at the older
   commit.
-- **Native**: `pip install rhosocial-github-ci-tracker==<older version>` (or check out the
+- **Native**: `pip install rhosocial-github-actions-tracker==<older version>` (or check out the
   older commit and install from it), then restart the two `serve` processes.

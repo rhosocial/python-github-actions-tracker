@@ -13,15 +13,15 @@ from typing import Any
 
 import pytest
 
-from rhosocial.github_ci_tracker.observability import reset
-from rhosocial.github_ci_tracker.observability.definitions import (
+from rhosocial.github_actions_tracker.observability import reset
+from rhosocial.github_actions_tracker.observability.definitions import (
     GITHUB_API_SECONDS,
     GITHUB_API_TOTAL,
     TOOL_CALLS_TOTAL,
     TOOL_SECONDS,
     WEBHOOK_DELIVERIES_TOTAL,
 )
-from rhosocial.github_ci_tracker.observability.exposition import (
+from rhosocial.github_actions_tracker.observability.exposition import (
     METRICS_PATH,
     MetricsMiddleware,
     _template_of,
@@ -82,19 +82,16 @@ class TestTheText:
 
         text = metrics_app_text()
 
-        assert "# HELP citracker_webhook_deliveries_total" in text
-        assert "# TYPE citracker_webhook_deliveries_total counter" in text
-        assert (
-            'citracker_webhook_deliveries_total{event_type="workflow_run",result="stored"} 1'
-            in text
-        )
+        assert "# HELP ghat_webhook_deliveries_total" in text
+        assert "# TYPE ghat_webhook_deliveries_total counter" in text
+        assert 'ghat_webhook_deliveries_total{event_type="workflow_run",result="stored"} 1' in text
 
     def test_an_unrecorded_metric_is_still_declared(self) -> None:
         """A scraper that sees the family knows what exists; ``rate()`` on an
         all-zero series is "nothing happened", not a missing query."""
         text = metrics_app_text()
 
-        assert "citracker_github_api_total" in text
+        assert "ghat_github_api_total" in text
 
     async def test_the_endpoint_answers_prometheus_text(self) -> None:
         sent: list[dict[str, Any]] = []
@@ -109,7 +106,7 @@ class TestTheText:
         assert "text/plain; version=0.0.4" in str(headers[b"content-type"])
         body = sent[1]["body"]
         assert isinstance(body, bytes), body
-        assert b"citracker_webhook_deliveries_total" in body
+        assert b"ghat_webhook_deliveries_total" in body
 
 
 class TestThePathTemplate:
@@ -160,7 +157,7 @@ class TestTheGithubAnswer:
     """The outbound side: the latency a caller feels carries its status code."""
 
     async def test_a_call_is_counted_by_the_answer_it_got(self) -> None:
-        from rhosocial.github_ci_tracker.services.github.client import (
+        from rhosocial.github_actions_tracker.services.github.client import (
             _note_status,
             _observed_async,
         )
@@ -174,7 +171,7 @@ class TestTheGithubAnswer:
     async def test_a_failed_call_is_counted_as_an_error(self) -> None:
         """A call that never answered is a status worth counting: the transport
         failing is not the same as GitHub refusing, and both differ from a 200."""
-        from rhosocial.github_ci_tracker.services.github.client import _observed_async
+        from rhosocial.github_actions_tracker.services.github.client import _observed_async
 
         with pytest.raises(OSError):
             async with _observed_async("GET", "/repos/o/r/actions/runs/1"):
@@ -185,7 +182,7 @@ class TestTheGithubAnswer:
     def test_the_operation_omits_the_repository_and_the_id(self) -> None:
         """One series per resource group, not one per repository: a repository
         name in a label turns a metric into a table."""
-        from rhosocial.github_ci_tracker.services.github.client import _operation_of
+        from rhosocial.github_actions_tracker.services.github.client import _operation_of
 
         assert _operation_of("/repos/o/r/actions/runs/123") == "runs"
         assert _operation_of("/repos/o/r/actions/jobs/9/logs") == "jobs"

@@ -71,8 +71,8 @@ def test_tls_directory_is_documented_rather_than_baked_in() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     documented = _documented_text()
     assert "/certs" in dockerfile
-    assert "CITRACKER_WEBHOOK_SSL_CERTFILE" in documented
-    assert "CITRACKER_WEBHOOK_SSL_KEYFILE" in documented
+    assert "GHAT_WEBHOOK_SSL_CERTFILE" in documented
+    assert "GHAT_WEBHOOK_SSL_KEYFILE" in documented
     # Nothing may copy certificate material into the image.
     assert not re.search(r"(?im)^\s*(COPY|ADD).*certs", dockerfile)
 
@@ -80,13 +80,13 @@ def test_tls_directory_is_documented_rather_than_baked_in() -> None:
 def test_entrypoint_is_a_generic_init_runner() -> None:
     """Schema and credential work is operational data, not entrypoint code."""
     entrypoint = (ROOT / "docker/entrypoint.sh").read_text(encoding="utf-8")
-    for name in ("CITRACKER_INITDB", "CITRACKER_INITDB_DIR", "CITRACKER_LEGACY"):
+    for name in ("GHAT_INITDB", "GHAT_INITDB_DIR", "GHAT_LEGACY"):
         assert name in entrypoint
     assert "/docker-entrypoint-init.d" in entrypoint
     assert "is-initialized" in entrypoint
     # The operations themselves belong to docker/init.d, mounted at run time.
-    assert "CITRACKER_BOOTSTRAP" not in entrypoint
-    assert "rhosocial-github-ci-tracker credential" not in entrypoint
+    assert "GHAT_BOOTSTRAP" not in entrypoint
+    assert "rhosocial-github-actions-tracker credential" not in entrypoint
     assert "github-ci-tracker-db init" not in entrypoint
 
 
@@ -94,7 +94,7 @@ def test_init_scripts_carry_the_operations() -> None:
     schema = (ROOT / "docker" / "init.d" / "10-schema.sh").read_text(encoding="utf-8")
     pat = (ROOT / "docker" / "init.d" / "20-pat.sh").read_text(encoding="utf-8")
 
-    assert "rhosocial-github-ci-tracker-db init" in schema
+    assert "rhosocial-github-actions-tracker-db init" in schema
     assert "credential" in pat and "pat ensure" in pat
     # The token must never reach the process list.
     assert "--token-file" in pat and "--token-stdin" in pat
@@ -105,10 +105,10 @@ def test_init_scripts_are_mounted_and_not_baked_in() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
 
     assert "./docker/init.d:/docker-entrypoint-init.d:ro" in compose
-    assert "CITRACKER_INITDB: ${CITRACKER_INITDB:-auto}" in compose
+    assert "GHAT_INITDB: ${GHAT_INITDB:-auto}" in compose
     # Both long-running roles must stay out of the initialization path.
-    assert compose.count('CITRACKER_INITDB: "skip"') == 2
-    assert "CITRACKER_BOOTSTRAP_ONLY" not in compose
+    assert compose.count('GHAT_INITDB: "skip"') == 2
+    assert "GHAT_BOOTSTRAP_ONLY" not in compose
     assert "docker/init.d" not in dockerfile
 
 

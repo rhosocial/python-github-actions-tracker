@@ -7,7 +7,7 @@ dozen within a second or two. The ledger recorded a few of those as
 until a later delivery or a read repaired it. This module reproduces the burst
 against a real server and PostgreSQL.
 
-Gated on ``CITRACKER_E2E_POSTGRES`` like ``test_http_channels``.
+Gated on ``GHAT_E2E_POSTGRES`` like ``test_http_channels``.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import test_http_channels as e2e
 
 pytestmark = pytest.mark.skipif(
     not os.getenv(e2e.REQUIRES_POSTGRES),
-    reason=f"set {e2e.REQUIRES_POSTGRES}=1 with CITRACKER_E2E_DB_* to run this module",
+    reason=f"set {e2e.REQUIRES_POSTGRES}=1 with GHAT_E2E_DB_* to run this module",
 )
 
 JOBS = 12

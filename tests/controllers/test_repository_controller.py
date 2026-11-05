@@ -13,14 +13,17 @@ from types import SimpleNamespace
 import pytest
 from conftest import FakeGithub
 
-from rhosocial.github_ci_tracker.controllers import RepositoryData, RunData
-from rhosocial.github_ci_tracker.controllers.query import QueryController
-from rhosocial.github_ci_tracker.controllers.repository import RepositoryController
-from rhosocial.github_ci_tracker.controllers.run import RunController
-from rhosocial.github_ci_tracker.core.exceptions import RepositoryNotFoundError, ValidationError
-from rhosocial.github_ci_tracker.models import AsyncRepository, AsyncWorkflow
-from rhosocial.github_ci_tracker.models.binding import AsyncRepositoryBinding
-from rhosocial.github_ci_tracker.services.github import (
+from rhosocial.github_actions_tracker.controllers import RepositoryData, RunData
+from rhosocial.github_actions_tracker.controllers.query import QueryController
+from rhosocial.github_actions_tracker.controllers.repository import RepositoryController
+from rhosocial.github_actions_tracker.controllers.run import RunController
+from rhosocial.github_actions_tracker.core.exceptions import (
+    RepositoryNotFoundError,
+    ValidationError,
+)
+from rhosocial.github_actions_tracker.models import AsyncRepository, AsyncWorkflow
+from rhosocial.github_actions_tracker.models.binding import AsyncRepositoryBinding
+from rhosocial.github_actions_tracker.services.github import (
     GithubRepositories,
     GithubRuns,
     GithubWebhooks,
@@ -114,8 +117,8 @@ class TestUnsubscribe:
     async def test_unsubscribing_drops_the_rows_and_this_services_hooks(
         self, bound, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("CITRACKER_WEBHOOK_URL", "https://ci.test/hooks")
-        monkeypatch.setenv("CITRACKER_WEBHOOK_SECRET", "s3cret")
+        monkeypatch.setenv("GHAT_WEBHOOK_URL", "https://ci.test/hooks")
+        monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
         fake = FakeGithub()
         service = _service(fake, credential=_credential())
         await service.subscribe_repository(REPO, create_webhook=True)
@@ -130,8 +133,8 @@ class TestUnsubscribe:
     async def test_a_foreign_hook_is_left_alone(
         self, bound, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("CITRACKER_WEBHOOK_URL", "https://ci.test/hooks")
-        monkeypatch.setenv("CITRACKER_WEBHOOK_SECRET", "s3cret")
+        monkeypatch.setenv("GHAT_WEBHOOK_URL", "https://ci.test/hooks")
+        monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
         fake = FakeGithub()
         fake.created_hooks.append({"id": 9, "config": {"url": "https://someone-else.example/h"}})
         service = _service(fake, credential=_credential())
