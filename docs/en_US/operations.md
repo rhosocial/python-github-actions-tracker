@@ -165,3 +165,85 @@ services:
       HTTPS_PROXY: http://proxy:7897
       NO_PROXY: 127.0.0.1,localhost,::1
 ```
+
+## Verify
+
+```bash
+curl -fsS https://<host>:18080/readyz     # one database round trip; 503 + checks when it fails
+curl -fsS https://<host>:18080/livez      # the process, no database
+docker compose logs -f init web mcp
+docker compose exec web rhosocial-github-actions-tracker credential pat list
+```
+
+A question asked through an MCP client is one more probe: `ci_status` answers
+about the service, the database and the pool without spending a GitHub call.
+
+### The delivery ledger, and the push channel's health
+
+Every delivery that reaches the receiver writes one row to
+`ghat_webhook_delivery` — processed, ignored, or rejected for a bad signature,
+it lands in the same table. `workflow_run` and `workflow_job` are two
+independent streams on GitHub's side (different payloads, different lifetimes),
+so the ledger carries an `event_type` and reports by stream. This is what
+answers "is the push channel alive?" — and it answers it in three
+distinguishable ways, which is the part worth knowing before there is a problem:
+
+| what you see | what it means | what to do |
+|---|---|---|
+| no new rows at all | the request never reached the receiver | the URL, or the router's port mapping |
+| `signature_failed` | it arrived, the secret does not match | set the same secret on both sides |
+| `processed` | the channel works end to end | nothing |
+
+```bash
+# what the push channel has received lately
+docker compose exec web rhosocial-github-actions-tracker-db stats
+```
+
+`ci_status`'s `health` field is the same answer as a structure, with names a
+caller can branch on:
+
+```json
+{
+  "ledger_available": true,
+  "runs_tracked": 12,
+  "last_webhook_at": "2026-11-05T07:37:33+00:00",
+  "webhooks_in_last_hour": 13,
+  "push_channel": "active",
+  "alerts": [],
+  "streams": {
+    "workflow_run": {"last_at": "...", "in_last_hour": 4, "deliveries_total": 4,
+                     "redelivered": 0, "unhandled": 0, "unhandled_reasons": {},
+                     "write_failures": 0, "last_write_failure": null},
+    "workflow_job": {"last_at": "...", "in_last_hour": 9, "deliveries_total": 9,
+                     "redelivered": 0, "unhandled": 0, "unhandled_reasons": {},
+                     "write_failures": 0, "last_write_failure": null}
+  }
+}
+```
+
+(The numbers are one live window, not a target: counters are process-local, so
+they restart with the container.)
+
+Reading it:
+
+- `last_at` of `null` means **nothing has arrived**. That is normal for a fresh
+  deployment and for a repository nobody has run anything in; a default route
+  that treats it as a fault will page on a quiet repository.
+- `redelivered` counts a second arrival of the same `X-GitHub-Delivery` value —
+  someone pressed "Redeliver", or GitHub retried. Redelivery is idempotent by
+  design: the same delivery applied twice leaves the same rows, so it costs
+  time, never a double count.
+- `unhandled` counts arrivals that changed no state: an unsubscribed repository,
+  a `ping`, an event recorded but not acted on. Non-zero is not a fault, but a
+  number that keeps growing usually means the subscription scope and the
+  delivery scope disagree.
+- `unhandled_reasons` is the breakdown of the last 24 hours; `unhandled` alone
+  is a single number with nothing to act on.
+- **`write_failures` and `alerts` are the ones to act on.**
+  `ignored` / `unsupported_event` / `invalid_json` / `signature_failed` are
+  "declined on purpose" and belong in `unhandled_reasons`. A *failure* is
+  different: an `IntegrityError`, or a delivery that never reached the database
+  at all, means a run, a job or a step is missing from the rows. The next read
+  repairs it — GitHub is the source of truth — so this is an alert about the
+  push channel, not data loss.
+

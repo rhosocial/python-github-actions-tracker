@@ -202,3 +202,29 @@ def test_no_private_infrastructure_reaches_a_public_page() -> None:
             if hits:
                 offenders[path.relative_to(ROOT).as_posix()] = hits
     assert not offenders, f"private infrastructure in published files: {offenders}"
+
+
+def test_the_delivery_ledger_is_documented_in_both_languages() -> None:
+    """The one table a reader needs when the webhook is the question.
+
+    ``ghat_webhook_delivery`` is what answers "is the push channel alive?" --
+    no rows means the request never arrived, ``signature_failed`` means it
+    arrived with the wrong secret, ``processed`` means the whole path works.
+    That is the difference between debugging a port mapping and debugging a
+    credential, so the page an operator opens under pressure has to name the
+    table in the language they read.
+
+    Seen once: the English operations page had no mention of the ledger at all
+    while the Chinese one explained it, so an English-only reader had no way to
+    tell "nothing arrived" from "arrived and was refused".
+    """
+    for lang in ("en_US", "zh_CN"):
+        page = (DOCS / lang / "operations.md").read_text(encoding="utf-8")
+        assert "ghat_webhook_delivery" in page, (
+            f"docs/{lang}/operations.md never names ghat_webhook_delivery; the "
+            "delivery ledger is how an operator tells a network failure from a "
+            "credential failure"
+        )
+        # and the two streams, because the ledger separates them
+        for stream in ("workflow_run", "workflow_job"):
+            assert stream in page, f"docs/{lang}/operations.md omits the {stream} stream"
