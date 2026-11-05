@@ -286,7 +286,7 @@ docker compose run --rm -e GHAT_INITDB=force init
 两个前提，缺一不可：
 
 1. **仓库已订阅**（`repo subscribe`）——未订阅的仓库，投递会到达但被拒绝，只在投递台账里留一条 `handled=false`；
-2. **仓库有 hook 指向本服务**（`webhook_url` + `webhook_secret`，可用 `repo subscribe --create-webhook` 或手工在 GitHub 上配）——没有 hook 就什么都收不到。
+2. **仓库有 hook 指向本服务**（`webhook_url` + `webhook_secret`，可用 `webhook create --name owner/repo` 或手工在 GitHub 上配）——没有 hook 就什么都收不到。
 
 场景 1–5 都可能发生在**尚未订阅**的仓库上。此时不会有任何 run 入库；已登记的 fine-grained PAT 若有该仓库（或所属组织）的访问权限，运营方补一条 `repo subscribe` 即可开始纳管，**历史 run 可以用 `find_runs` 或 `--sync-runs` 补拉**，不需要等下一次触发。
 
