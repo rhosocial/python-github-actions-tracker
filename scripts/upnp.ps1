@@ -22,6 +22,12 @@
 .PARAMETER InternalPort
     Port on this machine. Default 18080.
 
+.PARAMETER LocalIP
+    LAN address to forward to. Pass it explicitly when the machine has more than
+    one address carrying a default route -- this one has both a wired and a
+    wireless address with equal route metrics, and the mapping must land on the
+    wired one: it does not move when the radio is off.
+
 .PARAMETER Protocol
     TCP (default) or UDP.
 
@@ -41,6 +47,7 @@
 param(
     [int]$ExternalPort = 0,
     [int]$InternalPort = 18080,
+    [string]$LocalIP = '',
     [ValidateSet('TCP', 'UDP')]
     [string]$Protocol = 'TCP',
     [ValidateSet('Add', 'Remove')]
@@ -165,7 +172,7 @@ if ($ExternalPort -le 0) { $ExternalPort = Get-ConfiguredPort }
 if ($InternalPort -le 0) { $InternalPort = Get-ConfiguredPort }
 
 $Gateway = Get-GatewayIP
-$LocalIP = Get-LocalIPFor $Gateway
+if (-not $LocalIP) { $LocalIP = Get-LocalIPFor $Gateway }
 $Svc = Get-WanService
 
 Write-Host "Gateway      : $Gateway"
