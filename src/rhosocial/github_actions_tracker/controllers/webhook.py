@@ -304,7 +304,8 @@ class WebhookController:
             # The adoption reads the parent run from GitHub; it happens first so
             # that network time is not spent between the writes below.
             await self.ensure_parent_run(event_type, data)
-            handled = await self.handle_event(event_type, data)
+            notes: dict[str, str] = {}
+            handled = await self.handle_event(event_type, data, notes)
         except Exception as exc:  # pragma: no cover - defensive
             return await self.record_delivery(
                 event_type=event_type,
@@ -321,6 +322,11 @@ class WebhookController:
             payload=data,
             handled=handled,
             reason=REASON_PROCESSED if handled else REASON_IGNORED,
+            # What a completion capture stored, when there was one. The reason
+            # stays the delivery's own verdict; this rides behind it as the
+            # detail, which the ledger's consumers already split on ":" -- see
+            # the stream health's reason grouping.
+            detail=notes.get("capture", ""),
         )
 
     async def record_delivery(
@@ -369,21 +375,37 @@ class WebhookController:
             reason=REASON_SIGNATURE_FAILED,
         )
 
-    async def handle_event(self, event_type: str, payload: Mapping[str, Any]) -> bool:
+    async def handle_event(
+        self,
+        event_type: str,
+        payload: Mapping[str, Any],
+        notes: dict[str, str] | None = None,
+    ) -> bool:
         """Dispatch a delivery to its handler.
+
+        Args:
+            event_type: GitHub's event name.
+            payload: The parsed delivery body.
+            notes: Optional accumulator a handler can leave one line in, for the
+                ledger to carry. It exists so an outcome that is *not* the
+                delivery's own handled/ignored verdict -- what a completion
+                capture managed to store -- still reaches the record without
+                changing what the handler returns.
 
         Returns:
             ``True`` when the delivery was applied, ``False`` when it was ignored
             (unknown type, unsubscribed repository, unknown parent run).
         """
         if event_type == "workflow_run":
-            return await self.handle_workflow_run(payload)
+            return await self.handle_workflow_run(payload, notes)
         if event_type == "workflow_job":
             return await self.handle_workflow_job(payload)
         logger.debug("Ignoring unsupported webhook event '%s'", event_type)
         return False
 
-    async def handle_workflow_run(self, payload: Mapping[str, Any]) -> bool:
+    async def handle_workflow_run(
+        self, payload: Mapping[str, Any], notes: dict[str, str] | None = None
+    ) -> bool:
         """Handle a ``workflow_run`` event.
 
         The subscription is the authorization, not the trigger: a run of a
@@ -441,7 +463,7 @@ class WebhookController:
             # read while the archive is hot. Turning it into an exception would
             # mark the delivery unhandled for something the read path repairs.
             try:
-                await self._logs.ensure(repo, run)
+                view = await self._logs.ensure(repo, run)
             except Exception as exc:  # noqa: BLE001 - a delivery must not fail on this
                 logger.warning(
                     "Step-log capture for run %s failed: %s: %s",
@@ -449,6 +471,16 @@ class WebhookController:
                     type(exc).__name__,
                     exc,
                 )
+                if notes is not None:
+                    notes["capture"] = f"capture failed: {type(exc).__name__}"
+            else:
+                # The one moment the per-step archive is guaranteed to be near:
+                # GitHub has just finished the run. What this attempt got is
+                # worth the ledger's while, because a shortfall here is a window
+                # that keeps running down, not a state a later read discovers
+                # for free.
+                if notes is not None:
+                    notes["capture"] = _capture_note(view)
         return True
 
     async def handle_workflow_job(self, payload: Mapping[str, Any]) -> bool:
@@ -680,6 +712,24 @@ def _int(value: Any) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _capture_note(view: Any) -> str:
+    """One line about what a completion capture actually got.
+
+    The shape is ``capture stored=<n> missing=<k>``, or ``capture <reason>``
+    when the capture declined to try -- ``already_captured`` (the read path got
+    there first), ``archive_unavailable`` (GitHub answered 404/5xx on every
+    attempt), ``not_step_archive`` (the archive carried no per-step split at
+    all). A stored count of ``0`` with a non-empty ``missing`` is the case that
+    matters: the window is running and nothing is in hand yet.
+    """
+    reason = getattr(view, "skipped_reason", "") or ""
+    if reason:
+        return f"capture {reason}"
+    stored = int(getattr(view, "steps_stored", 0) or 0)
+    missing = len(getattr(view, "missing_steps", ()) or ())
+    return f"capture stored={stored} missing={missing}"
 
 
 # -- the rows the flows above are built from ------------------------------

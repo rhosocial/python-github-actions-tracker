@@ -181,8 +181,13 @@ def _job_summary(job: Any) -> dict[str, Any]:
 
     No steps: that is ``get_job``'s answer, and carrying them here would make
     the run payload grow with the matrix while duplicating another tool's job.
+
+    The capture block is the exception, and only for finished jobs: it is four
+    numbers that say whether the step files are readable *yet*, which is the
+    question a caller has the moment a run completes -- and the one thing the
+    roster can answer for free (the controller attached it from local rows).
     """
-    return {
+    summary = {
         "job_id": job.job_id,
         "name": job.name,
         "status": job.status,
@@ -193,6 +198,10 @@ def _job_summary(job: Any) -> dict[str, Any]:
         "completed_at": job.completed_at.isoformat() if job.completed_at else None,
         "duration_seconds": job.duration_seconds,
     }
+    capture = _capture_summary(job)
+    if capture is not None:
+        summary["capture"] = capture
+    return summary
 
 
 async def _recent_failure_ratio(
@@ -307,6 +316,28 @@ def _job_hint(job: Any, steps: list[Any], capture: dict[str, Any] | None = None)
                 f"captured. Call get_job_log(job_id={job.job_id}, step={captured.number})."
             )
         numbers = ", ".join(str(step.number) for step in failing)
+        if capture is not None and capture["state"] == "closed":
+            # The window has passed. Saying "not captured yet" here would invite
+            # a retry that cannot succeed, which is the thing `closed` exists to
+            # prevent.
+            return (
+                f"Step(s) {numbers} did not pass and their step files are gone: "
+                "GitHub stopped serving this run's per-step files about an hour "
+                "after it finished, so the missing text cannot be fetched any "
+                f"more. The merged job text is all there is: get_job_log(job_id={job.job_id})."
+            )
+        if capture is not None and capture["expected_logs"]:
+            # Nothing captured yet, and the window has not closed: a transient,
+            # not a verdict. The caller can wait for it or take what is readable
+            # now, and both are named.
+            return (
+                f"Step(s) {numbers} did not pass and their step files are not here "
+                f"yet ({capture['captured_logs']}/{capture['expected_logs']} "
+                "captured): GitHub starts assembling the archive as the run "
+                "finishes and serves it for only about an hour. Either wait -- "
+                f"get_job(job_id={job.job_id}, refresh_logs=true) -- or read the "
+                "merged job text now: get_job_log(job_id=...)."
+            )
         return (
             f"Step(s) {numbers} did not pass but no captured log exists for them: their "
             "text was never fetched while GitHub still split this run into per-step "
@@ -1468,7 +1499,12 @@ def register_query_tools(server: MCPServer, container: Any) -> None:
             listed = ", ".join(f"{job.job_id} ({job.name})" for job in failed[:5])
             payload["hint"] = (
                 f"{len(failed)} job(s) did not pass: {listed}. Call get_job(job_id=...) "
-                "for one of them to see which step failed."
+                "for one of them, and read its ``capture`` block before asking for a "
+                "step's text: GitHub starts assembling the per-step archive as the run "
+                "finishes and serves it for only about an hour, so a named step read "
+                "may come back empty for a moment -- ``get_job(refresh_logs=true)`` "
+                "waits for it -- while ``state`` of ``closed`` means the window has "
+                "passed and the merged job text is all there is."
             )
         else:
             payload["hint"] = (

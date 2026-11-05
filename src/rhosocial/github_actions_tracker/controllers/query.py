@@ -537,8 +537,19 @@ class QueryController:
             jobs = await self._store.jobs(run)
 
         if not with_steps:
-            return [_to_job_record(job, run) for job in jobs]
-        return [_to_job_record(job, run, await self._store.steps(job)) for job in jobs]
+            records = [_to_job_record(job, run) for job in jobs]
+        else:
+            records = [_to_job_record(job, run, await self._store.steps(job)) for job in jobs]
+        # The capture state, so a roster read right after a completion says
+        # "this job failed and its step files are not here yet" instead of
+        # leaving the caller to discover that on the next call. Only finished
+        # jobs are asked: a running job has nothing to capture, and the answer
+        # would be the same empty one for every row.
+        if self._logs is not None:
+            for record, job in zip(records, jobs, strict=True):
+                if job.status == "completed":
+                    record.capture = await self._logs.status(job)
+        return records
 
     async def get_job_detail(self, repository: str, job_id: int) -> JobRecord:
         """Get one job with its steps.
