@@ -54,7 +54,7 @@ def run(args: argparse.Namespace, api_key: str) -> None:
     if args.service == "rest":
         _serve_rest(args, settings)
     elif args.service == "mcp":
-        _serve_mcp(args)
+        _serve_mcp(args, settings)
     elif args.service == "webhook":
         _serve_webhook(args, settings)
     elif args.service == "all":
@@ -121,7 +121,13 @@ def _serve_rest(args: argparse.Namespace, settings: Any) -> None:
     from ...rest.app import create_app
 
     _warn_if_unauthenticated(settings)
-    _serve(create_app, args.host, args.port)
+    _serve(
+        create_app,
+        args.host,
+        args.port,
+        ssl_certfile=settings.rest_ssl_certfile,
+        ssl_keyfile=settings.rest_ssl_keyfile,
+    )
 
 
 def _warn_if_unauthenticated(settings: Any) -> None:
@@ -138,11 +144,23 @@ def _warn_if_unauthenticated(settings: Any) -> None:
         )
 
 
-def _serve_mcp(args: argparse.Namespace) -> None:
-    """Start MCP server."""
+def _serve_mcp(args: argparse.Namespace, settings: Any) -> None:
+    """Start MCP server.
+
+    The MCP listener can terminate TLS as well: a deployment that gives it its
+    own name and certificate wants the agents' traffic encrypted too, and the
+    alternative -- publishing a plain-HTTP admin surface to the internet --
+    is worse than one more certificate path in the environment.
+    """
     from ...mcp.server import create_mcp_app
 
-    _serve(create_mcp_app, args.host, args.port)
+    _serve(
+        create_mcp_app,
+        args.host,
+        args.port,
+        ssl_certfile=settings.mcp_ssl_certfile,
+        ssl_keyfile=settings.mcp_ssl_keyfile,
+    )
 
 
 def _serve_webhook(args: argparse.Namespace, settings: Any) -> None:

@@ -178,6 +178,13 @@ class ServiceSettings:
     #: key. Empty means plain HTTP, which GitHub refuses to register.
     webhook_ssl_certfile: str = ""
     webhook_ssl_keyfile: str = ""
+    #: TLS material for the REST listener. Empty means plain HTTP, which is what
+    #: a deployment that only exposes the webhook wants.
+    rest_ssl_certfile: str = ""
+    rest_ssl_keyfile: str = ""
+    #: TLS material for the MCP listener, same reasoning.
+    mcp_ssl_certfile: str = ""
+    mcp_ssl_keyfile: str = ""
     #: Certificate-checking options. Every one of them defaults to "no opinion",
     #: because the checks they enable are *advisory*: a certificate nobody
     #: verified is uvicorn's business at bind time, and this service's job is to
@@ -235,6 +242,10 @@ class ServiceSettings:
             webhook_url=os.getenv("GHAT_WEBHOOK_URL", ""),
             webhook_ssl_certfile=os.getenv("GHAT_WEBHOOK_SSL_CERTFILE", ""),
             webhook_ssl_keyfile=os.getenv("GHAT_WEBHOOK_SSL_KEYFILE", ""),
+            rest_ssl_certfile=os.getenv("GHAT_REST_SSL_CERTFILE", ""),
+            rest_ssl_keyfile=os.getenv("GHAT_REST_SSL_KEYFILE", ""),
+            mcp_ssl_certfile=os.getenv("GHAT_MCP_SSL_CERTFILE", ""),
+            mcp_ssl_keyfile=os.getenv("GHAT_MCP_SSL_KEYFILE", ""),
             webhook_ssl_hostname=os.getenv("GHAT_WEBHOOK_SSL_HOSTNAME", ""),
             webhook_ssl_cafile=os.getenv("GHAT_WEBHOOK_SSL_CAFILE", ""),
             webhook_ssl_crlfile=os.getenv("GHAT_WEBHOOK_SSL_CRLFILE", ""),
