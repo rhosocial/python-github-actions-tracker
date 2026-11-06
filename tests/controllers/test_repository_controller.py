@@ -118,7 +118,6 @@ class TestUnsubscribe:
         self, bound, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("GHAT_WEBHOOK_URL", "https://ci.test/hooks")
-        monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
         fake = FakeGithub()
         service = _service(fake, credential=_credential())
         await service.subscribe_repository(REPO, create_webhook=True)
@@ -134,7 +133,6 @@ class TestUnsubscribe:
         self, bound, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("GHAT_WEBHOOK_URL", "https://ci.test/hooks")
-        monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
         fake = FakeGithub()
         fake.created_hooks.append({"id": 9, "config": {"url": "https://someone-else.example/h"}})
         service = _service(fake, credential=_credential())

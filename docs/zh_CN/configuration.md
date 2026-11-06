@@ -13,7 +13,9 @@
 | `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听 |
 | `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |
 | `GHAT_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook 监听 |
-| `GHAT_WEBHOOK_SECRET` | 空 | HMAC 密钥，与 GitHub webhook 配置一致 |
+| *(webhook secret)* | — | **不是环境变量。** 每个仓库在 `ghat_repo_webhook_secrets`
+  里有自己的 secret；用 `webhook rotate-secret --name owner/repo` 生成/轮换，
+  它会同时推送到该仓库的 hook。没有 secret 的仓库会被以 `secret_not_configured` 拒绝。 |
 | `GHAT_WEBHOOK_URL` | 空 | 创建 webhook 时的默认回调 URL |
 | `GHAT_PUBLIC_BASE_URL` | 空 | MCP action URL 的绝对前缀 |
 | `GHAT_WEBHOOK_SSL_HOSTNAME` | 空 | 校验证书用的主机名；空则从 `GHAT_PUBLIC_BASE_URL` / `GHAT_WEBHOOK_URL` 取，两者都无则跳过校验 |

@@ -12,7 +12,10 @@ Every setting comes from an environment variable; the service has no config file
 | `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST listener |
 | `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP listener |
 | `GHAT_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook listener |
-| `GHAT_WEBHOOK_SECRET` | empty | HMAC secret, must match the GitHub webhook |
+| *(webhook secret)* | — | **Not an environment variable.** Each repository
+  has its own secret in `ghat_repo_webhook_secrets`; create or rotate one with
+  `webhook rotate-secret --name owner/repo`, which also pushes it to the hook.
+  A repository without one is refused with `secret_not_configured`. |
 | `GHAT_WEBHOOK_URL` | empty | default callback URL |
 | `GHAT_PUBLIC_BASE_URL` | empty | prefix for absolute action URLs |
 | `GHAT_WEBHOOK_SSL_CERTFILE/KEYFILE` | empty | webhook TLS; empty means plain HTTP |

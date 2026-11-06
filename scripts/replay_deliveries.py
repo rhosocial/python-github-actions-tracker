@@ -78,6 +78,9 @@ class Delivery:
     delivery_id: str
     event: str
     body: bytes
+    #: ``owner/repo`` from the body, when it names one. Each repository has its
+    #: own secret now, so this is what decides which key signs the replay.
+    repository: str = ""
 
 
 def load_capture(path: Path) -> list[Delivery]:
@@ -106,8 +109,30 @@ def load_capture(path: Path) -> list[Delivery]:
             else:
                 raise SystemExit(f"{path}:{number}: needs 'body' or 'body_path'")
 
-            deliveries.append(Delivery(delivery_id=delivery_id, event=event, body=body))
+            deliveries.append(
+                Delivery(
+                    delivery_id=delivery_id,
+                    event=event,
+                    body=body,
+                    repository=_repository_of(body),
+                )
+            )
     return deliveries
+
+
+def _repository_of(body: bytes) -> str:
+    """``owner/repo`` from a captured body, or ``""`` when it names none."""
+    try:
+        parsed = json.loads(body)
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(parsed, dict):
+        return ""
+    repository = parsed.get("repository")
+    if not isinstance(repository, dict):
+        return ""
+    name = repository.get("full_name")
+    return name.strip() if isinstance(name, str) else ""
 
 
 def sign(secret: str, body: bytes) -> str:
@@ -162,12 +187,19 @@ async def deliver(
     secret: str,
     delivery: Delivery,
     headers_extra: dict[str, str] | None = None,
+    secret_map: dict[str, str] | None = None,
 ) -> tuple[str, int, str]:
-    """POST one delivery; returns ``(delivery_id, status, body[:200])``."""
+    """POST one delivery; returns ``(delivery_id, status, body[:200])``.
+
+    The signature uses the secret of the repository the body names, falling back
+    to ``secret``. One shared key cannot sign a capture that spans several
+    repositories, because the receiver checks each with its own.
+    """
+    signing_secret = (secret_map or {}).get(delivery.repository) or secret
     headers = {
         "X-GitHub-Event": delivery.event,
         "X-GitHub-Delivery": delivery.delivery_id,
-        "X-Hub-Signature-256": sign(secret, delivery.body),
+        "X-Hub-Signature-256": sign(signing_secret, delivery.body),
         "Content-Type": "application/json",
     }
     if headers_extra:
@@ -187,6 +219,7 @@ async def apply_capture(
     repeat: int,
     shuffle: bool,
     delay: float,
+    secret_map: dict[str, str] | None = None,
 ) -> list[tuple[str, int, str]]:
     """Replay ``deliveries``, ``repeat`` times, in the requested order."""
     import httpx
@@ -199,7 +232,9 @@ async def apply_capture(
     async with httpx.AsyncClient(verify=False, timeout=120) as client:
         if concurrency <= 1:
             for delivery in ordered:
-                results.append(await deliver(client, base_url, secret, delivery))
+                results.append(
+                    await deliver(client, base_url, secret, delivery, secret_map=secret_map)
+                )
                 if delay:
                     await asyncio.sleep(delay)
             return results
@@ -208,7 +243,7 @@ async def apply_capture(
 
         async def one(delivery: Delivery) -> tuple[str, int, str]:
             async with semaphore:
-                result = await deliver(client, base_url, secret, delivery)
+                result = await deliver(client, base_url, secret, delivery, secret_map=secret_map)
                 if delay:
                     await asyncio.sleep(delay)
                 return result
@@ -400,7 +435,20 @@ def main(argv: list[str] | None = None) -> int:
     apply_parser.add_argument(
         "--base-url", default=os.environ.get("GHAT_REPLAY_URL", "https://127.0.0.1:18080")
     )
-    apply_parser.add_argument("--secret", default=os.environ.get("GHAT_WEBHOOK_SECRET", ""))
+    apply_parser.add_argument(
+        "--secret",
+        default="",
+        help="fallback secret for a capture of a single repository",
+    )
+    apply_parser.add_argument(
+        "--secret-map",
+        default="",
+        help=(
+            "JSON file mapping 'owner/repo' to its secret. Required when the "
+            "capture spans repositories: each delivery is signed with its own "
+            "repository's secret, and there is no shared key to fall back to."
+        ),
+    )
     apply_parser.add_argument("--mode", choices=("sequential", "shuffled"), default="sequential")
     apply_parser.add_argument("--concurrency", type=int, default=1)
     apply_parser.add_argument(
@@ -429,14 +477,26 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "apply":
-        if not args.secret:
-            raise SystemExit("GHAT_WEBHOOK_SECRET (or --secret) is required")
+        secret_map: dict[str, str] = {}
+        if args.secret_map:
+            secret_map = json.loads(Path(args.secret_map).read_text(encoding="utf-8"))
+        unfilled = {
+            delivery.repository
+            for delivery in deliveries
+            if delivery.repository and delivery.repository not in secret_map
+        }
+        if unfilled and not args.secret:
+            raise SystemExit(
+                "these repositories have no secret in --secret-map (and no "
+                f"--secret fallback): {', '.join(sorted(unfilled))}"
+            )
         deliveries = load_capture(args.capture)
         results = asyncio.run(
             apply_capture(
                 deliveries,
                 base_url=args.base_url,
                 secret=args.secret,
+                secret_map=secret_map,
                 concurrency=args.concurrency,
                 repeat=args.repeat,
                 shuffle=args.mode == "shuffled",

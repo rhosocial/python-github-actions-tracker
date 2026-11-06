@@ -56,7 +56,7 @@ mcp    serve mcp   MCP 8001（按需对外）
 ```powershell
 # 1. 配置（两个文件都在 docker/ 下，均被 git 忽略）
 cp docker\stack.env.example docker\stack.env
-#    填 GHAT_WEBHOOK_SECRET、GHAT_API_KEY、数据库、PAT
+#     填 GHAT_API_KEY、数据库、PAT（webhook secret 见下文，不在这里）
 cp <证书目录>\fullchain.pem docker\certs\
 cp <证书目录>\privkey.pem  docker\certs\
 
@@ -187,7 +187,9 @@ docker compose run --rm -e GHAT_INITDB=force init
 | `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听，容器内 |
 | `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |
 | `GHAT_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook 监听，**固定 18080** |
-| `GHAT_WEBHOOK_SECRET` | 空 | HMAC 密钥，与仓库 webhook 配置一致 |
+| *(webhook secret)* | — | **不是环境变量。** 每个仓库在 `ghat_repo_webhook_secrets`
+  里有自己的 secret；用 `webhook rotate-secret --name owner/repo` 生成/轮换，
+  它会同时推送到该仓库的 hook。没有 secret 的仓库会被以 `secret_not_configured` 拒绝。 |
 | `GHAT_WEBHOOK_SSL_CERTFILE/KEYFILE` | `/certs/*.pem` | webhook 的 fullchain 与私钥；显式置空可走前置反代 |
 | `GHAT_PUBLIC_BASE_URL` | 空 | MCP action URL 的绝对前缀 |
 | `GHAT_BOOTSTRAP_PAT[_FILE]` | 空 | 首次初始化注入的 PAT（由 `20-pat.sh` 读取） |

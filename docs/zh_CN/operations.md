@@ -342,6 +342,10 @@ MCP 客户端配置见下一节。
 ```bash
 # 行数、按流统计都走这个命令
 docker compose exec web rhosocial-github-actions-tracker-db stats
+
+# 某个仓库没有 secret 时，投递会被拒并记 secret_not_configured：
+#   webhook status --name owner/repo     # configured: false 就是它
+#   webhook rotate-secret --name owner/repo --create-hook
 ```
 
 `ci_status` 的 `health` 分为按流的结构，另保留两个旧字段供兼容：

@@ -191,7 +191,8 @@ distinguishable ways, which is the part worth knowing before there is a problem:
 | what you see | what it means | what to do |
 |---|---|---|
 | no new rows at all | the request never reached the receiver | the URL, or the router's port mapping |
-| `signature_failed` | it arrived, the secret does not match | set the same secret on both sides |
+| `secret_not_configured` | it arrived for a repository that has no secret | `webhook rotate-secret --name owner/repo` |
+| `signature_failed` | it arrived, and that repository's secret does not match | rotate it again, or fix the value in GitHub |
 | `processed` | the channel works end to end | nothing |
 
 ```bash

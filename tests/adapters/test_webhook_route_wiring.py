@@ -158,7 +158,6 @@ def test_a_client_that_hangs_up_mid_body_is_not_a_server_error(monkeypatch) -> N
     application`` -- one traceback per aborted delivery, all of it noise the
     operator cannot act on.
     """
-    monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
 
     result = asyncio.run(github_webhook(_disconnected_request()))
 
