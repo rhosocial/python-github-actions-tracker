@@ -6,11 +6,37 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import socket
 from typing import Any
 
 from rhosocial.activerecord.backend.impl.postgres.async_support import run_coroutine
 
 log = logging.getLogger(__name__)
+
+
+def _dual_stack_socket(host: str, port: int) -> socket.socket:
+    """Bind the wildcard IPv6 address so it also accepts IPv4.
+
+    ``host="::"`` reads as "every address" to anyone configuring a listener, and
+    on Linux a socket bound there is normally dual-stack. It is not on every
+    kernel: ``IPV6_V6ONLY`` defaults to 1 in some container namespaces, and
+    uvicorn does not touch the flag, so the server ends up reachable on IPv6 only
+    and an IPv4 client is refused with "connection refused" -- which looks like
+    the service is down rather than bound to the wrong family.
+
+    Clearing the flag before the bind is the difference between "IPv6" and
+    "both". A kernel that refuses the option (it is not settable everywhere) is
+    left alone: making the listen fail for a nicety would be worse than the
+    narrow binding.
+    """
+    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+    except OSError:
+        log.debug("this kernel refuses to clear IPV6_V6ONLY; binding IPv6 only")
+    sock.bind((host, port))
+    return sock
 
 
 def run(args: argparse.Namespace, api_key: str) -> None:
@@ -84,7 +110,10 @@ def _serve(
     )
     server = uvicorn.Server(config)
 
-    run_coroutine(server.serve())
+    # ``::`` means both families; see :func:`_dual_stack_socket`. Every other
+    # host (including 0.0.0.0) keeps uvicorn's own binding.
+    sockets = [_dual_stack_socket(host, port)] if ":" in host else None
+    run_coroutine(server.serve(sockets=sockets))
 
 
 def _serve_rest(args: argparse.Namespace, settings: Any) -> None:
