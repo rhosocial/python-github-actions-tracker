@@ -213,6 +213,7 @@ class Schema:
             "ghat_workflow_runs",
             "ghat_workflows",
             "ghat_repository_bindings",
+            "ghat_repo_webhook_secrets",
             "ghat_repositories",
             "ghat_pat_credentials",
         )
@@ -263,6 +264,34 @@ CORE_SCHEMA = Schema(
             # One credential per repository: two providers can never both answer.
             unique_constraints=(UniqueConstraint(("repository_id",)),),
             indexes=(Index("idx_bindings_provider", ("provider_kind", "provider_ref")),),
+        ),
+        Table(
+            name="ghat_repo_webhook_secrets",
+            columns=(
+                _SERIAL,
+                Column("repository_id", ColumnType.INTEGER, nullable=False),
+                # Plaintext by design, for the same reason the PAT is; see
+                # models/webhook_secret.py for the trade-off.
+                Column("secret", ColumnType.VARCHAR, length=255, nullable=False),
+                # pushed / pending_user / unknown -- who put it on GitHub.
+                Column(
+                    "state",
+                    ColumnType.VARCHAR,
+                    length=20,
+                    nullable=False,
+                    default="pending_user",
+                ),
+                # GitHub's hook id once we created one; NULL for a hand-made hook.
+                Column("webhook_id", ColumnType.BIGINT),
+                _TIMESTAMP_CREATED,
+                _TIMESTAMP_UPDATED,
+            ),
+            foreign_keys=(
+                ForeignKey("repository_id", "ghat_repositories", on_delete=OnDelete.CASCADE),
+            ),
+            # One secret per repository: GitHub has one hook pointing at us, and a
+            # second row would make "which key verifies this delivery?" ambiguous.
+            unique_constraints=(UniqueConstraint(("repository_id",)),),
         ),
         Table(
             name="ghat_workflows",

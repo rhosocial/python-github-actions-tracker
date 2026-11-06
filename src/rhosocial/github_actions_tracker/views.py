@@ -22,7 +22,6 @@ if TYPE_CHECKING:  # the views only read these; they never construct or query th
 #: Environment variable holding the webhook callback URL.
 ENV_WEBHOOK_URL = "GHAT_WEBHOOK_URL"
 #: Environment variable holding the webhook HMAC secret.
-ENV_WEBHOOK_SECRET = "GHAT_WEBHOOK_SECRET"
 
 #: ``RunRecord.cache_state``: every attempt GitHub reports is stored locally and
 #: carries its jobs, and the run is finished, so the local row is the final
@@ -752,11 +751,13 @@ def _to_step_record(step: AsyncStep, *, log_lines: int | None = None) -> StepRec
 
 
 def _webhook_defaults() -> dict[str, str]:
-    """Read the webhook URL and secret from the environment."""
-    return {
-        "url": _clean_str(os.getenv(ENV_WEBHOOK_URL, "")),
-        "secret": _clean_str(os.getenv(ENV_WEBHOOK_SECRET, "")),
-    }
+    """Read the webhook callback URL from the environment.
+
+    The secret is deliberately absent: it is per repository
+    (``ghat_repo_webhook_secrets``), and a global one is what made "does this
+    repository have a secret of its own?" unanswerable.
+    """
+    return {"url": _clean_str(os.getenv(ENV_WEBHOOK_URL, ""))}
 
 
 def _elapsed_seconds(

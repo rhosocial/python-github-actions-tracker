@@ -40,6 +40,7 @@ from .webhook_delivery import (
     AsyncWebhookDelivery,
     WebhookDelivery,
 )
+from .webhook_secret import AsyncRepoWebhookSecret, RepoWebhookSecret
 from .workflow import AsyncWorkflow, Workflow
 
 #: Every model class, in dependency-agnostic order.
@@ -106,6 +107,7 @@ __all__ = [
     # sync twins
     "PatCredential",
     "RepositoryBinding",
+    "RepoWebhookSecret",
     "TriggerDecision",
     "Repository",
     "Workflow",
@@ -118,6 +120,7 @@ __all__ = [
     # async twins
     "AsyncPatCredential",
     "AsyncRepositoryBinding",
+    "AsyncRepoWebhookSecret",
     "AsyncRepository",
     "AsyncWorkflow",
     "AsyncWebhookDelivery",

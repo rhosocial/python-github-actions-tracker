@@ -47,12 +47,14 @@ from ..models.webhook_delivery import (
     REASON_IGNORED,
     REASON_INVALID_JSON,
     REASON_PROCESSED,
+    REASON_SECRET_NOT_CONFIGURED,
     REASON_SIGNATURE_FAILED,
     REASON_UNSUPPORTED_EVENT,
     AsyncWebhookDelivery,
 )
+from ..models.webhook_secret import AsyncRepoWebhookSecret
 from ..services.github.protocols import RunReader, WebhookManager
-from ..views import ENV_WEBHOOK_SECRET, ENV_WEBHOOK_URL, _clean_str, _webhook_defaults
+from ..views import ENV_WEBHOOK_URL, _clean_str, _webhook_defaults
 from .run import RunController
 
 if TYPE_CHECKING:
@@ -165,22 +167,34 @@ class WebhookController:
         webhook_secret: str | None = None,
         events: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Create the CI webhook of a repository.
+        """Create the CI webhook of a repository, signed with its own secret.
 
-        The URL and secret default to ``GHAT_WEBHOOK_URL`` and
-        ``GHAT_WEBHOOK_SECRET``.
+        The URL defaults to ``GHAT_WEBHOOK_URL``. The secret defaults to the one
+        registered for the repository -- there is no shared key to fall back to,
+        because a shared key is what made "this repository has its own secret"
+        unanswerable.
 
         Raises:
-            ValidationError: Neither the arguments nor the environment supply a
-                URL and a secret.
+            ValidationError: No URL, or no secret registered for the repository
+                and none passed.
         """
         defaults = _webhook_defaults()
         url = _clean_str(webhook_url) or defaults["url"]
-        secret = _clean_str(webhook_secret) or defaults["secret"]
-        if not url or not secret:
+        secret = _clean_str(webhook_secret)
+        if not secret:
+            repo = await self._repos.by_name(repo_full_name)
+            record = (
+                await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
+                if repo is not None
+                else None
+            )
+            secret = record.secret if record is not None else ""
+        if not url:
+            raise ValidationError(f"A callback URL is required (set {ENV_WEBHOOK_URL})")
+        if not secret:
             raise ValidationError(
-                "Webhook URL and secret are required (pass them or set "
-                f"{ENV_WEBHOOK_URL} / {ENV_WEBHOOK_SECRET})"
+                f"No webhook secret is registered for '{repo_full_name}'; "
+                f"create one first: webhook rotate-secret --name {repo_full_name}"
             )
         created = await self._webhooks.create_webhook(
             repo_full_name,
@@ -245,6 +259,7 @@ class WebhookController:
         event_type: str,
         payload: bytes | str | Mapping[str, Any],
         delivery_id: str = "",
+        repository_full_name: str = "",
     ) -> dict[str, Any]:
         """Verify and dispatch a webhook delivery.
 
@@ -252,6 +267,9 @@ class WebhookController:
             event_type: Value of ``X-GitHub-Event``.
             payload: Raw body (bytes/str) or an already parsed mapping.
             delivery_id: Value of ``X-GitHub-Delivery``; empty when absent.
+            repository_full_name: The repository whose secret verified this
+                delivery, when the receiver resolved one. Recorded so a refused
+                or unreadable body still says which repository it came from.
 
         Returns:
             ``{"handled": bool, "reason": str}``.
@@ -287,6 +305,7 @@ class WebhookController:
                 event_type=event_type,
                 delivery_id=delivery_id,
                 payload=data,
+                repository_full_name=repository_full_name,
                 handled=True,
                 reason=REASON_PROCESSED,
             )
@@ -296,6 +315,7 @@ class WebhookController:
                 event_type=event_type,
                 delivery_id=delivery_id,
                 payload=data,
+                repository_full_name=repository_full_name,
                 handled=False,
                 reason=REASON_UNSUPPORTED_EVENT,
             )
@@ -311,6 +331,7 @@ class WebhookController:
                 event_type=event_type,
                 delivery_id=delivery_id,
                 payload=data,
+                repository_full_name=repository_full_name,
                 handled=False,
                 reason=type(exc).__name__,
                 detail=str(exc),
@@ -320,6 +341,7 @@ class WebhookController:
             event_type=event_type,
             delivery_id=delivery_id,
             payload=data,
+            repository_full_name=repository_full_name,
             handled=handled,
             reason=REASON_PROCESSED if handled else REASON_IGNORED,
             # What a completion capture stored, when there was one. The reason
@@ -337,6 +359,7 @@ class WebhookController:
         handled: bool = False,
         reason: str = "",
         detail: str = "",
+        repository_full_name: str = "",
     ) -> dict[str, Any]:
         """Write one delivery to the ledger and answer in the handler's shape.
 
@@ -351,11 +374,57 @@ class WebhookController:
             handled=handled,
             payload=payload,
             detail=detail,
+            repository_full_name=repository_full_name,
         )
         _count_delivery(event_type, handled)
         return {"handled": handled, "reason": detail or reason}
 
     # -- event handling --------------------------------------------------------
+
+    async def resolve_secret(self, repo_full_name: str) -> tuple[str, str] | None:
+        """The secret that signs for a repository, and the repository it names.
+
+        Returns ``(secret, repo_full_name)``, or ``None`` when nothing is
+        registered for that repository -- which the receiver turns into a 401
+        with its own ledger reason.
+
+        **There is no fallback.** The service used to verify against one shared
+        key, so a repository without a secret of its own passed silently and
+        "does this repository have its own secret?" had no answer. Refusing is
+        the point: it is visible in the ledger, where a shared key made the gap
+        invisible.
+        """
+        name = _clean_str(repo_full_name)
+        if not name:
+            return None
+        repo = await self._repos.by_name(name)
+        if repo is None:
+            return None
+        record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
+        if record is None or not record.secret:
+            return None
+        return record.secret, repo.full_name
+
+    async def record_missing_secret(
+        self, event_type: str, delivery_id: str = "", repo_full_name: str = ""
+    ) -> dict[str, Any]:
+        """Record a delivery refused because its repository has no secret.
+
+        Named for the reason rather than taking one, for the same reason
+        :meth:`record_signature_failure` is: how the refusal is spelled in the
+        ledger is this layer's business, and the operator's next step differs --
+        register a secret, or correct the one that is already there.
+        """
+        return await self.record_delivery(
+            event_type=event_type,
+            delivery_id=delivery_id,
+            handled=False,
+            reason=REASON_SECRET_NOT_CONFIGURED,
+            detail=f"no secret for '{repo_full_name}'" if repo_full_name else "",
+            # The body named a repository even though its secret is missing, so
+            # the ledger can point at the row an operator has to create.
+            repository_full_name=repo_full_name,
+        )
 
     async def record_signature_failure(
         self, event_type: str, delivery_id: str = ""
@@ -820,6 +889,7 @@ class DeliveryLedger:
         handled: bool,
         payload: Mapping[str, object] | None = None,
         detail: str = "",
+        repository_full_name: str = "",
     ) -> None:
         """Write one delivery to the ledger.
 
@@ -844,7 +914,9 @@ class DeliveryLedger:
                 delivery_id=delivery_id,
                 event_type=event_type,
                 received_at=datetime.now(timezone.utc),
-                repository_full_name=str(repository.get("full_name") or ""),
+                repository_full_name=(
+                    repository_full_name or str(repository.get("full_name") or "")
+                )[:255],
                 action=str(action)[:32] if isinstance(action, str) and action else None,
                 github_run_id=(
                     _optional_int(run_data.get("id")) or _optional_int(job_data.get("run_id"))

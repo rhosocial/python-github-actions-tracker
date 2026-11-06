@@ -55,14 +55,52 @@ async def _resolve_credential(value: str) -> tuple[str, int]:
 
 
 async def _subscribe(args: argparse.Namespace, service: object) -> None:
-    """Track a repository, optionally binding a credential at the same time."""
+    """Track a repository, optionally binding a credential at the same time.
+
+    A webhook secret is registered either way -- supplied from a file, or
+    generated -- because a repository without one cannot receive deliveries
+    (there is no shared key to fall back to).
+    """
     kind = ref = None
     if args.credential:
         kind, ref = await _resolve_credential(args.credential)
 
-    repo = await service.subscribe_repository(full_name=args.name, token_id=ref)  # type: ignore[attr-defined]
+    supplied = _secret_from(args)
+    repo = await service.subscribe_repository(  # type: ignore[attr-defined]
+        full_name=args.name,
+        token_id=ref,
+        create_webhook=getattr(args, "create_hook", False),
+        webhook_secret=supplied,
+    )
     bound = f" with {args.credential}" if kind else " anonymously"
     print(f"Subscribed to '{repo.full_name}'{bound}.")
+
+    state = await service.webhook_status(repo.full_name)  # type: ignore[attr-defined]
+    if not state.get("configured"):
+        return
+    if state["state"] == "pushed":
+        print("  Webhook secret: pushed to the GitHub hook.")
+    elif supplied:
+        print("  Webhook secret: registered from the file you supplied.")
+    else:
+        secret = await service.reveal_secret(repo.full_name)  # type: ignore[attr-defined]
+        print("  Webhook secret (shown once; paste it into Settings -> Webhooks):")
+        print(f"    {secret}")
+
+
+def _secret_from(args: argparse.Namespace) -> str | None:
+    """The secret a caller supplied, read from a file rather than the command
+    line: a literal would land in the shell history and in ``ps`` output."""
+    path = getattr(args, "webhook_secret_file", None)
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = handle.read().strip()
+    except OSError as exc:
+        print(f"Error: cannot read secret file: {exc}", file=sys.stderr)
+        raise SystemExit(2) from exc
+    return value or None
 
 
 async def _unsubscribe(args: argparse.Namespace, service: object) -> None:

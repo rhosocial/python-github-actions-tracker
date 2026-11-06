@@ -353,6 +353,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Bind this credential, as 'kind/name' (omit for anonymous)",
     )
+    repo_subscribe.add_argument(
+        "--webhook-secret-file",
+        default=None,
+        help=(
+            "A file holding the hook secret you already set on GitHub. Omit to "
+            "have one generated; the value is shown once when it is."
+        ),
+    )
+    repo_subscribe.add_argument(
+        "--create-hook",
+        action="store_true",
+        help=(
+            "Also create the GitHub hook, pushing the secret to it. Needs the "
+            "Administration write permission; when GitHub refuses, the secret "
+            "is left for you to paste."
+        ),
+    )
     repo_unsubscribe = repo_subparsers.add_parser("unsubscribe")
     repo_unsubscribe.add_argument("--name", required=True)
     repo_bind = repo_subparsers.add_parser("bind")
@@ -374,6 +391,15 @@ def build_parser() -> argparse.ArgumentParser:
     webhook_list.add_argument("--name", required=True)
     webhook_ping = webhook_subparsers.add_parser("ping")
     webhook_ping.add_argument("--name", required=True)
+    webhook_status = webhook_subparsers.add_parser("status")
+    webhook_status.add_argument("--name", required=True)
+    webhook_rotate = webhook_subparsers.add_parser("rotate-secret")
+    webhook_rotate.add_argument("--name", required=True)
+    webhook_rotate.add_argument(
+        "--create-hook",
+        action="store_true",
+        help="Push the new secret to GitHub; otherwise paste it yourself",
+    )
 
     # serve
     serve_parser = subparsers.add_parser("serve", help="Start services")

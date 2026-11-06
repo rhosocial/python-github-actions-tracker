@@ -38,10 +38,16 @@ from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.relation.async_descriptors import AsyncHasOne
 from rhosocial.activerecord.relation.descriptors import HasOne
 
+#: Imported at runtime, not under ``TYPE_CHECKING``: relation loading evaluates
+#: the annotations of every relation on the class, and a name that only exists
+#: while type-checking turns that evaluation into a NameError. ``webhook_secret``
+#: refers back to this module only under ``TYPE_CHECKING``, so the import is not
+#: a cycle.
+from .binding import AsyncRepositoryBinding, RepositoryBinding
 from .relations import AsyncOrderedHasMany, OrderedHasMany
+from .webhook_secret import AsyncRepoWebhookSecret, RepoWebhookSecret
 
 if TYPE_CHECKING:
-    from .binding import AsyncRepositoryBinding, RepositoryBinding
     from .run import AsyncWorkflowRun, WorkflowRun
     from .workflow import AsyncWorkflow, Workflow
 
@@ -113,6 +119,11 @@ class Repository(DefaultTimestampMixin, ActiveRecord):
     )
     #: Which credential answers for this repository; absent for anonymous.
     binding: ClassVar[HasOne[RepositoryBinding]] = HasOne(
+        foreign_key="repository_id", inverse_of="repository"
+    )
+    #: The secret this repository's webhook signs with; absent means it cannot
+    #: receive deliveries at all (there is no shared fallback).
+    webhook_secret: ClassVar[HasOne[RepoWebhookSecret]] = HasOne(
         foreign_key="repository_id", inverse_of="repository"
     )
 
@@ -367,6 +378,11 @@ class AsyncRepository(DefaultTimestampMixin, AsyncActiveRecord):
     )
     #: Which credential answers for this repository; absent for anonymous.
     binding: ClassVar[AsyncHasOne[AsyncRepositoryBinding]] = AsyncHasOne(
+        foreign_key="repository_id", inverse_of="repository"
+    )
+    #: The secret this repository's webhook signs with; absent means it cannot
+    #: receive deliveries at all (there is no shared fallback).
+    webhook_secret: ClassVar[AsyncHasOne[AsyncRepoWebhookSecret]] = AsyncHasOne(
         foreign_key="repository_id", inverse_of="repository"
     )
 

@@ -22,11 +22,23 @@ from ..models.pat_credential import AsyncPatCredential
 
 @contextlib.contextmanager
 def redact_credential_logging() -> Iterator[None]:
-    """Suppress query-parameter logging for one credential write."""
+    """Suppress query-parameter logging for one secret write.
+
+    Two models carry a secret now: the PAT and a repository's webhook secret.
+    Both are written through the ORM, whose DEBUG lines echo every parameter --
+    including the secret itself. Raising the relevant loggers to WARNING for the
+    duration is what keeps a recorded log from containing one.
+    """
     targets = [AsyncPatCredential.get_logger()]
+    try:
+        from ..models.webhook_secret import AsyncRepoWebhookSecret
+
+        targets.append(AsyncRepoWebhookSecret.get_logger())
+    except Exception:  # pragma: no cover - the model always exists when used
+        pass
     for name, candidate in list(logging.Logger.manager.loggerDict.items()):
         if name.startswith("rhosocial.activerecord") and isinstance(candidate, logging.Logger):
-            if candidate is not targets[0]:
+            if candidate not in targets:
                 targets.append(candidate)
 
     previous = [(target, target.level) for target in targets]

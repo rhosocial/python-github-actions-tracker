@@ -172,7 +172,6 @@ class ServiceSettings:
     webhook_port: int = 18080
     api_key: str = ""
     webhook_url: str = ""
-    webhook_secret: str = ""
     #: TLS material for the webhook listener. GitHub requires an https callback
     #: URL with a publicly trusted certificate, so the receiver terminates TLS
     #: itself: a full-chain PEM (leaf first, then intermediates) plus its private
@@ -234,7 +233,6 @@ class ServiceSettings:
             webhook_port=_int_env("GHAT_WEBHOOK_PORT", 18080),
             api_key=os.getenv("GHAT_API_KEY", ""),
             webhook_url=os.getenv("GHAT_WEBHOOK_URL", ""),
-            webhook_secret=os.getenv("GHAT_WEBHOOK_SECRET", ""),
             webhook_ssl_certfile=os.getenv("GHAT_WEBHOOK_SSL_CERTFILE", ""),
             webhook_ssl_keyfile=os.getenv("GHAT_WEBHOOK_SSL_KEYFILE", ""),
             webhook_ssl_hostname=os.getenv("GHAT_WEBHOOK_SSL_HOSTNAME", ""),

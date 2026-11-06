@@ -32,6 +32,7 @@ from rhosocial.github_actions_tracker.schema.model import (
 EXPECTED_TABLES = (
     "ghat_repositories",
     "ghat_repository_bindings",
+    "ghat_repo_webhook_secrets",
     "ghat_workflows",
     "ghat_workflow_runs",
     "ghat_run_attempts",

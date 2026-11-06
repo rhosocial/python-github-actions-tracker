@@ -50,8 +50,22 @@ def _request(body: bytes, headers: list[tuple[bytes, bytes]] | None = None) -> R
 class _Webhook:
     """Refuses to be used: a forged delivery must not reach the database."""
 
-    def __init__(self) -> None:
+    def __init__(self, secret: str | None = "s3cret") -> None:
+        self.secret = secret
         self.recorded: list[tuple[str, str]] = []
+        self.missing: list[tuple[str, str]] = []
+
+    async def resolve_secret(self, repo_full_name: str):
+        """The repository's own secret, or None when it has none."""
+        if self.secret is None:
+            return None
+        return self.secret, repo_full_name
+
+    async def record_missing_secret(
+        self, event_type: str, delivery_id: str = "", repo_full_name: str = ""
+    ) -> dict:
+        self.missing.append((event_type, delivery_id))
+        return {"handled": False, "reason": "secret_not_configured"}
 
     async def record_signature_failure(self, event_type: str, delivery_id: str) -> None:
         self.recorded.append((event_type, delivery_id))
@@ -68,11 +82,11 @@ class _App:
     state = _State()
 
 
-def test_the_route_reaches_its_own_signature_check(monkeypatch) -> None:
+def test_the_route_reaches_its_own_signature_check() -> None:
     """A forged delivery is refused before anything reaches the database."""
-    monkeypatch.setenv("GHAT_WEBHOOK_SECRET", "s3cret")
+    _State.container = SimpleNamespace(webhook=_Webhook())
     request = _request(
-        json.dumps({"action": "completed"}).encode(),
+        json.dumps({"action": "completed", "repository": {"full_name": "acme/demo"}}).encode(),
         [
             (b"x-github-event", b"workflow_run"),
             (b"x-github-delivery", b"d-forged"),
@@ -88,6 +102,31 @@ def test_the_route_reaches_its_own_signature_check(monkeypatch) -> None:
         caught.value.status_code == 401
     ), "an unexpected error here means the route cannot build its controller"
     assert _State.container.webhook.recorded == [("workflow_run", "d-forged")]
+
+
+def test_a_repository_without_a_secret_is_refused_for_that_reason() -> None:
+    """No shared key exists any more, so "no secret" is its own answer.
+
+    The operator's next step differs from a wrong signature: create one, rather
+    than correct one. Recording the same reason for both is what made the
+    distinction invisible.
+    """
+    _State.container = SimpleNamespace(webhook=_Webhook(secret=None))
+    request = _request(
+        json.dumps({"action": "completed", "repository": {"full_name": "acme/demo"}}).encode(),
+        [
+            (b"x-github-event", b"workflow_run"),
+            (b"x-github-delivery", b"d-unconfigured"),
+            (b"x-hub-signature-256", b"sha256=deadbeef"),
+        ],
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(github_webhook(request))
+
+    assert caught.value.status_code == 401
+    assert _State.container.webhook.missing == [("workflow_run", "d-unconfigured")]
+    assert _State.container.webhook.recorded == [], "a missing secret is not a wrong signature"
 
 
 def _disconnected_request() -> Request:

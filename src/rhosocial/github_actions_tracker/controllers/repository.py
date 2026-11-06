@@ -28,10 +28,18 @@ from ..core.exceptions import (
     ValidationError,
     map_api_error,
 )
+from ..credentials.redaction import redact_credential_logging
 from ..models import AsyncRepository, AsyncWorkflow
 from ..models.binding import AsyncRepositoryBinding
+from ..models.webhook_secret import (
+    STATE_PENDING_USER,
+    STATE_PUSHED,
+    STATE_UNKNOWN,
+    AsyncRepoWebhookSecret,
+    generate_secret,
+)
 from ..services.github.protocols import RepositoryReader, RunReader, WebhookManager
-from ..views import BindingSummary, RunRecord, _webhook_defaults
+from ..views import BindingSummary, RunRecord, _clean_str, _webhook_defaults
 from .run import RunController
 
 if TYPE_CHECKING:
@@ -112,9 +120,14 @@ class RepositoryController:
             full_name: ``owner/repo``.
             token_id: Provider-owned credential id to bind; omit to use the
                 active one (or the ambient credential, when the process has one).
-            create_webhook: Create the GitHub webhook too.
+            create_webhook: Create the GitHub webhook too, pushing the stored
+                secret to GitHub. Requires the Administration **write**
+                permission; when GitHub refuses, the secret is returned for the
+                operator to paste instead.
             webhook_url: Callback URL; defaults to ``GHAT_WEBHOOK_URL``.
-            webhook_secret: HMAC secret; defaults to ``GHAT_WEBHOOK_SECRET``.
+            webhook_secret: The secret to register. When omitted a fresh one is
+                generated -- the point of a per-repository secret is that nobody
+                has to invent one.
 
         Returns:
             The stored repository. An existing subscription is returned
@@ -153,12 +166,8 @@ class RepositoryController:
         else:
             logger.info("Subscribed to '%s' anonymously", name)
 
-        defaults = _webhook_defaults()
-        url = webhook_url or defaults["url"]
-        secret = webhook_secret or defaults["secret"]
+        await self._register_secret(repo, webhook_secret, create_webhook, webhook_url)
         await self._refresh_workflows(repo, strict=False)
-        if create_webhook and url and secret:
-            await self._create_hook(repo.full_name, url, secret)
         return repo
 
     async def unsubscribe_repository(
@@ -188,6 +197,9 @@ class RepositoryController:
             raise RepositoryNotFoundError(f"Repository '{full_name or repo_id}' is not tracked")
 
         await self._delete_own_hooks(repo)
+        # The secret goes with the subscription: leaving it behind would make a
+        # later re-subscribe inherit a key nobody re-confirmed.
+        await AsyncRepoWebhookSecret.clear(repo.id or 0)
         await self._store.remove(repo)
 
     async def bind_credential(self, full_name: str, kind: str, ref: int) -> None:
@@ -549,6 +561,104 @@ class RepositoryController:
         )
         logger.info("Created webhook for '%s'", full_name)
         return created
+
+    async def _register_secret(
+        self,
+        repo: AsyncRepository,
+        supplied: str | None,
+        create_webhook: bool,
+        webhook_url: str | None,
+    ) -> AsyncRepoWebhookSecret:
+        """Record the repository's secret, and push it to GitHub when asked.
+
+        Three outcomes, and the state says which one happened:
+
+        * supplied by the caller -- it is already on GitHub, so ``unknown``
+          (we know the value but did not put it there);
+        * generated and pushed -- ``pushed``;
+        * generated and not pushed -- ``pending_user``, and the caller is
+          responsible for showing it once, because GitHub never returns it.
+
+        Pushing needs the Administration **write** permission, which the probe
+        cannot measure apart from the read half. A refusal here is therefore a
+        normal outcome, not an error: the secret stays ``pending_user`` and the
+        operator pastes it.
+        """
+        secret = _clean_str(supplied) or generate_secret()
+        url = webhook_url or _webhook_defaults()["url"]
+
+        state = STATE_UNKNOWN if _clean_str(supplied) else STATE_PENDING_USER
+        # The ORM's DEBUG lines echo every parameter, secret included.
+        with redact_credential_logging():
+            record = await AsyncRepoWebhookSecret.set(repo.id or 0, secret, state=state)
+
+        if not create_webhook:
+            return record
+        if not url:
+            raise ValidationError(
+                "Webhook creation needs a callback URL; set GHAT_WEBHOOK_URL or pass one"
+            )
+        try:
+            created = await self._create_hook(repo.full_name, url, secret)
+        except GhatError as exc:
+            logger.warning(
+                "Could not create the webhook of '%s' (%s); the secret is registered "
+                "and waits for the operator to paste it",
+                repo.full_name,
+                type(exc).__name__,
+            )
+            return record
+        hook_id = int((created or {}).get("id") or 0) or None
+        return await AsyncRepoWebhookSecret.set(
+            repo.id or 0, secret, state=STATE_PUSHED, webhook_id=hook_id
+        )
+
+    async def rotate_secret(
+        self, full_name: str, create_webhook: bool = False
+    ) -> AsyncRepoWebhookSecret:
+        """Replace a repository's secret with a fresh one, and optionally push it.
+
+        Rotation is the only way to take over an existing hook: GitHub never
+        returns a hook's secret, so the current value cannot be read back.
+        """
+        repo = await self._store.by_name(full_name)
+        if repo is None:
+            raise RepositoryNotFoundError(f"Repository '{full_name}' is not tracked")
+        return await self._register_secret(repo, None, create_webhook, None)
+
+    async def webhook_status(self, full_name: str) -> dict[str, Any]:
+        """What is registered for a repository, without exposing the secret."""
+        repo = await self._store.by_name(full_name)
+        if repo is None:
+            raise RepositoryNotFoundError(f"Repository '{full_name}' is not tracked")
+        record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
+        if record is None:
+            return {
+                "repository": repo.full_name,
+                "configured": False,
+                "hint": (
+                    "No webhook secret is registered, so deliveries for this "
+                    "repository are refused. Run: webhook rotate-secret --name "
+                    f"{repo.full_name}"
+                ),
+            }
+        return {"repository": repo.full_name, "configured": True, **record.describe()}
+
+    async def reveal_secret(self, full_name: str) -> str:
+        """The repository's secret, for the one moment an operator can see it.
+
+        Separate from :meth:`webhook_status` on purpose: a status read must never
+        carry the value, and a method that only a display path calls makes the
+        disclosure visible in review. GitHub never returns a hook's secret, so
+        this is the only chance to copy a generated one.
+        """
+        repo = await self._store.by_name(full_name)
+        if repo is None:
+            raise RepositoryNotFoundError(f"Repository '{full_name}' is not tracked")
+        record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
+        if record is None:
+            raise ValidationError(f"No webhook secret is registered for '{full_name}'")
+        return record.secret
 
     async def _delete_own_hooks(self, repo: AsyncRepository) -> None:
         """Remove the hooks whose callback URL is this service's own.

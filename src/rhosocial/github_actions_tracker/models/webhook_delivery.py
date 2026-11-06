@@ -43,6 +43,9 @@ EVENT_WORKFLOW_JOB = "workflow_job"
 REASON_PROCESSED = "processed"
 REASON_IGNORED = "ignored"
 REASON_SIGNATURE_FAILED = "signature_failed"
+#: No secret is registered for the repository the delivery names. Distinct
+#: from a wrong secret: the operator has to create one, not correct one.
+REASON_SECRET_NOT_CONFIGURED = "secret_not_configured"
 REASON_INVALID_JSON = "invalid_json"
 REASON_UNSUPPORTED_EVENT = "unsupported_event"
 
@@ -113,6 +116,7 @@ __all__ = [
     "REASON_IGNORED",
     "REASON_INVALID_JSON",
     "REASON_PROCESSED",
+    "REASON_SECRET_NOT_CONFIGURED",
     "REASON_SIGNATURE_FAILED",
     "REASON_UNSUPPORTED_EVENT",
     "AsyncWebhookDelivery",

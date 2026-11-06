@@ -96,7 +96,6 @@ services:
       GHAT_WEBHOOK_PORT: "18080"
       # The HMAC secret of the GitHub webhooks. It belongs in docker/stack.env,
       # which is git-ignored, so it never reaches the image or the repository.
-      GHAT_WEBHOOK_SECRET: ${GHAT_WEBHOOK_SECRET:-}
       # TLS material mounted from the host; nothing here enters the image.
       # Set either variable to an empty string to serve plain HTTP (for a
       # deployment that terminates TLS in a reverse proxy).
