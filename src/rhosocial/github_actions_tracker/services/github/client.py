@@ -1352,17 +1352,13 @@ class AsyncGithubClient:
             pass
 
         # See the sync twin: measured, and unknown is not a denial.
-        result["can_manage_webhooks"] = await self.probe_manage_webhooks(
-            token, probe_repo
-        )
+        result["can_manage_webhooks"] = await self.probe_manage_webhooks(token, probe_repo)
 
         if probe_repo:
             result["can_write_actions"] = await self.probe_actions_write(token, probe_repo)
         return result
 
-    async def probe_manage_webhooks(
-        self, token: str, repo_full_name: str | None
-    ) -> bool | None:
+    async def probe_manage_webhooks(self, token: str, repo_full_name: str | None) -> bool | None:
         """Whether ``token`` may read this repository's webhooks (see the sync twin).
 
         ``None`` is "we could not tell" -- no repository to ask about, or the

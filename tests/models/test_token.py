@@ -302,8 +302,7 @@ class TestExpiry:
 
         assert credential.token == "ghp_x"
         assert any(
-            "expired" in r.message.lower() and "rotate" in r.message.lower()
-            for r in caplog.records
+            "expired" in r.message.lower() and "rotate" in r.message.lower() for r in caplog.records
         ), "an expired credential must say so, once, at WARNING level"
 
     async def test_resolved_credential_never_prints_the_secret(

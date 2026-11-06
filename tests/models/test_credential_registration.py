@@ -119,8 +119,7 @@ class TestWebhookCapabilityIsMeasured:
             token="ghp_x", name="work", client=probe  # type: ignore[arg-type]
         )
         assert record.can_manage_webhooks is None, (
-            "collapsing 'we could not tell' to False silently disables the "
-            "automatic hook path"
+            "collapsing 'we could not tell' to False silently disables the " "automatic hook path"
         )
 
     def test_the_normalizer_keeps_the_tri_state(self) -> None:

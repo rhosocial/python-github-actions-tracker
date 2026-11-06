@@ -194,9 +194,7 @@ class TokenController:
             )
         return self._view(record)
 
-    async def refresh_token(
-        self, name: str, probe_repo: str | None = None
-    ) -> TokenRecord:
+    async def refresh_token(self, name: str, probe_repo: str | None = None) -> TokenRecord:
         """Re-measure a stored credential: permissions, account, expiry.
 
         A fine-grained PAT's permissions are editable on GitHub at any time and
@@ -204,9 +202,7 @@ class TokenController:
         was true on the day it was registered. This is the way to ask again.
         """
         ref = await self._find_ref(name)
-        record = await self._provider().refresh(
-            ref, client=self._probe, probe_repo=probe_repo
-        )
+        record = await self._provider().refresh(ref, client=self._probe, probe_repo=probe_repo)
         return self._view(record)
 
     @staticmethod
