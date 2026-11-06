@@ -787,15 +787,31 @@ class RunData:
         load it already made on this instance, and a caller that has just
         re-synced the job (the healing paths do) would then be handed the rows
         from before the write.
+
+        The bucket is filled from the job when a step is still missing one. A
+        step row is written when the job's first event arrives -- while the job
+        is still running, so it has no month yet -- and the month is filled in
+        when the job finishes. A step object from that earlier moment can still
+        say ``None`` after the row itself was healed, and the step-log write
+        needs the bucket because it is half of that row's key: one stale copy
+        there aborts the whole capture, which is how a run's step logs were lost
+        while the archive was still warm. The job is the authority for the month
+        and it is right here, so the value is derived rather than trusted.
         """
         if job.id is None:
             return []
-        return await (
+        steps = await (
             AsyncStep.query()
             .where(AsyncStep.c.job_id == job.id)
             .order_by((AsyncStep.c.number, "ASC"))
             .all()
         )
+        if job.log_bucket is not None:
+            for step in steps:
+                if step.log_bucket is None:
+                    step.log_bucket = job.log_bucket
+                    await step.save()
+        return steps
 
     async def step_count(self, job_ids: Sequence[int]) -> int:
         """How many steps are stored under these jobs."""
