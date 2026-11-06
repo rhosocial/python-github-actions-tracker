@@ -96,7 +96,7 @@ def _post(server: e2e._Server, payload: bytes, delivery_id: str) -> httpx.Respon
         headers={
             "X-GitHub-Event": "workflow_job",
             "X-GitHub-Delivery": delivery_id,
-            "X-Hub-Signature-256": e2e._sign(payload, e2e.WEBHOOK_SECRET),
+            "X-Hub-Signature-256": e2e._sign(payload, server.seed.webhook_secret),
         },
         timeout=30.0,
     )
@@ -113,7 +113,7 @@ def test_a_burst_of_job_deliveries_is_fully_stored(server: e2e._Server) -> None:
         headers={
             "X-GitHub-Event": "workflow_run",
             "X-GitHub-Delivery": str(uuid.uuid4()),
-            "X-Hub-Signature-256": e2e._sign(run_payload, e2e.WEBHOOK_SECRET),
+            "X-Hub-Signature-256": e2e._sign(run_payload, server.seed.webhook_secret),
         },
         timeout=30.0,
     )

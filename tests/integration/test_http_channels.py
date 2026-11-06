@@ -47,16 +47,17 @@ from rhosocial.github_actions_tracker.database import MODELS, Database
 from rhosocial.github_actions_tracker.models import (
     AsyncRepository,
     AsyncRepositoryBinding,
+    AsyncRepoWebhookSecret,
     AsyncWorkflow,
     AsyncWorkflowRun,
 )
+from rhosocial.github_actions_tracker.models.webhook_secret import STATE_UNKNOWN
 from rhosocial.github_actions_tracker.schema import create_all
 
 #: The gate: unset in the default suite, ``1`` in the CI channels job.
 REQUIRES_POSTGRES = "GHAT_E2E_POSTGRES"
 
 API_KEY = "e2e-api-key"
-WEBHOOK_SECRET = "e2e-webhook-secret"
 AUTH = {"Authorization": f"Bearer {API_KEY}"}
 
 pytestmark = pytest.mark.skipif(
@@ -99,6 +100,10 @@ class _Seed:
         self.workflow_github_id = int(tag[2:8], 16)
         self.run_github_id = int(tag[6:12], 16) or 1
         self.workflow_path = ".github/workflows/ci.yml"
+        #: The secret this seed's hook is registered with. Per repository now:
+        #: the receiver refuses a repository that has none, so a shared constant
+        #: would only prove that some other repository's key was in play.
+        self.webhook_secret = f"e2e-secret-{tag}"
 
 
 class _Server:
@@ -157,6 +162,9 @@ def _seed_database(db: dict[str, Any]) -> _Seed:
             )
             await repo.save()
             await AsyncRepositoryBinding.bind(repo.id or 0, "pat", credential.id or 0)
+            # The receiver verifies with the repository's own secret; a seed
+            # without one would be refused with ``secret_not_configured``.
+            await AsyncRepoWebhookSecret.set(repo.id or 0, seed.webhook_secret, state=STATE_UNKNOWN)
             workflow = AsyncWorkflow(
                 repository_id=repo.id or 0,
                 workflow_id=seed.workflow_github_id,
@@ -227,6 +235,8 @@ def _cleanup_database(db: dict[str, Any], seed: _Seed) -> None:
                 f" WHERE full_name = '{seed.repo_full_name}')",
                 f"DELETE FROM ghat_repository_bindings WHERE repository_id IN (SELECT id FROM"
                 f" ghat_repositories WHERE full_name = '{seed.repo_full_name}')",
+                f"DELETE FROM ghat_repo_webhook_secrets WHERE repository_id IN (SELECT id FROM"
+                f" ghat_repositories WHERE full_name = '{seed.repo_full_name}')",
                 f"DELETE FROM ghat_repositories WHERE full_name = '{seed.repo_full_name}'",
                 f"DELETE FROM ghat_pat_credentials WHERE name = 'e2e-{seed.tag}'",
             ):
@@ -250,7 +260,6 @@ def _boot_server(db: dict[str, Any], seed: _Seed) -> _Server:
             "GHAT_DB_PASSWORD": db["password"],
             "GHAT_DB_NAME": db["database"],
             "GHAT_API_KEY": API_KEY,
-            "GHAT_WEBHOOK_SECRET": WEBHOOK_SECRET,
             "GHAT_REST_HOST": "127.0.0.1",
             "GHAT_REST_PORT": str(rest_port),
             "GHAT_WEBHOOK_HOST": "127.0.0.1",
@@ -477,7 +486,7 @@ def test_webhook_accepts_a_signed_delivery_and_persists_the_transition(
     seed = server.seed
 
     started = _workflow_run_payload(seed, "in_progress", "in_progress", None)
-    response = _deliver(server, started, _sign(started, WEBHOOK_SECRET))
+    response = _deliver(server, started, _sign(started, seed.webhook_secret))
     assert response.status_code == 200
     assert response.json()["handled"] is True
 
@@ -490,7 +499,7 @@ def test_webhook_accepts_a_signed_delivery_and_persists_the_transition(
     assert (stored.latest_status, stored.latest_conclusion) == ("in_progress", None)
 
     finished = _workflow_run_payload(seed, "completed", "completed", "success")
-    response = _deliver(server, finished, _sign(finished, WEBHOOK_SECRET))
+    response = _deliver(server, finished, _sign(finished, seed.webhook_secret))
     assert response.status_code == 200
     assert response.json()["handled"] is True
 
