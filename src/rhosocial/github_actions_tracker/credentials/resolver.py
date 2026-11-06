@@ -51,7 +51,6 @@ async def resolve_for_repository(
     Raises:
         TokenNotFoundError: The bound credential no longer exists.
         TokenDeactivatedError: It exists but was deactivated.
-        TokenExpiredError: It is past its declared expiry.
         KeyError: The binding names a provider this build does not have.
     """
     if repo.id is None:

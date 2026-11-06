@@ -27,7 +27,6 @@ from conftest import FakeGithub
 from rhosocial.github_actions_tracker.core.exceptions import (
     TokenAlreadyExistsError,
     TokenDeactivatedError,
-    TokenExpiredError,
     TokenInUseError,
     TokenInvalidError,
     TokenNotFoundError,
@@ -288,16 +287,24 @@ class TestDelete:
 
 
 class TestExpiry:
-    """A declared expiry is enforced locally, before any GitHub call."""
+    """An expiry is a registration fact: it warns, and never refuses."""
 
-    async def test_expired_credential_refuses_resolution(
-        self, fake_client: FakeGithub, bound
+    async def test_expired_credential_still_resolves(
+        self, fake_client: FakeGithub, bound, caplog
     ) -> None:
+        """GitHub enforces its own expiry; refusing here would close a path the
+        operator may have kept open on purpose, and hide the real error."""
         record = await _provider().add(
             token="ghp_x", name="laptop", client=fake_client, expires_at=PAST
         )
-        with pytest.raises(TokenExpiredError):
-            await _provider().resolve(record.id or 0)
+        with caplog.at_level("WARNING"):
+            credential = await _provider().resolve(record.id or 0)
+
+        assert credential.token == "ghp_x"
+        assert any(
+            "expired" in r.message.lower() and "rotate" in r.message.lower()
+            for r in caplog.records
+        ), "an expired credential must say so, once, at WARNING level"
 
     async def test_resolved_credential_never_prints_the_secret(
         self, fake_client: FakeGithub, bound

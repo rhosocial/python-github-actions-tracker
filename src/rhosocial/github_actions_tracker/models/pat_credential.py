@@ -107,6 +107,9 @@ class AsyncPatCredential(DefaultTimestampMixin, AsyncActiveRecord):
     name: str = ""
     token: str = ""
     owner_login: str | None = None
+    #: The PAT's own name on GitHub. Reference only, registered by hand: the API
+    #: never returns it, and nothing in the service reads it.
+    github_name: str | None = None
     scope: str = "repo,workflow"
     expires_at: datetime | None = None
     is_active: bool = True

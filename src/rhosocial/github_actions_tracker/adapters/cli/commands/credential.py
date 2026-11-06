@@ -57,10 +57,16 @@ async def _add(args: argparse.Namespace, service: object) -> None:
         token=args.token,
         scope=args.scope,
         probe_repo=getattr(args, "probe_repo", None),
+        github_name=getattr(args, "github_name", None),
     )
     print(f"Credential 'pat/{record.name}' added.")
     if record.owner_login:
-        print(f"  owner:       {record.owner_login}")
+        print(f"  account:     {record.owner_login}")
+    if record.github_name:
+        print(f"  PAT name:    {record.github_name}")
+    if record.expires_at:
+        state = "EXPIRED" if record.expired else "valid"
+        print(f"  expires:     {record.expires_at.isoformat()} ({state})")
     if record.can_write_actions is not None:
         # The probe result, not a configuration flag: this is what decides
         # whether the deployment can trigger CI at all.
@@ -81,11 +87,17 @@ async def _ensure(args: argparse.Namespace, service: object) -> None:
         token=_token_value(args),
         scope=args.scope,
         probe_repo=getattr(args, "probe_repo", None),
+        github_name=getattr(args, "github_name", None),
     )
     action = "added" if created else "rotated"
     print(f"Credential 'pat/{record.name}' {action} and verified.")
     if record.owner_login:
-        print(f"  owner:       {record.owner_login}")
+        print(f"  account:     {record.owner_login}")
+    if record.github_name:
+        print(f"  PAT name:    {record.github_name}")
+    if record.expires_at:
+        state = "EXPIRED" if record.expired else "valid"
+        print(f"  expires:     {record.expires_at.isoformat()} ({state})")
     if record.can_write_actions is not None:
         print(f"  can trigger: {'yes' if record.can_write_actions else 'no'}")
 
@@ -96,8 +108,10 @@ async def _list(args: argparse.Namespace, service: object) -> None:
         {
             "credential": row["credential"],
             "owner_login": row["owner_login"],
+            "github_name": row.get("github_name"),
             "is_active": row["is_active"],
             "can_write_actions": row["can_write_actions"],
+            "can_manage_webhooks": row.get("can_manage_webhooks"),
             "expires_at": row["expires_at"],
         }
         for row in await service.list_tokens()  # type: ignore[attr-defined]
@@ -128,6 +142,28 @@ async def _rotate(args: argparse.Namespace, service: object) -> None:
     print(f"Credential 'pat/{record.name}' rotated; bindings kept.")
 
 
+async def _refresh(args: argparse.Namespace, service: object) -> None:
+    """Re-measure a stored credential: permissions, account, expiry.
+
+    A fine-grained PAT's permissions are editable on GitHub at any time and
+    nothing tells us, so this is the way to ask again without replacing the
+    token.
+    """
+    record = await service.refresh_token(  # type: ignore[attr-defined]
+        args.name, probe_repo=getattr(args, "probe_repo", None)
+    )
+    print(f"Credential 'pat/{record.name}' re-probed.")
+    if record.owner_login:
+        print(f"  account:     {record.owner_login}")
+    if record.expires_at:
+        state = "EXPIRED" if record.expired else "valid"
+        print(f"  expires:     {record.expires_at.isoformat()} ({state})")
+    print(f"  read:        {'yes' if record.can_read_actions else 'no'}")
+    print(f"  trigger:     {'yes' if record.can_write_actions else 'unknown'}")
+    webhooks = record.can_manage_webhooks
+    print(f"  webhooks:    {'unknown' if webhooks is None else ('yes' if webhooks else 'no')}")
+
+
 async def _remove(args: argparse.Namespace, service: object) -> None:
     """Delete a credential; refused while repositories still use it."""
     await service.delete_token(args.name)  # type: ignore[attr-defined]
@@ -141,6 +177,7 @@ _PAT_HANDLERS: dict[str, _Handler] = {
     "list": _list,
     "show": _show,
     "rotate": _rotate,
+    "refresh": _refresh,
     "remove": _remove,
 }
 

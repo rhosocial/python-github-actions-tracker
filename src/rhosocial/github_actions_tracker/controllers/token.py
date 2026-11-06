@@ -14,6 +14,7 @@ rewrite of the protocol adapters.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from ..core.exceptions import TokenNotFoundError
@@ -44,6 +45,7 @@ class TokenController:
         token: str,
         scope: str = "repo,workflow",
         probe_repo: str | None = None,
+        github_name: str | None = None,
     ) -> TokenRecord:
         """Register a credential after probing its capabilities.
 
@@ -68,6 +70,7 @@ class TokenController:
                 scope=scope,
                 verify=True,
                 probe_repo=probe_repo,
+                github_name=github_name,
             )
         return self._view(record)
 
@@ -77,6 +80,7 @@ class TokenController:
         token: str,
         scope: str = "repo,workflow",
         probe_repo: str | None = None,
+        github_name: str | None = None,
     ) -> tuple[TokenRecord, bool]:
         """Create the credential, or rotate it when the alias already exists.
 
@@ -93,7 +97,11 @@ class TokenController:
             ref = await self._find_ref(name)
         except TokenNotFoundError:
             record = await self.add_token(
-                name=name, token=token, scope=scope, probe_repo=probe_repo
+                name=name,
+                token=token,
+                scope=scope,
+                probe_repo=probe_repo,
+                github_name=github_name,
             )
             return record, True
         return (
@@ -186,6 +194,21 @@ class TokenController:
             )
         return self._view(record)
 
+    async def refresh_token(
+        self, name: str, probe_repo: str | None = None
+    ) -> TokenRecord:
+        """Re-measure a stored credential: permissions, account, expiry.
+
+        A fine-grained PAT's permissions are editable on GitHub at any time and
+        nothing notifies us, so a row that is never re-probed answers with what
+        was true on the day it was registered. This is the way to ask again.
+        """
+        ref = await self._find_ref(name)
+        record = await self._provider().refresh(
+            ref, client=self._probe, probe_repo=probe_repo
+        )
+        return self._view(record)
+
     @staticmethod
     def _view(record: Any) -> TokenRecord:
         """A credential row, reduced to what callers may see."""
@@ -194,8 +217,10 @@ class TokenController:
             name=record.name or "",
             scope=record.scope or "",
             owner_login=record.owner_login,
+            github_name=getattr(record, "github_name", None),
             is_active=bool(record.is_active),
             expires_at=as_utc(record.expires_at),
+            expired=_is_expired(record.expires_at),
             can_read_actions=record.can_read_actions,
             can_write_actions=record.can_write_actions,
             can_manage_webhooks=record.can_manage_webhooks,
@@ -221,3 +246,16 @@ class TokenController:
 
 
 __all__ = ["TokenController"]
+
+
+def _is_expired(value: Any) -> bool:
+    """Whether a recorded expiry has passed, compared in UTC.
+
+    Advisory only: nothing in the service refuses a credential because of it.
+    """
+    if value is None:
+        return False
+    moment = as_utc(value) if hasattr(value, "tzinfo") else value
+    if moment is None:
+        return False
+    return moment <= datetime.now(timezone.utc)

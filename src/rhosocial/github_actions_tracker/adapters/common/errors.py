@@ -175,7 +175,6 @@ def from_core_exception(exc: Exception) -> GhatError:
             core.TokenNotFoundError,
             core.TokenRequiredError,
             core.TokenDeactivatedError,
-            core.TokenExpiredError,
             core.TokenInvalidError,
             core.TokenPermissionError,
         ),

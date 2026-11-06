@@ -24,7 +24,6 @@ from typing import TYPE_CHECKING, Any
 from ...core.exceptions import (
     TokenAlreadyExistsError,
     TokenDeactivatedError,
-    TokenExpiredError,
     TokenInUseError,
     TokenInvalidError,
     TokenNotFoundError,
@@ -83,6 +82,14 @@ class _PatProviderBase:
         A bound-but-dead credential never degrades to anonymous: the operator
         bound it deliberately, which usually means the repository is private and
         an anonymous read would be meaningless.
+
+        Only ``is_active`` refuses. An expiry is recorded for reference and never
+        blocks: GitHub enforces it on its own side, so a token past its date
+        already fails at the first call with an error that names the real
+        problem, while refusing here would also close a path the operator may
+        have deliberately kept (a grace window after re-issuing the token, a
+        clock that disagrees). The warning is emitted instead -- see
+        :meth:`_warn_if_expired`.
         """
         name = getattr(credential, "name", "") or ""
         where = f" for repository '{repository}'" if repository else ""
@@ -92,15 +99,29 @@ class _PatProviderBase:
                 token_name=name,
                 repository=repository,
             )
+        _PatProviderBase._warn_if_expired(credential, repository)
+
+    @staticmethod
+    def _warn_if_expired(credential: Any, repository: str = "") -> None:
+        """Log once per resolve when a credential is past its recorded expiry."""
         expires_at = getattr(credential, "expires_at", None)
-        if expires_at is not None and expires_at <= datetime.now(timezone.utc):
-            raise TokenExpiredError(
-                f"Credential '{name}'{where} expired at {expires_at.isoformat()}; "
-                f"rotate it: credential pat rotate --name {name}",
-                token_name=name,
-                expires_at=expires_at.isoformat(),
-                repository=repository,
-            )
+        if expires_at is None:
+            return
+        # The row's value comes back in the session's zone; compare in UTC.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at > datetime.now(timezone.utc):
+            return
+        name = getattr(credential, "name", "") or ""
+        where = f" for repository '{repository}'" if repository else ""
+        logger.warning(
+            "Credential 'pat/%s'%s expired at %s; GitHub will reject it at the "
+            "next call. Rotate it: credential pat rotate --name %s",
+            name,
+            where,
+            expires_at.isoformat(),
+            name,
+        )
 
     def _to_resolved(self, credential: Any) -> ResolvedCredential:
         """Project a stored credential onto the core's credential shape.
@@ -134,12 +155,21 @@ class _PatProviderBase:
 
     @staticmethod
     def _apply_probe(credential: Any, probed: Capabilities) -> None:
-        """Store a probe result on the credential row."""
+        """Store a probe result on the credential row.
+
+        Registration fields, not logic: the account and the expiry exist so a
+        human can tell two fine-grained PATs apart, and neither gates anything.
+        The expiry GitHub reports wins over the one a caller passed, because
+        GitHub is the authority on when its own token stops working; a caller
+        value is kept when no header came back (a classic PAT has no expiry).
+        """
         credential.owner_login = probed.identity or credential.owner_login
         credential.can_read_actions = probed.can_read_actions
         credential.can_write_actions = probed.can_write_actions
         credential.can_manage_webhooks = probed.can_manage_webhooks
         credential.capabilities_probed_at = probed.probed_at
+        if probed.expires_at is not None:
+            credential.expires_at = probed.expires_at
 
     @staticmethod
     def _validate_new(token: str, name: str) -> tuple[str, str]:
@@ -168,7 +198,6 @@ class AsyncPatProvider(_PatProviderBase):
         Raises:
             TokenNotFoundError: The row does not exist.
             TokenDeactivatedError: It was deactivated.
-            TokenExpiredError: It is past its declared expiry.
         """
         credential = await AsyncPatCredential.find_one(AsyncPatCredential.c.id == ref)
         if credential is None:
@@ -265,6 +294,7 @@ class AsyncPatProvider(_PatProviderBase):
         expires_at: datetime | None = None,
         verify: bool = True,
         probe_repo: str | None = None,
+        github_name: str | None = None,
     ) -> AsyncPatCredential:
         """Register a credential, probing it first unless ``verify`` is false.
 
@@ -307,14 +337,19 @@ class AsyncPatProvider(_PatProviderBase):
                 "can_manage_webhooks": probed.can_manage_webhooks,
                 "capabilities_probed_at": probed.probed_at,
             }
+            # GitHub's header beats the caller's value: it is the authority on
+            # its own token's expiry. A caller value stands when no header came
+            # back, which is exactly the classic-PAT case.
+            if probed.expires_at is not None:
+                probed_fields["expires_at"] = probed.expires_at
 
         credential = AsyncPatCredential(
             name=alias,
             token=token_value,
             scope=_clean(scope, "repo,workflow"),
-            expires_at=expires_at,
+            github_name=_clean(github_name) or None,
             is_active=True,
-            **probed_fields,
+            **{**probed_fields, "expires_at": probed_fields.get("expires_at", expires_at)},
         )
         await credential.save()
         logger.info("Registered credential 'pat/%s'", alias)
@@ -367,6 +402,47 @@ class AsyncPatProvider(_PatProviderBase):
         logger.info("Rotated credential 'pat/%s'", credential.name)
         return credential
 
+    async def refresh(
+        self,
+        ref: int,
+        client: AsyncGithubClient,
+        probe_repo: str | None = None,
+    ) -> AsyncPatCredential:
+        """Re-measure a stored credential's capabilities and expiry.
+
+        The reason this exists: a fine-grained PAT's permissions can be changed
+        on GitHub at any time, and nothing tells us. Without a re-probe the row
+        keeps answering with what the token could do on the day it was
+        registered -- including the webhook permission, which is what decides
+        whether a hook can be created automatically.
+
+        It never changes the token value, and it never raises for a GitHub
+        failure that the probe itself reports; a token GitHub rejects does raise,
+        because that is a fact about the credential rather than about the probe.
+        """
+        credential = await AsyncPatCredential.find_one(AsyncPatCredential.c.id == ref)
+        if credential is None:
+            raise TokenNotFoundError(f"Credential pat/{ref} does not exist")
+        probed = normalize_capabilities(
+            await client.verify_token(credential.token, probe_repo=probe_repo)
+        )
+        if not probed.is_valid:
+            raise TokenInvalidError(
+                f"GitHub rejected the stored token of '{credential.name}'; "
+                f"rotate it: credential pat rotate --name {credential.name}"
+            )
+        self._apply_probe(credential, probed)
+        await credential.save()
+        logger.info(
+            "Re-probed credential 'pat/%s': read=%s write=%s webhooks=%s expires=%s",
+            credential.name,
+            probed.can_read_actions,
+            probed.can_write_actions,
+            probed.can_manage_webhooks,
+            probed.expires_at.isoformat() if probed.expires_at else None,
+        )
+        return credential
+
     async def deactivate(self, ref: int) -> AsyncPatCredential:
         """Deactivate a credential (soft delete); existing bindings are kept."""
         credential = await AsyncPatCredential.find_one(AsyncPatCredential.c.id == ref)
@@ -417,12 +493,16 @@ class AsyncPatProvider(_PatProviderBase):
                 "token_name": row.name,
                 "credential": f"{self.kind}/{row.name}",
                 "owner_login": row.owner_login,
+                "github_name": row.github_name,
                 "scope": row.scope,
                 "is_active": row.is_active,
                 "expires_at": _iso(row.expires_at),
                 "created_at": _iso(row.created_at),
                 "updated_at": _iso(row.updated_at),
+                "can_read_actions": row.can_read_actions,
                 "can_write_actions": row.can_write_actions,
+                "can_manage_webhooks": row.can_manage_webhooks,
+                "capabilities_probed_at": _iso(row.capabilities_probed_at),
             }
             for row in rows
         ]

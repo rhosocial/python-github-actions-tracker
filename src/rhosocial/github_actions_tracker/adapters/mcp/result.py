@@ -49,7 +49,6 @@ from ...core.exceptions import (
     RunInProgressError,
     RunNotFoundError,
     TokenDeactivatedError,
-    TokenExpiredError,
     TokenInvalidError,
     TokenNotFoundError,
     TokenPermissionError,
@@ -162,13 +161,6 @@ def _code_for(exc: GhatError) -> tuple[str, str, str | None]:
             "credential_missing",
             f"No usable credential is bound to this repository. Ask the user to "
             f"add one at {settings_url()}; never ask the user for a token.",
-            SETTINGS_PATH,
-        )
-    if isinstance(exc, TokenExpiredError):
-        return (
-            "credential_expired",
-            "The bound token has expired. Ask the user to rotate it; do not retry "
-            "with the same credential.",
             SETTINGS_PATH,
         )
     if isinstance(exc, TokenInvalidError):

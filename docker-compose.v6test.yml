@@ -1,0 +1,14 @@
+# LOCAL TEST ONLY -- not part of the deployment, delete when done.
+#
+# Run as an isolated project so the live stack is untouched:
+#   cd D:\Projects\rhosocial\python-github-actions-tracker
+#   docker compose -p ghat-v6test -f docker-compose.yml \
+#     -f docker-compose.override.yml -f docker-compose.v6test.yml \
+#     --env-file docker/stack.env run --rm ...
+#
+# The only difference from the real deployment is that the project's default
+# network gets IPv6 -- the exact change being tested.
+
+networks:
+  default:
+    enable_ipv6: true

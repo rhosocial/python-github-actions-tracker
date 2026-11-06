@@ -116,33 +116,15 @@ class RunInProgressError(GhatError):
 
 
 class TokenInvalidError(GhatError):
-    """GitHub token is invalid or expired.
+    """GitHub rejected the token.
 
-    Raised when GitHub answers 401 -- the token was revoked, or it expired
-    without an expiry having been declared at add time. Distinct from
-    :class:`TokenExpiredError`, which is the local pre-check against a
-    declared ``expires_at``.
+    Raised when GitHub answers 401: the token was revoked, or it passed the
+    expiry that GitHub enforces on its own side. The service does not refuse a
+    credential for a recorded expiry -- that is a warning, not a gate -- so this
+    always means GitHub itself said no.
     """
 
     pass
-
-
-class TokenExpiredError(GhatError):
-    """A repository's bound token is past its declared expiry.
-
-    Attributes:
-        token_name: The alias of the expired token.
-        expires_at: The declared expiry that has passed.
-        repository: The repository whose access hit the expired token.
-    """
-
-    def __init__(
-        self, message: str, token_name: str = "", expires_at: str = "", repository: str = ""
-    ) -> None:
-        super().__init__(message)
-        self.token_name = token_name
-        self.expires_at = expires_at
-        self.repository = repository
 
 
 class TokenDeactivatedError(GhatError):
@@ -311,7 +293,6 @@ __all__ = [
     "TriggerFailedError",
     "UpstreamUnavailableError",
     "TokenInvalidError",
-    "TokenExpiredError",
     "TokenDeactivatedError",
     "TokenRequiredError",
     "TokenAlreadyExistsError",

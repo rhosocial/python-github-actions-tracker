@@ -43,8 +43,15 @@ class Capabilities:
     identity: str = ""
     can_read_actions: bool = False
     can_write_actions: bool = False
-    can_manage_webhooks: bool = False
+    #: Whether the credential may manage webhooks. ``None`` means *unknown* --
+    # no probe ran, or it could not tell. It is deliberately tri-state: a
+    # network error must not read as "denied", because that silently closes a
+    # path nobody knows was closed.
+    can_manage_webhooks: bool | None = False
     accessible_repos: int = 0
+    #: When the token itself stops working, as GitHub reported it. Reference
+    #: only: an expired credential still resolves, and says so as a warning.
+    expires_at: datetime | None = None
     probed_at: datetime | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -56,6 +63,7 @@ class Capabilities:
             "can_write_actions": self.can_write_actions,
             "can_manage_webhooks": self.can_manage_webhooks,
             "accessible_repos": self.accessible_repos,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
             "probed_at": self.probed_at.isoformat() if self.probed_at else None,
         }
 
@@ -108,7 +116,6 @@ class IAsyncCredentialProvider(Protocol):
         Raises:
             TokenNotFoundError: The referenced credential does not exist.
             TokenDeactivatedError: It exists but was deactivated.
-            TokenExpiredError: It is past its declared expiry.
         """
         ...
 
@@ -246,16 +253,52 @@ def normalize_capabilities(raw: Mapping[str, Any]) -> Capabilities:
 
     The PAT client's probe is heuristic (GitHub has no permissions endpoint), so
     this only pins the shape; interpretation stays with the provider.
+
+    ``can_manage_webhooks`` keeps its tri-state: the client answers ``None``
+    when it could not tell (no probe repository, or GitHub was unreachable),
+    and collapsing that to ``False`` would close the automatic path without a
+    trace.
     """
+    webhooks = raw.get("can_manage_webhooks", False)
     return Capabilities(
         is_valid=bool(raw.get("is_valid", False)),
         identity=str(raw.get("username") or raw.get("identity") or "").strip(),
         can_read_actions=bool(raw.get("can_read_actions", False)),
         can_write_actions=bool(raw.get("can_write_actions", False)),
-        can_manage_webhooks=bool(raw.get("can_manage_webhooks", False)),
+        can_manage_webhooks=None if webhooks is None else bool(webhooks),
         accessible_repos=int(raw.get("accessible_repos") or 0),
+        expires_at=_parse_expires_at(raw.get("expires_at")),
         probed_at=datetime.now(timezone.utc),
     )
+
+
+def _parse_expires_at(value: Any) -> datetime | None:
+    """Read the ``github-authentication-token-expiration`` header value.
+
+    GitHub sends it on every authenticated response for a fine-grained PAT and
+    never for a classic one, so ``None`` here means "no expiry reported" rather
+    than "expired long ago".
+
+    The wire format is **not** ISO 8601: GitHub sends
+    ``2027-10-11 11:31:04 UTC``. Parsing it with ``fromisoformat`` silently
+    returns nothing, which is how the first version of this stored ``None`` for
+    a token that had a perfectly readable expiry. A value that still does not
+    parse is dropped rather than guessed at -- a wrong expiry becomes a wrong
+    warning.
+    """
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    # GitHub's own spelling: "2027-10-11 11:31:04 UTC".
+    if text.upper().endswith(" UTC"):
+        text = text[:-4] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 __all__ = [

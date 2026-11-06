@@ -803,9 +803,16 @@ class GithubClient:
             "accessible_repos": 0,
         }
         try:
-            user_data = self._request("GET", "/user", token).json()
+            response = self._request("GET", "/user", token)
+            user_data = response.json()
             result["is_valid"] = True
             result["username"] = user_data.get("login", "")
+            # GitHub reports a fine-grained PAT's expiry on every authenticated
+            # response; a classic PAT never sends the header, so absence means
+            # "no expiry", not "expired".
+            result["expires_at"] = response.headers.get(
+                "github-authentication-token-expiration", ""
+            )
         except (TokenInvalidError, GithubAPIError):
             return result
 
@@ -820,13 +827,55 @@ class GithubClient:
         except GithubAPIError:
             pass
 
-        # No direct probe exists; a valid token is the prerequisite for the
-        # Administration permission, so this stays a heuristic.
-        result["can_manage_webhooks"] = result["is_valid"]
+        # The Administration permission, measured rather than assumed: listing
+        # hooks is the cheapest endpoint that needs it. GitHub answers 404 for
+        # a repository the token cannot see, exactly as it does for one that
+        # does not exist, so a 404 is a "no" -- a false "yes" would only fail
+        # later, when the hook is actually created. A transport failure leaves
+        # the answer unknown: "we could not tell" must not be recorded as
+        # "denied", because that closes the automatic path without a trace.
+        result["can_manage_webhooks"] = self.probe_manage_webhooks(token, probe_repo)
 
         if probe_repo:
             result["can_write_actions"] = self.probe_actions_write(token, probe_repo)
         return result
+
+    def probe_manage_webhooks(self, token: str, repo_full_name: str | None) -> bool | None:
+        """Whether ``token`` may read this repository's webhooks (see the async twin).
+
+        Listing hooks is the cheapest endpoint that requires the Administration
+        permission, and it is a **read**. A fine-grained PAT splits that
+        permission in two, so a token that lists hooks can still be refused when
+        asked to create one -- which is exactly what happened live: this probe
+        answered ``True`` for a token whose ``webhook create`` answered 401.
+        Treat ``True`` as "creating might work", never as a guarantee: the write
+        path must handle the refusal and fall back to a pasted secret.
+
+        The answers:
+
+        * ``True``  -- GitHub listed them;
+        * ``False`` -- 403 (explicitly refused) or 404 (a repository the token
+          cannot see, which GitHub reports identically to one that does not
+          exist, so it is a "no" either way);
+        * ``None``  -- no repository to ask about, or the request never got an
+          answer. Unknown is not a denial: recording it as one would silently
+          disable the automatic path, and nothing would ever say why.
+
+        ``repo_full_name`` of ``None`` is what a first boot looks like, before
+        any repository is subscribed; the answer stays unknown until one is.
+        """
+        if not repo_full_name:
+            return None
+        try:
+            self._request("GET", f"/repos/{repo_full_name}/hooks", token)
+        except GhatError as exc:
+            status = getattr(exc, "status_code", None)
+            if status in (403, 404):
+                return False
+            return None
+        except Exception:  # noqa: BLE001 - a transport failure is not a denial
+            return None
+        return True
 
     def probe_actions_write(self, token: str, repo_full_name: str) -> bool:
         """Report whether ``token`` may dispatch workflows in a repository.
@@ -1282,9 +1331,15 @@ class AsyncGithubClient:
             "accessible_repos": 0,
         }
         try:
-            user_data = (await self._request("GET", "/user", token)).json()
+            response = await self._request("GET", "/user", token)
+            user_data = response.json()
             result["is_valid"] = True
             result["username"] = user_data.get("login", "")
+            # See the sync twin: the expiry arrives as a response header, and a
+            # classic PAT never sends it.
+            result["expires_at"] = response.headers.get(
+                "github-authentication-token-expiration", ""
+            )
         except (TokenInvalidError, GithubAPIError):
             return result
 
@@ -1296,11 +1351,37 @@ class AsyncGithubClient:
         except GithubAPIError:
             pass
 
-        result["can_manage_webhooks"] = result["is_valid"]
+        # See the sync twin: measured, and unknown is not a denial.
+        result["can_manage_webhooks"] = await self.probe_manage_webhooks(
+            token, probe_repo
+        )
 
         if probe_repo:
             result["can_write_actions"] = await self.probe_actions_write(token, probe_repo)
         return result
+
+    async def probe_manage_webhooks(
+        self, token: str, repo_full_name: str | None
+    ) -> bool | None:
+        """Whether ``token`` may read this repository's webhooks (see the sync twin).
+
+        ``None`` is "we could not tell" -- no repository to ask about, or the
+        request never got an answer -- and must not be recorded as a denial.
+        ``True`` proves the read half of the permission only; creating a hook
+        needs the write half, which no harmless probe can measure.
+        """
+        if not repo_full_name:
+            return None
+        try:
+            await self._request("GET", f"/repos/{repo_full_name}/hooks", token)
+        except GhatError as exc:
+            status = getattr(exc, "status_code", None)
+            if status in (403, 404):
+                return False
+            return None
+        except Exception:  # noqa: BLE001 - a transport failure is not a denial
+            return None
+        return True
 
     async def probe_actions_write(self, token: str, repo_full_name: str) -> bool:
         """Report whether ``token`` may dispatch workflows (see the sync twin).

@@ -576,6 +576,10 @@ PAT_SCHEMA = Table(
         _SERIAL,
         # Operator-facing alias; the CLI's primary key.
         Column("name", ColumnType.VARCHAR, length=100, nullable=False, unique=True),
+        # The PAT's own name on GitHub -- what the user typed when creating it.
+        # GitHub never exposes it through the API, so it is registered by hand
+        # and exists only to help a human tell two tokens apart.
+        Column("github_name", ColumnType.VARCHAR, length=255),
         # The secret -- plaintext by design for a single-user self-hosted
         # deployment; see models/pat_credential.py for the trade-off.
         Column("token", ColumnType.TEXT, nullable=False, unique=True),

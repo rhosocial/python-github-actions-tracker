@@ -22,7 +22,6 @@ from conftest import FakeGithub, make_repository_service
 from rhosocial.github_actions_tracker.core.exceptions import (
     RepositoryNotFoundError,
     TokenDeactivatedError,
-    TokenExpiredError,
     TokenNotFoundError,
     TokenRequiredError,
     ValidationError,
@@ -272,8 +271,10 @@ class TestResolveForRepository:
         await repo.save()
         await AsyncRepositoryBinding.bind(repo.id or 0, "pat", credential.id or 0)
 
-        with pytest.raises(TokenExpiredError):
-            await resolve_for_repository(repo)
+        # An expiry is advisory: the bound credential still answers, and the
+        # provider warns. Only a deactivation refuses.
+        credential = await resolve_for_repository(repo)
+        assert credential.token
 
     async def test_dangling_binding_raises(self, fake_client: FakeGithub, bound) -> None:
         """A binding whose credential vanished must not degrade to anonymous."""

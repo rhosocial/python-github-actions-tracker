@@ -35,7 +35,7 @@ from rhosocial.github_actions_tracker.adapters.mcp.server import INSTRUCTIONS, c
 from rhosocial.github_actions_tracker.core.exceptions import (
     RepositoryNotFoundError,
     RunNotFoundError,
-    TokenExpiredError,
+    TokenInvalidError,
     TriggerFailedError,
     WorkflowNotFoundError,
 )
@@ -218,7 +218,7 @@ def test_error_result_never_asks_for_a_token() -> None:
     """Every credential error must send the user to settings, not to a token."""
     set_request_origin("https", "tracker.example.com")
     for exc in (
-        TokenExpiredError("expired", token_name="work"),
+        TokenInvalidError("expired"),
         RepositoryNotFoundError("nope"),
     ):
         payload = error_result(exc)

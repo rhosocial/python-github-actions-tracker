@@ -270,6 +270,14 @@ def build_parser() -> argparse.ArgumentParser:
     pat_add.add_argument("--token", required=True)
     pat_add.add_argument("--scope", default="repo,workflow")
     pat_add.add_argument(
+        "--github-name",
+        default=None,
+        help=(
+            "The PAT's own name on GitHub. Display only -- the API never "
+            "returns it, so it has to be registered by hand."
+        ),
+    )
+    pat_add.add_argument(
         "--probe-repo",
         default=None,
         help=(
@@ -291,6 +299,14 @@ def build_parser() -> argparse.ArgumentParser:
     pat_token.add_argument("--token-stdin", action="store_true")
     pat_ensure.add_argument("--scope", default="repo,workflow")
     pat_ensure.add_argument(
+        "--github-name",
+        default=None,
+        help=(
+            "The PAT's own name on GitHub. Display only -- the API never "
+            "returns it, so it has to be registered by hand."
+        ),
+    )
+    pat_ensure.add_argument(
         "--probe-repo",
         default=None,
         help="Repository used to test Actions write permission, as 'owner/repo'",
@@ -311,6 +327,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--probe-repo",
         default=None,
         help="Repository used to re-test Actions write permission, as 'owner/repo'",
+    )
+
+    pat_refresh = pat_sub.add_parser("refresh")
+    pat_refresh.add_argument("--name", required=True)
+    pat_refresh.add_argument(
+        "--probe-repo",
+        default=None,
+        help=(
+            "Repository used to measure the webhook and Actions permissions, as "
+            "'owner/repo'. Both answers are repository-scoped."
+        ),
     )
 
     pat_remove = pat_sub.add_parser("remove")

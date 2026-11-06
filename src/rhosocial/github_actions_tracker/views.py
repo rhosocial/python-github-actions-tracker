@@ -524,8 +524,13 @@ class TokenRecord:
     name: str = ""
     scope: str = ""
     owner_login: str | None = None
+    #: The PAT's own name on GitHub, registered by hand. Display only.
+    github_name: str | None = None
     is_active: bool = True
     expires_at: datetime | None = None
+    #: Whether the recorded expiry has passed. Advisory: an expired credential
+    #: still resolves, and GitHub is what actually rejects the call.
+    expired: bool = False
     can_read_actions: bool | None = None
     can_write_actions: bool | None = None
     can_manage_webhooks: bool | None = None
