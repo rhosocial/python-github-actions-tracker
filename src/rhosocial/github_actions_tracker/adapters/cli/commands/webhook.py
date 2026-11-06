@@ -52,10 +52,10 @@ async def run(args: argparse.Namespace, container: Any) -> None:
         result = await service.ping_webhook(repo_full_name=args.name)
         print(f"Ping result: {result}")
     elif args.webhook_command == "status":
-        data = await container.repositories.webhook_status(args.name)
+        data = await container.repository.webhook_status(args.name)
         print(format_output(data, args.format, args.verbose))
     elif args.webhook_command == "rotate-secret":
-        record = await container.repositories.rotate_secret(
+        record = await container.repository.rotate_secret(
             args.name, create_webhook=getattr(args, "create_hook", False)
         )
         if record.state == "pushed":
