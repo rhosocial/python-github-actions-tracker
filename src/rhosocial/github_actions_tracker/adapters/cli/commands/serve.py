@@ -202,9 +202,23 @@ def _serve_all(args: argparse.Namespace, settings: Any) -> None:
                 ssl_certfile=settings.webhook_ssl_certfile or None,
                 ssl_keyfile=settings.webhook_ssl_keyfile or None,
             )
+            # Both listeners take the dual-stack treatment for the same reason
+            # ``_serve`` does: ``::`` is meant to mean "every address", and a
+            # kernel that defaults IPV6_V6ONLY to 1 would otherwise leave the
+            # IPv4 half closed.
+            rest_sockets = (
+                [_dual_stack_socket(settings.rest_host, settings.rest_port)]
+                if ":" in settings.rest_host
+                else None
+            )
+            webhook_sockets = (
+                [_dual_stack_socket(settings.webhook_host, settings.webhook_port)]
+                if ":" in settings.webhook_host
+                else None
+            )
             await asyncio.gather(
-                uvicorn.Server(rest_config).serve(),
-                uvicorn.Server(webhook_config).serve(),
+                uvicorn.Server(rest_config).serve(sockets=rest_sockets),
+                uvicorn.Server(webhook_config).serve(sockets=webhook_sockets),
             )
         finally:
             await database.close()
