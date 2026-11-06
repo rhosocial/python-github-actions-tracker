@@ -30,6 +30,7 @@ from ..models.attempt import AsyncRunAttempt
 from ..models.errors import GhatError  # noqa: F401 - re-exported for callers
 from ..models.log import AsyncJobLog, AsyncStepLog
 from ..models.states import FAILED_CONCLUSIONS
+from ..observability import RUN_INGEST_TOTAL
 from ..services.github.protocols import RunReader
 from ..views import DurationSample
 
@@ -334,13 +335,20 @@ class RunData:
         The payload goes to the model unchanged: it creates the workflow if
         needed, normalizes the state and writes the attempt row the jobs hang off.
         """
-        return await AsyncWorkflowRun.adopt_from_remote(repo, payload)
+        run = await AsyncWorkflowRun.adopt_from_remote(repo, payload)
+        # Counted here rather than in the model: a model writes a row, and the
+        # registry is the controller's business. ``created`` and ``updated`` are
+        # separate on purpose -- see the counter's declaration.
+        RUN_INGEST_TOTAL.inc(result="created")
+        return run
 
     async def update(
         self, run: AsyncWorkflowRun, payload: Mapping[str, object]
     ) -> AsyncWorkflowRun:
         """Apply a payload to a stored run, through the model's state machine."""
-        return await run.update_from_remote(payload)
+        updated = await run.update_from_remote(payload)
+        RUN_INGEST_TOTAL.inc(result="updated")
+        return updated
 
     async def store_attempt(
         self, run: AsyncWorkflowRun, payload: Mapping[str, object]
@@ -938,8 +946,27 @@ class RunData:
         """Store one step's text, replacing any capture already there.
 
         The step carries its month (copied from the job when the job stored its
-        steps), so the row lands where the read path will ask for it.
+        steps), so the row lands where the read path will ask for it. When it
+        does not, the row is re-read rather than the object trusted: a step row
+        is written while its job is still running and healed when the job
+        finishes, and an object from the earlier moment can still say ``None``
+        after the row was healed. The bucket is half of the log row's key, so
+        that state aborts the write -- and the capture writes a whole run in one
+        pass, which is how one stale copy used to cost every step log of a run.
         """
         if step.id is None:
             return
-        await AsyncStepLog.store_for_step(step, content)
+        if step.log_bucket is None:
+            fresh = await AsyncStep.find_one(AsyncStep.c.id == step.id)
+            if fresh is not None and fresh.log_bucket is not None:
+                step.log_bucket = fresh.log_bucket
+        try:
+            await AsyncStepLog.store_for_step(step, content)
+        except ValueError as exc:
+            # The ORM's message names the field, not the row. A capture that
+            # writes a whole run needs the row, or the ledger's "capture
+            # failed" is all an operator ever learns.
+            raise ValueError(
+                f"step {step.id} (job {step.job_id}, number {step.number}, "
+                f"bucket {step.log_bucket!r}): {exc}"
+            ) from exc

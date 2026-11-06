@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from rhosocial.github_actions_tracker.controllers import RunData
 from rhosocial.github_actions_tracker.models import (
     AsyncJob,
@@ -155,3 +157,48 @@ class TestTheWriteSurvivesAStaleStep:
         stored = await AsyncStepLog.query().all()
         assert len(stored) == 2, "both steps must land; the archive is still warm"
         assert {row.bucket for row in stored} == {job.log_bucket}
+
+    async def test_a_step_whose_row_is_right_but_object_is_stale(self, bound) -> None:
+        """The second shape of the same failure, and the one that bit live.
+
+        Here the *row* carries the month and only the object in hand does not --
+        which is what the failing capture held: the database was healed minutes
+        earlier and the object still said None. The write must re-read the row
+        rather than trust the object, and it must say which step it was when it
+        cannot.
+        """
+        job, _ = await _finished_job()
+        healed = await _step(job, 1, with_bucket=True)
+        # an object standing where the earlier load left it: row healed, object not
+        stale = AsyncStep(
+            id=healed.id,
+            job_id=healed.job_id,
+            github_step_id=healed.github_step_id,
+            number=healed.number,
+            name=healed.name,
+            log_bucket=None,
+        )
+
+        store = RunData()
+        await store.store_step_log(stale, "text of the stale object's step")
+
+        rows = await AsyncStepLog.query().where(AsyncStepLog.c.step_id == healed.id).all()
+        assert len(rows) == 1
+        assert rows[0].bucket == job.log_bucket
+
+    async def test_a_failure_names_the_step(self, bound) -> None:
+        """When it still cannot, the operator learns which row, not which field."""
+        job, _ = await _finished_job()
+        orphan = await _step(job, 1, with_bucket=False)
+        # a job with no month of its own: nothing to derive, nowhere to heal from
+        orphan.log_bucket = None
+        await orphan.save()
+
+        store = RunData()
+        with pytest.raises(ValueError) as caught:
+            await store.store_step_log(orphan, "text")
+
+        message = str(caught.value)
+        assert f"step {orphan.id}" in message
+        assert f"job {orphan.job_id}" in message
+        assert "number 1" in message
