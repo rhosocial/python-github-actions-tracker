@@ -65,6 +65,22 @@ class GithubWebhooks:
             config=dict(config),
         )
 
+    async def update_webhook(
+        self, repo_full_name: str, hook_id: int, config: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """Overwrite a hook's configuration, keeping the parts not named.
+
+        This is how a hook made by hand takes the secret we generated: GitHub
+        never returns a secret, so the only way to bring one under management is
+        to write ours over it.
+        """
+        return await self._client.update_webhook(
+            token=await self._tokens.token_for(repo_full_name),
+            repo_full_name=repo_full_name,
+            hook_id=hook_id,
+            config=dict(config),
+        )
+
     async def list_webhooks(self, repo_full_name: str) -> list[Mapping[str, Any]]:
         """List the repository's hooks.
 

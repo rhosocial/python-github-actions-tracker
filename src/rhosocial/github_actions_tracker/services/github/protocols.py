@@ -175,6 +175,12 @@ class WebhookManager(Protocol):
         """POST ``/repos/{repo}/hooks``."""
         ...
 
+    async def update_webhook(
+        self, repo_full_name: str, hook_id: int, config: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """PATCH ``/repos/{repo}/hooks/{hook_id}``."""
+        ...
+
     async def list_webhooks(self, repo_full_name: str) -> list[Mapping[str, Any]]:
         """GET ``/repos/{repo}/hooks``."""
         ...

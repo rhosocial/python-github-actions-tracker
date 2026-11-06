@@ -191,7 +191,14 @@ class Container:
             token=TokenController(probe=GithubCredentials(client, credential=credential)),
             repository=repositories,
             webhook=WebhookController(
-                webhooks=GithubWebhooks(client, credential=credential),
+                # The shared instance, not a second one: a fresh
+                # ``GithubWebhooks(client, credential=...)`` here lost the
+                # ``resolve`` half, so in a process without an ambient
+                # credential (the CLI) every call this controller made went out
+                # anonymous -- ``webhook ping`` answered 401 while
+                # ``repo``-driven hook calls, which use the other instance,
+                # worked.
+                webhooks=github_webhooks,
                 readers=github_runs,
                 runs=runs,
                 repositories=repositories_data,

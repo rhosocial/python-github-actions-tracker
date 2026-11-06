@@ -542,13 +542,37 @@ class RepositoryController:
         logger.info("Refreshed %d workflow(s) for '%s'", len(workflows), repo.full_name)
         return workflows
 
-    async def _create_hook(self, full_name: str, url: str, secret: str) -> Mapping[str, Any] | None:
-        """Create the webhook, unless this callback URL is already registered."""
+    async def _ensure_hook(self, full_name: str, url: str, secret: str) -> Mapping[str, Any] | None:
+        """Make the hook for this callback URL sign with ``secret``.
+
+        A hook that already points here is **updated**, not skipped: GitHub never
+        returns a hook's secret, so an existing hook still carries whatever it
+        was made with, and leaving it alone would mean our stored secret and
+        GitHub's disagree forever -- every delivery refused as
+        ``signature_failed`` with nothing to point at. Updating is also the only
+        way to bring a hand-made hook under management.
+
+        Returns what GitHub answered, or ``None`` when the update reported no id.
+        """
         for hook in await self._webhooks.list_webhooks(full_name):
             config = hook.get("config")
-            if isinstance(config, Mapping) and str(config.get("url") or "") == url:
-                logger.debug("Webhook for '%s' already points at %s", full_name, url)
-                return None
+            if not isinstance(config, Mapping) or str(config.get("url") or "") != url:
+                continue
+            hook_id = int(hook.get("id") or 0)
+            if not hook_id:
+                continue
+            updated = await self._webhooks.update_webhook(
+                full_name,
+                hook_id,
+                {
+                    "url": url,
+                    "content_type": "json",
+                    "secret": secret,
+                    "events": list(DEFAULT_WEBHOOK_EVENTS),
+                },
+            )
+            logger.info("Updated the webhook of '%s' with its own secret", full_name)
+            return updated
 
         created = await self._webhooks.create_webhook(
             full_name,
@@ -599,7 +623,7 @@ class RepositoryController:
                 "Webhook creation needs a callback URL; set GHAT_WEBHOOK_URL or pass one"
             )
         try:
-            created = await self._create_hook(repo.full_name, url, secret)
+            created = await self._ensure_hook(repo.full_name, url, secret)
         except GhatError as exc:
             logger.warning(
                 "Could not create the webhook of '%s' (%s); the secret is registered "
@@ -609,6 +633,16 @@ class RepositoryController:
             )
             return record
         hook_id = int((created or {}).get("id") or 0) or None
+        if hook_id is None:
+            # GitHub answered without a hook id, so nothing can be said to have
+            # been pushed. Claiming ``pushed`` here would tell the operator there
+            # is nothing left to do when the secret may not be on GitHub at all.
+            logger.warning(
+                "GitHub accepted the hook write for '%s' without returning an id; "
+                "leaving the secret as pending",
+                repo.full_name,
+            )
+            return record
         return await AsyncRepoWebhookSecret.set(
             repo.id or 0, secret, state=STATE_PUSHED, webhook_id=hook_id
         )

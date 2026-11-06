@@ -754,6 +754,27 @@ class GithubClient:
         }
         return self._request("POST", url, token, json=payload).json()
 
+    def update_webhook(
+        self,
+        token: str,
+        repo_full_name: str,
+        hook_id: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Update a hook in place -- how an existing one takes a new secret.
+
+        GitHub never returns a hook's secret, so the only way to bring a hook
+        under management is to overwrite it with the one we hold. A PATCH leaves
+        everything not named alone, which is why the events list is only sent
+        when the caller supplies it.
+        """
+        url = f"/repos/{repo_full_name}/hooks/{hook_id}"
+        hook_config = {k: v for k, v in config.items() if k != "events"}
+        payload: dict[str, Any] = {"config": hook_config}
+        if "events" in config:
+            payload["events"] = config["events"]
+        return self._request("PATCH", url, token, json=payload).json()
+
     def delete_webhook(self, token: str, repo_full_name: str, hook_id: int) -> None:
         """Delete a webhook; a miss raises :class:`WebhookNotFoundError`."""
         url = f"/repos/{repo_full_name}/hooks/{hook_id}"
@@ -1299,6 +1320,21 @@ class AsyncGithubClient:
             "config": hook_config,
         }
         return (await self._request("POST", url, token, json=payload)).json()
+
+    async def update_webhook(
+        self,
+        token: str,
+        repo_full_name: str,
+        hook_id: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Update a hook in place (see the sync twin)."""
+        url = f"/repos/{repo_full_name}/hooks/{hook_id}"
+        hook_config = {k: v for k, v in config.items() if k != "events"}
+        payload: dict[str, Any] = {"config": hook_config}
+        if "events" in config:
+            payload["events"] = config["events"]
+        return (await self._request("PATCH", url, token, json=payload)).json()
 
     async def delete_webhook(self, token: str, repo_full_name: str, hook_id: int) -> None:
         """Delete a webhook; a miss raises :class:`WebhookNotFoundError`."""
