@@ -111,7 +111,9 @@ docker compose exec web rhosocial-github-actions-tracker credential pat show --n
 - **自建**，Docker Hub 上有现成镜像：`vistart/postgres-exts:18`
   （构建配方：<https://github.com/vistart/Dockerfiles/tree/postgres>）；**中国大陆用户**
   改用阿里云镜像 `registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18`，
-  两者同一个镜像、tag 命名一致。与 `docker-compose.bundled.yml` 配对。
+  两者同一个镜像、同一个 digest。与 `docker-compose.bundled.yml` 配对——它读的是
+  `${GHAT_DB_IMAGE:-vistart/postgres-exts:18}`，所以换 registry 只在 `stack.env` 里改一行，
+  不用动 compose 文件。
 - **自己的或云上的**——自己拉的服务器，或 Supabase 一类托管。两种都行；差别只在于
   `pg_trgm` 能不能由你启用。日志表的三元组索引需要它，多数托管服务都有，但只有一次检查能证明。
 

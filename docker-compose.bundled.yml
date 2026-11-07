@@ -38,7 +38,13 @@ services:
         condition: service_healthy
 
   postgres:
-    image: postgres:18
+    # Canonical name is Docker Hub; a mainland-China pull should use the
+    # Alibaba mirror instead -- the same image, same digest:
+    #   registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18
+    # (the Aliyun namespace needs the `_public` suffix; `vistart/...` is 401).
+    # The official postgres:18 image also works for the extensions this service
+    # needs (pg_trgm ships in contrib), but this one is what the recipes build.
+    image: ${GHAT_DB_IMAGE:-vistart/postgres-exts:18}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${GHAT_DB_USER:-github_actions_tracker}

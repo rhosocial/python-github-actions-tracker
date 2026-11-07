@@ -44,7 +44,9 @@ Two shapes, and the second is where the extension question gets answered:
   <https://github.com/vistart/Dockerfiles/tree/postgres>). **Mainland China users**
   should use the Alibaba Cloud mirror instead:
   `registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18` — the same
-  image under the same tag. Pair it with `docker-compose.bundled.yml`.
+  image under the same digest. Pair it with `docker-compose.bundled.yml`, which
+  reads `${GHAT_DB_IMAGE:-vistart/postgres-exts:18}`, so swapping registries is
+  one line in `stack.env` rather than an edit to the compose file.
 - **Yours or a cloud provider's** — a server you run, or Supabase and friends. Both work;
   what differs is whether `pg_trgm` is available to you. The log tables' trigram index
   needs it, and most managed services have it, but only a check proves it.
