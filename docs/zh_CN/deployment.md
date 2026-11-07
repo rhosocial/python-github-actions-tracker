@@ -16,7 +16,7 @@ docker compose --env-file docker/stack.env up -d
 任意 PostgreSQL（本机 `localhost:5432`、compose 内的 `postgres`、或任何可达的服务），不要求和
 应用同机。
 
-### 形态二：一体化 `postgres:18`
+### 形态二：一体化 `vistart/postgres-exts:18`
 
 在形态一的基础上叠加 `docker-compose.bundled.yml`：
 
@@ -25,7 +25,9 @@ docker compose -f docker-compose.yml -f docker-compose.bundled.yml \
   --env-file docker/stack.env up -d
 ```
 
-这个 overlay 只增加官方 `postgres:18` 服务，并把 `init` / `web` / `mcp` 的
+这个 overlay 只增加一个 `vistart/postgres-exts:18` 数据库服务（中国大陆用户可换成阿里云
+镜像 `registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18`，两者 digest 一致），并把
+`init` / `web` / `mcp` 的
 `GHAT_DB_HOST` 固定为 `postgres`，因此 `stack.env` 里残留的外部数据库地址不会误生效。
 数据在命名卷 `pgdata`；`docker compose ... down` 保留数据，`down -v` 删除。
 
@@ -96,6 +98,7 @@ docker compose exec web rhosocial-github-actions-tracker credential pat add \
   --name work --token <PAT> --probe-repo owner/repo
 docker compose exec web rhosocial-github-actions-tracker credential pat list
 docker compose exec web rhosocial-github-actions-tracker credential pat show --name work --probe-repo owner/repo
+```
 
 ## 部署前要定的四件事
 
@@ -105,10 +108,10 @@ docker compose exec web rhosocial-github-actions-tracker credential pat show --n
 
 两种形态，第二种正是"扩展"问题要如实回答的地方：
 
-- **自建**，同一 registry 家族里有现成镜像：
-  `registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18`
-  （构建配方：<https://github.com/vistart/Dockerfiles/tree/postgres>），与
-  `docker-compose.bundled.yml` 配对。
+- **自建**，Docker Hub 上有现成镜像：`vistart/postgres-exts:18`
+  （构建配方：<https://github.com/vistart/Dockerfiles/tree/postgres>）；**中国大陆用户**
+  改用阿里云镜像 `registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18`，
+  两者同一个镜像、tag 命名一致。与 `docker-compose.bundled.yml` 配对。
 - **自己的或云上的**——自己拉的服务器，或 Supabase 一类托管。两种都行；差别只在于
   `pg_trgm` 能不能由你启用。日志表的三元组索引需要它，多数托管服务都有，但只有一次检查能证明。
 

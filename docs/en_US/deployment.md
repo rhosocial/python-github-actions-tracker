@@ -13,7 +13,7 @@ curl -k https://127.0.0.1:18080/readyz
 and exits), `web` (`serve all`, REST 8000 + webhook 18080) and `mcp`
 (`serve mcp`, 8001). `web` and `mcp` start only after `init` succeeded.
 
-## Shape two: bundled `postgres:18`
+## Shape two: bundled `vistart/postgres-exts:18`
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.bundled.yml --env-file docker/stack.env up -d
@@ -39,10 +39,12 @@ for each; the short version is here.
 
 Two shapes, and the second is where the extension question gets answered:
 
-- **Self-hosted**, from the same registry family:
-  `registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18`
-  (build recipes: <https://github.com/vistart/Dockerfiles/tree/postgres>). Pair it with
-  `docker-compose.bundled.yml`.
+- **Self-hosted**, an image that already exists on Docker Hub:
+  `vistart/postgres-exts:18` (build recipes:
+  <https://github.com/vistart/Dockerfiles/tree/postgres>). **Mainland China users**
+  should use the Alibaba Cloud mirror instead:
+  `registry.cn-shanghai.aliyuncs.com/vistart_public/postgres-exts:18` — the same
+  image under the same tag. Pair it with `docker-compose.bundled.yml`.
 - **Yours or a cloud provider's** — a server you run, or Supabase and friends. Both work;
   what differs is whether `pg_trgm` is available to you. The log tables' trigram index
   needs it, and most managed services have it, but only a check proves it.
