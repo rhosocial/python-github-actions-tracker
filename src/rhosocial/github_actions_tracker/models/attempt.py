@@ -175,23 +175,38 @@ class _AttemptDerived:
     """
 
     @staticmethod
+    def _seconds(dialect: Any, spread: Any) -> Any:
+        """Turn a timestamp difference into seconds using expression nodes only.
+
+        The library's ``EXTRACT`` speaks calendar fields (``year``, ...,
+        ``second``) and has no ``EPOCH``. A PostgreSQL ``timestamp - timestamp``
+        is an interval of days and time -- never months -- so its total length is
+        exactly the sum of those components. Every component here is an ORM
+        ``ExtractExpression`` and every multiplication an ORM
+        ``ArithmeticOperation``; nothing is spelled as SQL text.
+        """
+        from rhosocial.activerecord.backend.expression.functions.datetime import extract
+
+        return (
+            extract(dialect, "day", spread) * 86_400
+            + extract(dialect, "hour", spread) * 3_600
+            + extract(dialect, "minute", spread) * 60
+            + extract(dialect, "second", spread)
+        )
+
+    @staticmethod
     def queue_seconds(dialect: Any, model_name: str) -> Any:
         """How long this attempt waited before it started running.
 
         ``run_started_at`` against ``created_at`` -- both columns of this row, so
-        no subquery is needed; the expression is wrapped only so it renders as
-        one term in the SELECT list. ``None`` while either is missing, which is
-        the honest answer for an attempt GitHub has not reported a start for.
-
-        Why not ``extract``: the expression system's ``EXTRACT`` speaks calendar
-        fields (year, hour, ...) and has no ``EPOCH``, while what a caller wants
-        here is a number of seconds. The arithmetic is written out rather than
-        expressed through a helper that cannot say it.
+        no subquery is needed. ``None`` while either is missing, which is the
+        honest answer for an attempt GitHub has not reported a start for.
         """
+        from rhosocial.activerecord.backend.expression.operators import ArithmeticOperation
+
         model = getattr(sys.modules[__name__], model_name)
-        table = model.table_name()
-        text = f"(EXTRACT(EPOCH FROM (" f'"{table}"."started_at" - "{table}"."github_created_at")))'
-        return Subquery(dialect, (text, ()))
+        spread = ArithmeticOperation(dialect, "sub", model.c.started_at, model.c.github_created_at)
+        return _AttemptDerived._seconds(dialect, spread)
 
     @staticmethod
     def job_span_seconds(dialect: Any, model_name: str, *, ran_only: bool) -> Any:
@@ -201,10 +216,13 @@ class _AttemptDerived:
         question from "how long did this execution last" -- see
         :class:`_AttemptTimingFields`.
 
-        The inner ``LIMIT`` carries a bind parameter, so the query is nested as
-        *nodes* rather than concatenated as text: text throws the parameter away
-        and PostgreSQL is left with a bare ``%s``.
+        The aggregate and the filter are expression nodes built through the
+        same query builder the rest of the model uses; the scalar subquery
+        carries its bind parameters with it instead of concatenating text.
         """
+        from rhosocial.activerecord.backend.expression.functions.aggregate import max_, min_
+        from rhosocial.activerecord.backend.expression.operators import ArithmeticOperation
+
         # The twin that matches this side: the async attempt is bound to the
         # async job model, and a derived field is built from the query builder of
         # the model whose backend will render it.
@@ -213,34 +231,22 @@ class _AttemptDerived:
         model = getattr(sys.modules[__name__], model_name)
         job = job_module.AsyncJob if model_name.startswith("Async") else job_module.Job
 
-        # The jobs of this attempt, as a subquery *node* so its bind parameters
-        # travel with it -- text concatenation would drop them and leave
-        # PostgreSQL with a bare ``%s``.
-        matching = Subquery(
+        spread = ArithmeticOperation(
             dialect,
-            (
-                job.query()
-                .select(job.c.id)
-                .where(job.c.attempt_id == model.c.id)
-                .where(job.c.started_at.is_not_null())
-                .where(job.c.completed_at.is_not_null())
-                .to_sql()[0],
-                (),
-            ),
+            "sub",
+            max_(dialect, job.c.completed_at),
+            min_(dialect, job.c.started_at),
+        )
+        inner = (
+            job.query()
+            .select(_AttemptDerived._seconds(dialect, spread))
+            .where(job.c.attempt_id == model.c.id)
+            .where(job.c.started_at.is_not_null())
+            .where(job.c.completed_at.is_not_null())
         )
         if ran_only:
-            # Which jobs count, spelled as one more condition on the row set
-            # above. The values are this module's own constants, never caller
-            # input.
-            passing = ", ".join(f"'{item}'" for item in sorted(_PASSING_CONCLUSIONS_DEFAULT))
-            suffix = f" AND j.conclusion IN ({passing})"
-        else:
-            suffix = ""
-        span = (
-            "SELECT EXTRACT(EPOCH FROM (MAX(j.completed_at) - MIN(j.started_at))) "
-            "FROM ghat_jobs j WHERE j.id IN " + matching.to_sql()[0] + suffix
-        )
-        return Subquery(dialect, (span, matching.to_sql()[1]))
+            inner = inner.where(job.c.conclusion.in_(sorted(_PASSING_CONCLUSIONS_DEFAULT)))
+        return Subquery(dialect, inner.to_sql())
 
 
 class RunAttempt(
