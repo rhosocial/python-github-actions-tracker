@@ -214,7 +214,10 @@ class CertificateInspector:
             # matched to a certificate that is not there, and dates and names
             # have nothing to read.
             return report
-        certificate, issuer = loaded
+        certificate, chain = loaded
+        # Revocation needs one issuer (the first cert after the leaf); the chain
+        # check needs all of them. Same list, two readers.
+        issuer = chain[0] if chain else None
         key = _load_private_key(Path(keyfile))
         if isinstance(key, CertificateFinding):
             findings.append(key)
@@ -230,7 +233,7 @@ class CertificateInspector:
         self._check_validity(report, expiry_warn_days)
         self._check_hostname(report, certificate)
         self._check_pair(report, certificate, key)
-        self._check_chain(report, certificate, cafile, hostname)
+        self._check_chain(report, certificate, cafile, hostname, chain)
         self._check_revocation(report, certificate, issuer, crlfile, check_ocsp)
         self._check_strength(report, certificate)
         return report
@@ -327,6 +330,7 @@ class CertificateInspector:
         certificate: Any,
         cafile: str | None,
         hostname: str | None = None,
+        intermediates: list[Any] | None = None,
     ) -> None:
         """Whether the chain builds to a root this machine trusts.
 
@@ -335,6 +339,14 @@ class CertificateInspector:
         GitHub will not accept either way), while a missing intermediate is a
         deployment mistake -- the chain is valid but the server never sends the
         middle.
+
+        ``intermediates`` is whatever else the same file carries, because a real
+        client builds the chain out of exactly that. A current CA's chain often
+        ends in a *cross-signed* root -- Let's Encrypt's ``ISRG Root YR`` is
+        issued by ``Root X1`` -- so this machine's store can hold the parent and
+        not the child. Verifying with an empty list then reports "untrusted"
+        while every client on the internet verifies the very same bytes: a false
+        alarm that costs an operator a whole investigation.
         """
         try:
             from cryptography.x509 import verification
@@ -353,7 +365,7 @@ class CertificateInspector:
             # most a nameless check can honestly do.
             verifier = verification.PolicyBuilder().store(store).build_client_verifier()
         try:
-            verifier.verify(certificate, [])
+            verifier.verify(certificate, intermediates or [])
             return
         except verification.VerificationError:
             self_signed = _name_of(certificate.issuer) == _name_of(certificate.subject)
@@ -485,24 +497,23 @@ def _load_certificate(path: Path) -> Any:
 def _load_chain(path: Path) -> tuple[Any, list[Any]] | CertificateFinding:
     """Read the certificate *and* whatever else the same file carries.
 
-    A full-chain PEM is leaf-first with its intermediates behind it, and the
-    certificate that signed the leaf is the first of those -- which is precisely
-    the one an OCSP request must be built with. Reading only the leaf would
-    leave the revocation check unable to name its issuer and answer "unknown"
-    about every deployment that deployed a chain.
+    A full-chain PEM is leaf-first with its intermediates behind it. The second
+    value is all of them, in order, and the caller decides what to do with it:
+    the chain check feeds them to the verifier (that is what a client does),
+    while revocation needs only the one that signed the leaf -- the first of
+    them. Reading only the leaf would leave the revocation check unable to name
+    its issuer and answer "unknown" about every deployment that deployed a chain.
     """
     first = _load_certificate(path)
     if isinstance(first, CertificateFinding):
         return first
-    chain: list[Any] = []
     from cryptography import x509
 
     try:
-        chain = list(x509.load_pem_x509_certificates(Path(path).read_bytes()))
+        bundle = list(x509.load_pem_x509_certificates(Path(path).read_bytes()))
     except Exception:  # noqa: BLE001 - a lone certificate has no chain
-        chain = []
-    issuer = next((item for item in chain if item is not first), None)
-    return first, [issuer] if issuer is not None else []
+        bundle = []
+    return first, [item for item in bundle if item is not first]
 
 
 def _load_private_key(path: Path) -> Any:
