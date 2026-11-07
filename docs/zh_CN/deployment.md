@@ -171,6 +171,30 @@ GitHub 的 **fine-grained PAT 要操作者自己创建**，这里没有任何环
 证书材料在镜像外：把一个目录挂到 `/certs`，`GHAT_WEBHOOK_SSL_CERTFILE` /
 `_KEYFILE` 指向里面的两个文件。GitHub 要求 https 回调地址。
 
+三个监听各自终止 TLS，因此给 REST 与 MCP 也发域名时同样能加密——它们带着
+API key，其中之一还能触发 CI，明文不救急。三对变量是 `GHAT_WEBHOOK_SSL_*`、
+`GHAT_REST_SSL_*`、`GHAT_MCP_SSL_*`；常见情况下三者指向同一份证书文件，因为
+一张多域名证书覆盖部署发布的每个主机名。
+
+`certfile` 给**完整链**（叶子在前、中间证书随后）：客户端不该自己去补中间那一层。
+
+### 公网 MCP 主机名要按名字放行
+
+`GHAT_RESOURCE_URL` 是本 MCP 服务对外发布的 URL，它喂两处：SDK 对 `Host` /
+`Origin` 的白名单（防 DNS rebinding，不填则只含 loopback），以及有 verifier 时的
+OAuth `resource` 标识。不设它，公网 MCP 部署会对**每个**请求回答
+`421 Invalid Host header`，而 `/readyz` 一切正常——一条两边都不记账的故障。
+反向代理、多入口等非常规形状用 `GHAT_MCP_ALLOWED_HOSTS` /
+`GHAT_MCP_ALLOWED_ORIGINS` 覆盖推导结果。
+
+### GitHub 不会投递到只有 IPv6 的主机名
+
+实测而非推断：把 hook 指向一个纯 AAAA 的公网服务，`failed to connect to host`
+在 0.01 秒内返回，而同一地址对公网上的客户端是应答的。所以 webhook 的名字
+**A 与 AAAA 两条记录都要有**；REST 与 MCP 的名字若不需要 IPv4，只留 AAAA 即可。
+这决定的是 DNS 而不是代码——而且必须在登记第一个 hook 之前决定，因为一个投不进
+来的 hook，看起来就像服务坏了。
+
 启动绑定之前（以及 `cert`）会把这一对读一遍并报告所见。**全部是建议性质**：
 这里没有任何一项会阻止启动——一个能阻止启动的检查，价值低于它本该给出的原因。
 
@@ -183,7 +207,7 @@ GitHub 的 **fine-grained PAT 要操作者自己创建**，这里没有任何环
 | `cert_expired` / `cert_not_yet_valid` | 不在有效窗口内（`not_yet_valid` 会点名时钟） | 续期，或查机器时间 |
 | `cert_expiring` | 距到期不足 `GHAT_WEBHOOK_SSL_EXPIRY_WARN_DAYS`（默认 30 天） | 按你的节奏续期 |
 | `cert_hostname_mismatch` | 证书覆盖的名字不含配置的主机名 | 为主机签发，或设 `GHAT_WEBHOOK_SSL_HOSTNAME` |
-| `cert_chain_unverified` | 无法连到受信根——措辞区分"自签"与"缺中间件" | 补全链，或用 `GHAT_WEBHOOK_SSL_CAFILE` |
+| `cert_chain_unverified` | 无法连到受信根——措辞区分"自签"与"缺中间件" | 补全链。该校验本来就用文件里的中间证书建链，所以链顶是*交叉签名根*时能落到机器早已信任的父证书上；等不及发版的部署用 `GHAT_WEBHOOK_SSL_CAFILE` 顶着，代价是拿自己下发的根当锚点 |
 | `cert_revoked` / `cert_revocation_unknown` | 响应者说已吊销 / 问不到 | 重签；`unknown` 从不阻断 |
 | `cert_weak_algorithm` | RSA 不足 2048、ECC 不足 256，或 SHA-1 签名 | 续期；这条只是提示 |
 

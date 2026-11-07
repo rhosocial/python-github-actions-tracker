@@ -234,10 +234,10 @@ docker run -d --name tracker-web --restart unless-stopped \
 #### 凭据方式：当前只有静态 Bearer
 
 本服务目前**只提供静态 Bearer 鉴权**（`GHAT_API_KEY`），MCP 与 REST 共用同一个 key，
-CLI 不使用它。代码里保留了 OAuth 2.1 的分支（`GHAT_OAUTH_ISSUER`、`GHAT_RESOURCE_URL`），
-但本项目不附带授权服务器，也没有可用的 JWKS 来源，因此**不要把这两个变量当作可用功能**：
-只设置 `GHAT_OAUTH_ISSUER` 而没有 verifier 时，服务仍会按 Bearer 模式启动。等中心授权
-服务器落地后，这一节会改写。
+CLI 不使用它。`GHAT_RESOURCE_URL` 在 OAuth 分支里也是 resource 标识，但它现在**已经是一个
+必需的环境变量**（见上表），不再是预留项；真正仍不可用的是 `GHAT_OAUTH_ISSUER`——本项目不
+附带授权服务器，也没有可用的 JWKS 来源。只设置 `GHAT_OAUTH_ISSUER` 而没有 verifier 时，服务
+仍会按 Bearer 模式启动。等中心授权服务器落地后，这一节会改写。
 
 ### TLS 证书目录
 

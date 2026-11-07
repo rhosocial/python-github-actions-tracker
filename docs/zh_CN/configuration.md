@@ -18,12 +18,17 @@
   它会同时推送到该仓库的 hook。没有 secret 的仓库会被以 `secret_not_configured` 拒绝。 |
 | `GHAT_WEBHOOK_URL` | 空 | 创建 webhook 时的默认回调 URL |
 | `GHAT_PUBLIC_BASE_URL` | 空 | MCP action URL 的绝对前缀 |
+| `GHAT_WEBHOOK_SSL_CERTFILE/KEYFILE` | 空 | webhook TLS；空表示明文 HTTP |
+| `GHAT_REST_SSL_CERTFILE/KEYFILE` | 空 | REST TLS；空表示明文 HTTP |
+| `GHAT_MCP_SSL_CERTFILE/KEYFILE` | 空 | MCP TLS；空表示明文 HTTP |
 | `GHAT_WEBHOOK_SSL_HOSTNAME` | 空 | 校验证书用的主机名；空则从 `GHAT_PUBLIC_BASE_URL` / `GHAT_WEBHOOK_URL` 取，两者都无则跳过校验 |
-| `GHAT_WEBHOOK_SSL_CAFILE` | 空 | 附加信任锚，用于私有 CA |
+| `GHAT_WEBHOOK_SSL_CAFILE` | 空 | 附加信任锚，用于私有 CA。也是"链顶是交叉签名根而本机 store 没有它"时的临时解：把它指向同一份 fullchain，被下发的根即进入锚点集 |
 | `GHAT_WEBHOOK_SSL_CRLFILE` | 空 | 吊销清单（本地读，不联网） |
 | `GHAT_WEBHOOK_SSL_EXPIRY_WARN_DAYS` | `30` | 还有多少天到期算"临期" |
 | `GHAT_WEBHOOK_SSL_CHECK_OCSP` | `0` | `1` 询问 OCSP 响应者；有超时上限、失败不冤枉证书 |
-| `GHAT_WEBHOOK_SSL_CERTFILE/KEYFILE` | 空 | webhook TLS；空表示明文 HTTP |
+| `GHAT_RESOURCE_URL` | 空 | 本 MCP 服务对外发布的完整 URL，如 `https://tracker-mcp.example.com:8001/mcp`。**MCP 要公网可达时必填**：Host/Origin 白名单由它推导，没有别的来源 |
+| `GHAT_MCP_ALLOWED_HOSTS` | 空 | 额外放行的 `Host`（逗号分隔，`example.com:*` 通配端口）。默认取 resource 的主机名加 loopback |
+| `GHAT_MCP_ALLOWED_ORIGINS` | 空 | 额外放行的 `Origin`。默认取 resource 的 origin；只在请求带 `Origin` 头时才校验 |
 | `GHAT_DEFAULT_EVENTS` | `workflow_run,workflow_job` | 订阅的事件 |
 | `GHAT_WAIT_MAX_SECONDS` | `300` | 一次 `wait_for_run` 的上限 |
 | `GHAT_LOG_CAPTURE` | `1` | 是否采集 step 日志；`0` 全部退回整 job 合并文本 |

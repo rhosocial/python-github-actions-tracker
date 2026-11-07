@@ -117,6 +117,37 @@ TLS material lives outside the image: mount a directory at `/certs` and point
 `GHAT_WEBHOOK_SSL_CERTFILE` / `_KEYFILE` at the two files inside it. GitHub
 requires an HTTPS callback for webhooks.
 
+Each listener terminates TLS on its own name, so a deployment that gives REST
+and MCP hostnames of their own can encrypt them too — they carry the API key and
+one of them can trigger CI, which plain HTTP does not suit. The three pairs are
+`GHAT_WEBHOOK_SSL_*`, `GHAT_REST_SSL_*` and `GHAT_MCP_SSL_*`; the certificate
+file is the same one in all three slots in the common case, because a
+multi-name certificate covers every hostname the deployment publishes.
+
+Give `certfile` the **full chain** (leaf first, then intermediates): a client
+should not have to fetch the middle itself.
+
+### A public MCP hostname is allowlisted by name
+
+`GHAT_RESOURCE_URL` is the URL this MCP server is published as. It feeds two
+things: the allowlist the SDK enforces on `Host` and `Origin` (a DNS-rebinding
+guard, and loopback-only until someone fills it), and the OAuth `resource`
+identifier when a verifier is configured. Without it, a public MCP deployment
+answers **`421 Invalid Host header`** on every request while `/readyz` stays
+green — a failure that logs on neither side. `GHAT_MCP_ALLOWED_HOSTS` and
+`GHAT_MCP_ALLOWED_ORIGINS` override the derivation for reverse proxies and
+multi-entry deployments.
+
+### GitHub will not deliver to an IPv6-only hostname
+
+Measured, not assumed: a hook pointed at a pure-AAAA public service failed with
+`failed to connect to host` in 0.01s, while the same address answered a client
+on the public internet. So the webhook's name needs **both** an `A` record and an
+`AAAA` record; the REST and MCP names can be AAAA-only if nothing else needs
+IPv4 for them. This decides the DNS, not the code — and it decides it before the
+first hook is registered, because a hook that cannot be delivered to is a hook
+that looks broken.
+
 ### The certificate is checked before a boot binds it
 
 `cert` (and every startup) reads the pair and reports what it found. All
@@ -132,7 +163,7 @@ worth less than the reason it would have given.
 | `cert_expired` / `cert_not_yet_valid` | outside the validity window (`not_yet_valid` names the clock) | renew, or check the machine's time |
 | `cert_expiring` | within `GHAT_WEBHOOK_SSL_EXPIRY_WARN_DAYS` (default 30) | renew on your schedule |
 | `cert_hostname_mismatch` | the names the certificate covers do not include the configured host | issue for the host, or set `GHAT_WEBHOOK_SSL_HOSTNAME` |
-| `cert_chain_unverified` | no path to a trusted root — the wording separates self-signed from a missing intermediate | full chain, or `GHAT_WEBHOOK_SSL_CAFILE` |
+| `cert_chain_unverified` | no path to a trusted root — the wording separates self-signed from a missing intermediate | serve the full chain. The check builds it out of the intermediates in the file, so a chain ending in a *cross-signed* root verifies against the parent the machine already trusts; setting `GHAT_WEBHOOK_SSL_CAFILE` is the workaround for a deployment that cannot wait for that, at the cost of trusting the served root as its own anchor |
 | `cert_revoked` / `cert_revocation_unknown` | a responder said revoked / could not be reached | reissue; `unknown` never blocks |
 | `cert_weak_algorithm` | RSA under 2048, ECC under 256, or a SHA-1 signature | renew; this one is a note, not a warning |
 

@@ -19,11 +19,16 @@ Every setting comes from an environment variable; the service has no config file
 | `GHAT_WEBHOOK_URL` | empty | default callback URL |
 | `GHAT_PUBLIC_BASE_URL` | empty | prefix for absolute action URLs |
 | `GHAT_WEBHOOK_SSL_CERTFILE/KEYFILE` | empty | webhook TLS; empty means plain HTTP |
+| `GHAT_REST_SSL_CERTFILE/KEYFILE` | empty | REST TLS; empty means plain HTTP |
+| `GHAT_MCP_SSL_CERTFILE/KEYFILE` | empty | MCP TLS; empty means plain HTTP |
 | `GHAT_WEBHOOK_SSL_HOSTNAME` | empty | hostname the certificate is checked against; empty derives it from `GHAT_PUBLIC_BASE_URL` / `GHAT_WEBHOOK_URL`, and skips the check when there is neither |
-| `GHAT_WEBHOOK_SSL_CAFILE` | empty | extra trust anchor, for a private CA |
+| `GHAT_WEBHOOK_SSL_CAFILE` | empty | extra trust anchor, for a private CA. Also the workaround for a chain that ends in a cross-signed root the machine's store does not carry: point it at the same fullchain and the served root joins the anchors |
 | `GHAT_WEBHOOK_SSL_CRLFILE` | empty | revocation list to consult (local, no network) |
 | `GHAT_WEBHOOK_SSL_EXPIRY_WARN_DAYS` | `30` | how near expiry is worth a warning |
 | `GHAT_WEBHOOK_SSL_CHECK_OCSP` | `0` | `1` asks the responder about revocation, bounded and soft-fail |
+| `GHAT_RESOURCE_URL` | empty | the full URL this MCP server is published as, e.g. `https://tracker-mcp.example.com:8001/mcp`. **Required when MCP is public**: it derives the Host/Origin allowlist the SDK enforces, and the check cannot derive it any other way |
+| `GHAT_MCP_ALLOWED_HOSTS` | empty | extra `Host` values (comma-separated, `example.com:*` for a wildcard port). Defaults to the resource's host plus loopback |
+| `GHAT_MCP_ALLOWED_ORIGINS` | empty | extra `Origin` values. Defaults to the resource's origin; only checked when a request carries an `Origin` |
 | `GHAT_DEFAULT_EVENTS` | `workflow_run,workflow_job` | subscribed events |
 | `GHAT_WAIT_MAX_SECONDS` | `300` | ceiling for one `wait_for_run` call |
 | `GHAT_LOG_CAPTURE` | `1` | capture step logs at all; `0` falls back to merged job logs |
