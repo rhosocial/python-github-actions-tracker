@@ -137,8 +137,8 @@ class Container:
         github_runs = GithubRuns(client, credential=credential, resolve=resolve)
         github_repositories = GithubRepositories(client, credential=credential, resolve=resolve)
         github_webhooks = GithubWebhooks(client, credential=credential, resolve=resolve)
-        repositories_data = RepositoryData()
         runs_data = RunData()
+        repositories_data = RepositoryData(runs_data=runs_data)
         ledger = DeliveryLedger()
         shared_tracker = tracker or RunTracker()
 

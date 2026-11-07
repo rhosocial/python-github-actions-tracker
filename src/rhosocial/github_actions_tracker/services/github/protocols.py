@@ -12,10 +12,11 @@ the implementation simply has the methods, and ``isinstance`` works because each
 protocol is runtime-checkable. That is what keeps a fake honest without making it
 import a base class and inherit behaviour it does not want.
 
-``Mapping`` rather than a concrete type on the way back, on purpose: the models
-already know how to read a payload (``adopt_from_remote``, ``update_from_remote``,
-``upsert_from_remote``, ``sync_jobs_from_remote``). A hand-written object here
-would be a second place that knows the field names, and the two would drift.
+``Mapping`` rather than a concrete type on the way back, on purpose: a payload
+is GitHub's object and is handed unchanged to
+:class:`~.payloads.GithubPayloads`, which translates it into the values the
+models store. A hand-written DTO here would be a second place that knows the
+field names, and the two would drift.
 """
 
 from __future__ import annotations

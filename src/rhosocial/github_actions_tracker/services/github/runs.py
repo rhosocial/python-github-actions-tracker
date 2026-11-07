@@ -6,9 +6,9 @@ runs`` -- but a caller is typed against the protocol it actually needs, so a
 reader cannot dispatch by accident: :class:`~.protocols.RunReader` and
 :class:`~.protocols.RunControl` are separate.
 
-Payloads go back unchanged. The model knows what a run payload means
-(``adopt_from_remote``, ``update_from_remote``, ``sync_jobs_from_remote``), and a
-second reader here would be a copy that drifts.
+Payloads go back unchanged. :class:`~.payloads.GithubPayloads` is the one class
+that translates them into semantic values; a second reader here would be a copy
+that drifts.
 """
 
 from __future__ import annotations

@@ -244,7 +244,7 @@ class DispatchController:
             if not github_run_id:
                 continue
             stored = await self._store.run(github_run_id)
-            return stored if stored is not None else await self._store.adopt(repo, payload)
+            return stored if stored is not None else await self._store.adopt_run(repo, payload)
         return None
 
     async def rerun(
@@ -310,7 +310,7 @@ class DispatchController:
                 status_code=202,
             ) from exc
 
-        updated = await self._store.update(run, payload)
+        updated = await self._store.update_run(run, payload)
         self._track(run_id)
         logger.info(
             "Re-ran run %s of '%s' as attempt %s (was %s)",
@@ -406,7 +406,7 @@ class DispatchController:
                 status_code=202,
             ) from exc
 
-        updated = await self._store.update(run, payload)
+        updated = await self._store.update_run(run, payload)
         self._track(run_id)
         logger.info(
             "Re-ran the failed jobs of run %s of '%s' as attempt %s (was %s): %s",
@@ -483,7 +483,7 @@ class DispatchController:
         except GhatError:
             return run
 
-        cancelled = await self._store.update(run, payload)
+        cancelled = await self._store.update_run(run, payload)
         logger.info("Cancelled run %s of '%s'", run_id, repo.full_name)
         return cancelled
 
@@ -524,7 +524,7 @@ class DispatchController:
                     payload = await self._readers.get_run(repo.full_name, github_run_id)
                 except GhatError:
                     pass
-            run = await self._store.adopt(repo, payload)
+            run = await self._store.adopt_run(repo, payload)
         self._track(github_run_id)
         return run
 

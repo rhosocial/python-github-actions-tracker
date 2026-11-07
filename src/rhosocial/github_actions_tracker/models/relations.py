@@ -28,19 +28,23 @@ from rhosocial.activerecord.relation.descriptors import DefaultIRelationLoader, 
 T = TypeVar("T")
 
 
-def _ordered_in_place(
-    result: dict[int, Any],
-    key: Callable[[Any], Any],
-    reverse: bool,
-) -> dict[int, Any]:
-    """Order every list value of a batch-load result; leave scalars alone."""
-    for value in result.values():
-        if isinstance(value, list):
-            value.sort(key=key, reverse=reverse)
-    return result
+class _Ordering:
+    """Ordering applied to a batch-load result by both loaders."""
+
+    @staticmethod
+    def ordered_in_place(
+        result: dict[int, Any],
+        key: Callable[[Any], Any],
+        reverse: bool,
+    ) -> dict[int, Any]:
+        """Order every list value of a batch-load result; leave scalars alone."""
+        for value in result.values():
+            if isinstance(value, list):
+                value.sort(key=key, reverse=reverse)
+        return result
 
 
-class _OrderedLoader(DefaultIRelationLoader):
+class _OrderedLoader(_Ordering, DefaultIRelationLoader):
     """Sync loader that orders each loaded collection."""
 
     def __init__(self, descriptor: Any, key: Callable[[Any], Any], reverse: bool) -> None:
@@ -51,10 +55,10 @@ class _OrderedLoader(DefaultIRelationLoader):
     def batch_load(self, instances: list[Any], base_query: Any) -> dict[int, Any]:
         """Load every collection in one query, then order each of them."""
         result = super().batch_load(instances, base_query)
-        return _ordered_in_place(result, self._key, self._reverse)
+        return self.ordered_in_place(result, self._key, self._reverse)
 
 
-class _AsyncOrderedLoader(AsyncDefaultRelationLoader):
+class _AsyncOrderedLoader(_Ordering, AsyncDefaultRelationLoader):
     """Async loader that orders each loaded collection."""
 
     def __init__(self, descriptor: Any, key: Callable[[Any], Any], reverse: bool) -> None:
@@ -65,7 +69,7 @@ class _AsyncOrderedLoader(AsyncDefaultRelationLoader):
     async def batch_load(self, instances: list[Any], base_query: Any) -> dict[int, Any]:
         """Load every collection in one query, then order each of them."""
         result = await super().batch_load(instances, base_query)
-        return _ordered_in_place(result, self._key, self._reverse)
+        return self.ordered_in_place(result, self._key, self._reverse)
 
 
 class OrderedHasMany(HasMany, Generic[T]):

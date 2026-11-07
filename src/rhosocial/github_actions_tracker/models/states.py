@@ -6,9 +6,10 @@ steps alike. Transitions are strictly forward: ``completed`` is terminal, so a
 late arriving ``queued`` event for an already finished run is rejected instead
 of resurrecting it (see :meth:`StateMachine.apply_transition`).
 
-The module also normalizes GitHub's status synonyms (``requested``, ``pending``
-and ``waiting`` all mean ``queued``) and provides the timestamp parsing used
-when remote state is applied to local records.
+The values this module receives are already canonical: translating GitHub's
+spelling into them belongs to
+:class:`~rhosocial.github_actions_tracker.services.github.payloads.GithubPayloads`,
+because a status synonym is a fact about an interface, not about a row.
 """
 
 from __future__ import annotations
@@ -60,94 +61,30 @@ FAILED_CONCLUSIONS: frozenset[str] = frozenset(
     {"failure", "cancelled", "timed_out", "startup_failure", "action_required", "stale"}
 )
 
-# Status synonyms reported by GitHub for the canonical "not started yet" state
-_STATUS_ALIASES: dict[str, str] = {
-    STATUS_QUEUED: STATUS_QUEUED,
-    STATUS_IN_PROGRESS: STATUS_IN_PROGRESS,
-    STATUS_COMPLETED: STATUS_COMPLETED,
-    "requested": STATUS_QUEUED,
-    "pending": STATUS_QUEUED,
-    "waiting": STATUS_QUEUED,
+#: The canonical ``queued -> in_progress -> completed`` table. Runs, jobs and
+#: steps share the same shape; each keeps its own dictionary so a future rule can
+#: diverge without touching the others.
+RUN_TRANSITIONS: dict[str, frozenset[str]] = {
+    STATUS_QUEUED: frozenset({STATUS_IN_PROGRESS, STATUS_COMPLETED}),
+    STATUS_IN_PROGRESS: frozenset({STATUS_COMPLETED}),
+    STATUS_COMPLETED: frozenset(),
 }
-
-
-def _forward_transitions() -> dict[str, frozenset[str]]:
-    """Build the canonical ``queued -> in_progress -> completed`` table."""
-    return {
-        STATUS_QUEUED: frozenset({STATUS_IN_PROGRESS, STATUS_COMPLETED}),
-        STATUS_IN_PROGRESS: frozenset({STATUS_COMPLETED}),
-        STATUS_COMPLETED: frozenset(),
-    }
-
-
-RUN_TRANSITIONS: dict[str, frozenset[str]] = _forward_transitions()
-JOB_TRANSITIONS: dict[str, frozenset[str]] = _forward_transitions()
-STEP_TRANSITIONS: dict[str, frozenset[str]] = _forward_transitions()
+JOB_TRANSITIONS: dict[str, frozenset[str]] = {
+    STATUS_QUEUED: frozenset({STATUS_IN_PROGRESS, STATUS_COMPLETED}),
+    STATUS_IN_PROGRESS: frozenset({STATUS_COMPLETED}),
+    STATUS_COMPLETED: frozenset(),
+}
+STEP_TRANSITIONS: dict[str, frozenset[str]] = {
+    STATUS_QUEUED: frozenset({STATUS_IN_PROGRESS, STATUS_COMPLETED}),
+    STATUS_IN_PROGRESS: frozenset({STATUS_COMPLETED}),
+    STATUS_COMPLETED: frozenset(),
+}
 
 TRANSITIONS_BY_KIND: dict[str, dict[str, frozenset[str]]] = {
     KIND_RUN: RUN_TRANSITIONS,
     KIND_JOB: JOB_TRANSITIONS,
     KIND_STEP: STEP_TRANSITIONS,
 }
-
-
-def normalize_status(status: str | None) -> str:
-    """Map a GitHub status string onto the canonical status set.
-
-    Args:
-        status: Raw status from GitHub (webhook payload or REST response).
-
-    Returns:
-        The canonical status. Unknown values are returned unchanged so the
-        state machine can reject them explicitly instead of silently mangling
-        them; empty/missing values map to ``queued``.
-    """
-    if not status:
-        return STATUS_QUEUED
-    normalized = status.strip().lower()
-    if not normalized:
-        return STATUS_QUEUED
-    return _STATUS_ALIASES.get(normalized, normalized)
-
-
-def normalize_conclusion(conclusion: str | None) -> str | None:
-    """Normalize a GitHub conclusion, treating blanks as "not finished yet"."""
-    if conclusion is None:
-        return None
-    cleaned = conclusion.strip().lower()
-    return cleaned or None
-
-
-def parse_timestamp(value: Any) -> datetime | None:
-    """Parse a GitHub timestamp into a timezone-aware ``datetime``.
-
-    GitHub emits ISO 8601 UTC strings such as ``2026-10-10T12:34:56Z``.
-    Naive values are assumed to be UTC, which keeps them comparable with the
-    aware timestamps produced locally.
-
-    Args:
-        value: ISO 8601 string, epoch number, ``datetime`` or ``None``.
-
-    Returns:
-        An aware ``datetime`` or ``None`` when the value is missing/unparsable.
-    """
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return datetime.fromtimestamp(value, tz=timezone.utc)
-
-    text = str(value).strip()
-    if not text:
-        return None
-    if text.endswith(("Z", "z")):
-        text = f"{text[:-1]}+00:00"
-    try:
-        parsed = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
 class StateMachine:
@@ -226,8 +163,8 @@ class StateMachine:
             InvalidStateTransitionError: If the transition is not allowed or
                 the conclusion is not accepted for ``kind``.
         """
-        current = normalize_status(getattr(entity, "status", None))
-        target = normalize_status(new_status)
+        current = getattr(entity, "status", None) or STATUS_QUEUED
+        target = new_status or STATUS_QUEUED
         if target == current:
             # Idempotent replay: refresh the conclusion only.
             if target == STATUS_COMPLETED:
@@ -279,7 +216,4 @@ __all__ = [
     "FAILED_CONCLUSIONS",
     "VALID_CONCLUSIONS",
     "StateMachine",
-    "normalize_conclusion",
-    "normalize_status",
-    "parse_timestamp",
 ]

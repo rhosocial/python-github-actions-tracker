@@ -62,16 +62,21 @@ STATES = (STATE_PUSHED, STATE_PENDING_USER, STATE_UNKNOWN)
 GENERATED_BYTES = 32
 
 
-def generate_secret() -> str:
-    """A fresh secret, in the form GitHub stores: opaque hex."""
-    return secrets.token_hex(GENERATED_BYTES)
+class _SecretValues:
+    """Value helpers shared by the two webhook-secret twins."""
+
+    @staticmethod
+    def generate_secret() -> str:
+        """A fresh secret, in the form GitHub stores: opaque hex."""
+        return secrets.token_hex(GENERATED_BYTES)
+
+    @staticmethod
+    def clean(value: Any) -> str:
+        """A trimmed secret, or an empty string when nothing was supplied."""
+        return str(value).strip() if value is not None else ""
 
 
-def _clean(value: Any) -> str:
-    return str(value).strip() if value is not None else ""
-
-
-class RepoWebhookSecret(DefaultTimestampMixin, ActiveRecord):
+class RepoWebhookSecret(_SecretValues, DefaultTimestampMixin, ActiveRecord):
     """One repository's webhook secret, synchronous twin."""
 
     __table_name__ = "ghat_repo_webhook_secrets"
@@ -137,7 +142,7 @@ class RepoWebhookSecret(DefaultTimestampMixin, ActiveRecord):
         Rotation keeps the row: the repository id is what identifies the
         subscription, and its delivery history predates the secret.
         """
-        value = _clean(secret)
+        value = cls.clean(secret)
         if not value:
             raise ValueError("A webhook secret cannot be empty")
         chosen = state if state in STATES else STATE_PENDING_USER
@@ -156,7 +161,7 @@ class RepoWebhookSecret(DefaultTimestampMixin, ActiveRecord):
     @classmethod
     def rotate(cls, repository_id: int, *, state: str = STATE_PENDING_USER) -> RepoWebhookSecret:
         """Replace a repository's secret with a freshly generated one."""
-        return cls.set(repository_id, generate_secret(), state=state)
+        return cls.set(repository_id, cls.generate_secret(), state=state)
 
     @classmethod
     def clear(cls, repository_id: int) -> bool:
@@ -187,7 +192,7 @@ class RepoWebhookSecret(DefaultTimestampMixin, ActiveRecord):
         }
 
 
-class AsyncRepoWebhookSecret(DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncRepoWebhookSecret(_SecretValues, DefaultTimestampMixin, AsyncActiveRecord):
     """One repository's webhook secret, asynchronous twin.
 
     Behavior-identical to :class:`RepoWebhookSecret`; every method performs the
@@ -241,7 +246,7 @@ class AsyncRepoWebhookSecret(DefaultTimestampMixin, AsyncActiveRecord):
         webhook_id: int | None = None,
     ) -> AsyncRepoWebhookSecret:
         """Store a repository's secret, replacing any previous one."""
-        value = _clean(secret)
+        value = cls.clean(secret)
         if not value:
             raise ValueError("A webhook secret cannot be empty")
         chosen = state if state in STATES else STATE_PENDING_USER
@@ -262,7 +267,7 @@ class AsyncRepoWebhookSecret(DefaultTimestampMixin, AsyncActiveRecord):
         cls, repository_id: int, *, state: str = STATE_PENDING_USER
     ) -> AsyncRepoWebhookSecret:
         """Replace a repository's secret with a freshly generated one."""
-        return await cls.set(repository_id, generate_secret(), state=state)
+        return await cls.set(repository_id, cls.generate_secret(), state=state)
 
     @classmethod
     async def clear(cls, repository_id: int) -> bool:
@@ -296,5 +301,4 @@ __all__ = [
     "STATE_PENDING_USER",
     "STATE_PUSHED",
     "STATE_UNKNOWN",
-    "generate_secret",
 ]

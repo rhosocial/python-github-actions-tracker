@@ -88,14 +88,45 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _as_utc(moment: datetime) -> datetime:
-    """A timestamp read as UTC when it carries no zone of its own.
+class _LogValues:
+    """Value helpers shared by the four log twins.
 
-    The same assumption the rest of this service makes of timestamps it did not
-    offset itself. Used on the way in and on the way out, so a stored value and
-    a queried one compare equal.
+    A module-level function would be a second way to write a log row; these
+    belong to the log models, so they live on one class both twins inherit.
     """
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def as_utc(moment: datetime) -> datetime:
+        """A timestamp read as UTC when it carries no zone of its own.
+
+        The same assumption the rest of this service makes of timestamps it did
+        not offset itself. Used on the way in and on the way out, so a stored
+        value and a queried one compare equal.
+        """
+        return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def count_lines(content: str) -> int:
+        """Lines in ``content``; an empty document has zero, not one."""
+        if not content:
+            return 0
+        return content.count("\n") + (0 if content.endswith("\n") else 1)
+
+    @staticmethod
+    def split_lines(content: str) -> list[str]:
+        """Split without inventing a trailing empty line, and strip a leading BOM.
+
+        GitHub's job logs begin with a BOM. Leaving it on the first line puts an
+        invisible character in front of text the caller is asked to read.
+        """
+        if not content:
+            return []
+        return content.lstrip("\ufeff").splitlines()
+
+    @staticmethod
+    def now() -> datetime:
+        """Current UTC time, as the timestamp field type expects."""
+        return datetime.now(timezone.utc)
 
 
 class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
@@ -143,7 +174,7 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         appending all of them -- which is the difference between a lookup and a
         scan.
         """
-        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+        return cls.query().where(cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
 
     @classmethod
     def find_for_job(cls, job_id: int, attempt_created_at: datetime | None = None) -> JobLog | None:
@@ -160,7 +191,7 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         """
         query = cls.c.job_id == job_id
         if attempt_created_at is not None:
-            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            query = query & (cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
         return cls.find_one(query)
 
     @classmethod
@@ -172,7 +203,9 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         """
         builder = cls.query().where(cls.c.job_id == job_id)
         if attempt_created_at is not None:
-            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            builder = builder.where(
+                cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at)
+            )
         return builder
 
     # ---- behavior -------------------------------------------------------------
@@ -190,7 +223,7 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         row = cls(
             job_id=job.id or 0,
             log_content=content,
-            attempt_created_at=_as_utc(attempt_created_at),
+            attempt_created_at=_LogValues.as_utc(attempt_created_at),
         )
         row.store()
         return row
@@ -211,18 +244,18 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         existing = JobLog.find_for_job(self.job_id, self.attempt_created_at)
         if existing is None:
             self.id = None
-            self.line_count = _count_lines(self.log_content)
-            self.fetched_at = _now()
+            self.line_count = _LogValues.count_lines(self.log_content)
+            self.fetched_at = _LogValues.now()
             self.save()
             return
         existing.log_content = self.log_content
-        existing.line_count = _count_lines(self.log_content)
-        existing.fetched_at = _now()
+        existing.line_count = _LogValues.count_lines(self.log_content)
+        existing.fetched_at = _LogValues.now()
         existing.save()
 
     def lines(self) -> list[str]:
         """The stored text as lines, without inventing a trailing empty one."""
-        return _split_lines(self.log_content)
+        return _LogValues.split_lines(self.log_content)
 
 
 class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
@@ -254,7 +287,7 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     @classmethod
     def in_attempt(cls, attempt_created_at: datetime) -> AsyncActiveQuery:
         """The log rows of one execution: the partition, as a query builder."""
-        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+        return cls.query().where(cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
 
     @classmethod
     async def find_for_job(
@@ -263,7 +296,7 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         """Return the stored log of a job, or ``None`` when it has none."""
         query = cls.c.job_id == job_id
         if attempt_created_at is not None:
-            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            query = query & (cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
         return await cls.find_one(query)
 
     @classmethod
@@ -271,7 +304,9 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         """Query builder over the log rows of one job (at most one matches)."""
         builder = cls.query().where(cls.c.job_id == job_id)
         if attempt_created_at is not None:
-            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            builder = builder.where(
+                cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at)
+            )
         return builder
 
     # ---- behavior -------------------------------------------------------------
@@ -286,13 +321,13 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         existing = await AsyncJobLog.find_for_job(self.job_id, self.attempt_created_at)
         if existing is None:
             self.id = None
-            self.line_count = _count_lines(self.log_content)
-            self.fetched_at = _now()
+            self.line_count = _LogValues.count_lines(self.log_content)
+            self.fetched_at = _LogValues.now()
             await self.save()
             return
         existing.log_content = self.log_content
-        existing.line_count = _count_lines(self.log_content)
-        existing.fetched_at = _now()
+        existing.line_count = _LogValues.count_lines(self.log_content)
+        existing.fetched_at = _LogValues.now()
         await existing.save()
 
     @classmethod
@@ -303,14 +338,14 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         row = cls(
             job_id=job.id or 0,
             log_content=content,
-            attempt_created_at=_as_utc(attempt_created_at),
+            attempt_created_at=_LogValues.as_utc(attempt_created_at),
         )
         await row.store()
         return row
 
     async def lines(self) -> list[str]:
         """The stored text as lines, without inventing a trailing empty one."""
-        return _split_lines(self.log_content)
+        return _LogValues.split_lines(self.log_content)
 
 
 class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
@@ -352,7 +387,7 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     @classmethod
     def in_attempt(cls, attempt_created_at: datetime) -> ActiveQuery:
         """The log rows of one execution: the partition, as a query builder."""
-        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+        return cls.query().where(cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
 
     @classmethod
     def find_for_step(
@@ -370,7 +405,7 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         """
         query = cls.c.step_id == step_id
         if attempt_created_at is not None:
-            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            query = query & (cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
         return cls.find_one(query)
 
     @classmethod
@@ -378,7 +413,9 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         """Query builder over the log rows of one step (at most one matches)."""
         builder = cls.query().where(cls.c.step_id == step_id)
         if attempt_created_at is not None:
-            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            builder = builder.where(
+                cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at)
+            )
         return builder
 
     @classmethod
@@ -396,7 +433,9 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
             return 0
         builder = cls.query().where(cls.c.step_id.in_(step_ids))
         if attempt_created_at is not None:
-            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            builder = builder.where(
+                cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at)
+            )
         return builder.count()
 
     # ---- behavior -------------------------------------------------------------
@@ -415,7 +454,7 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         row = cls(
             step_id=step.id or 0,
             log_content=content,
-            attempt_created_at=_as_utc(attempt_created_at),
+            attempt_created_at=_LogValues.as_utc(attempt_created_at),
         )
         row.store()
         return row
@@ -429,18 +468,18 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         existing = StepLog.find_for_step(self.step_id, self.attempt_created_at)
         if existing is None:
             self.id = None
-            self.line_count = _count_lines(self.log_content)
-            self.fetched_at = _now()
+            self.line_count = _LogValues.count_lines(self.log_content)
+            self.fetched_at = _LogValues.now()
             self.save()
             return
         existing.log_content = self.log_content
-        existing.line_count = _count_lines(self.log_content)
-        existing.fetched_at = _now()
+        existing.line_count = _LogValues.count_lines(self.log_content)
+        existing.fetched_at = _LogValues.now()
         existing.save()
 
     def lines(self) -> list[str]:
         """The stored text as lines, without inventing a trailing empty one."""
-        return _split_lines(self.log_content)
+        return _LogValues.split_lines(self.log_content)
 
 
 class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
@@ -472,7 +511,7 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     @classmethod
     def in_attempt(cls, attempt_created_at: datetime) -> AsyncActiveQuery:
         """The log rows of one execution: the partition, as a query builder."""
-        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+        return cls.query().where(cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
 
     @classmethod
     async def find_for_step(
@@ -481,7 +520,7 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         """Return the stored log of a step, or ``None`` when it has none."""
         query = cls.c.step_id == step_id
         if attempt_created_at is not None:
-            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            query = query & (cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at))
         return await cls.find_one(query)
 
     @classmethod
@@ -489,7 +528,9 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         """Query builder over the log rows of one step (at most one matches)."""
         builder = cls.query().where(cls.c.step_id == step_id)
         if attempt_created_at is not None:
-            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            builder = builder.where(
+                cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at)
+            )
         return builder
 
     @classmethod
@@ -501,7 +542,9 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
             return 0
         builder = cls.query().where(cls.c.step_id.in_(step_ids))
         if attempt_created_at is not None:
-            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+            builder = builder.where(
+                cls.c.attempt_created_at == _LogValues.as_utc(attempt_created_at)
+            )
         return await builder.count()
 
     # ---- behavior -------------------------------------------------------------
@@ -514,7 +557,7 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         row = cls(
             step_id=step.id or 0,
             log_content=content,
-            attempt_created_at=_as_utc(attempt_created_at),
+            attempt_created_at=_LogValues.as_utc(attempt_created_at),
         )
         await row.store()
         return row
@@ -528,44 +571,18 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         existing = await AsyncStepLog.find_for_step(self.step_id, self.attempt_created_at)
         if existing is None:
             self.id = None
-            self.line_count = _count_lines(self.log_content)
-            self.fetched_at = _now()
+            self.line_count = _LogValues.count_lines(self.log_content)
+            self.fetched_at = _LogValues.now()
             await self.save()
             return
         existing.log_content = self.log_content
-        existing.line_count = _count_lines(self.log_content)
-        existing.fetched_at = _now()
+        existing.line_count = _LogValues.count_lines(self.log_content)
+        existing.fetched_at = _LogValues.now()
         await existing.save()
 
     async def lines(self) -> list[str]:
         """The stored text as lines, without inventing a trailing empty one."""
-        return _split_lines(self.log_content)
-
-
-# ---- shared internals -----------------------------------------------------
-
-
-def _count_lines(content: str) -> int:
-    """Lines in ``content``; an empty document has zero, not one."""
-    if not content:
-        return 0
-    return content.count("\n") + (0 if content.endswith("\n") else 1)
-
-
-def _split_lines(content: str) -> list[str]:
-    """Split without inventing a trailing empty line, and strip a leading BOM.
-
-    GitHub's job logs begin with a BOM. Leaving it on the first line puts an
-    invisible character in front of text the caller is asked to read.
-    """
-    if not content:
-        return []
-    return content.lstrip("\ufeff").splitlines()
-
-
-def _now() -> datetime:
-    """Current UTC time, as the timestamp field type expects."""
-    return datetime.now(timezone.utc)
+        return _LogValues.split_lines(self.log_content)
 
 
 __all__ = ["AsyncJobLog", "AsyncStepLog", "JobLog", "StepLog"]

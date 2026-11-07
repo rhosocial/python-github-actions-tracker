@@ -25,11 +25,11 @@ import pytest
 from conftest import FakeGithub, subscribe
 from rhosocial.activerecord.backend.errors import IntegrityError
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncStep,
     AsyncStepLog,
-    AsyncWorkflowRun,
 )
 
 #: The trigger time of the execution these step logs belong to. A fixed value,
@@ -102,8 +102,8 @@ async def _steps() -> tuple[AsyncJob, AsyncStep]:
         }
     ]
     repo = await subscribe(fake)
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, fake.runs[0])
-    job = await AsyncJob.upsert_from_remote(run, fake.jobs[0])
+    run = await RunData().adopt_run(repo, fake.runs[0])
+    job = await RunData().store_job(run, fake.jobs[0])
     steps = await job.steps()
     return job, next(step for step in steps if step.number == 2)
 

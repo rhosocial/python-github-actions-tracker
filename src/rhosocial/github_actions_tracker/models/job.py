@@ -2,12 +2,11 @@
 """Workflow run job model, sync and async twins.
 
 A job is one unit of work of a workflow run, mirrored locally from the
-GitHub jobs payload. The single behavior here is the write path:
-:meth:`Job.upsert_from_remote` is keyed by ``(attempt_id, github_job_id)``,
-applies the forward-only state machine and cascades into the payload's
-``steps`` array, storing every step through
-:meth:`Step.upsert_from_remote
-<rhosocial.github_actions_tracker.models.step.Step.upsert_from_remote>`.
+GitHub jobs payload. The behavior here is the write path: :meth:`Job.record`
+is keyed by ``(attempt_id, github_job_id)`` and applies the forward-only state
+machine. It takes semantic values only -- the controller translates a GitHub
+payload and cascades its ``steps`` array through :meth:`Step.record
+<rhosocial.github_actions_tracker.models.step.Step.record>`.
 
 Nothing here talks to GitHub: reading a log is orchestration (decide whether
 the stored copy is enough, fetch it otherwise, store it), so it lives in
@@ -27,11 +26,9 @@ are imported lazily inside method bodies; the type annotations use
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
-from rhosocial.activerecord.backend.errors import IntegrityError
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -48,24 +45,6 @@ if TYPE_CHECKING:
     from .step import AsyncStep, Step
 
 logger = logging.getLogger(__name__)
-
-
-def _as_int(value: Any) -> int | None:
-    """Coerce a GitHub scalar to ``int``, returning ``None`` when impossible."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _clean_str(value: Any, default: str = "") -> str:
-    """Return a trimmed string, falling back to ``default`` for blank values."""
-    if value is None:
-        return default
-    text = str(value).strip()
-    return text or default
 
 
 class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
@@ -147,102 +126,83 @@ class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
     # ``job.steps()`` to get the stored steps in number order.
 
     @classmethod
-    def upsert_from_remote(cls, attempt: RunAttempt, job_data: Mapping[str, Any]) -> Job:
-        """Create or update a job record from a remote job payload.
+    def record(
+        cls,
+        attempt: RunAttempt,
+        *,
+        github_job_id: int,
+        name: str | None = None,
+        status: str | None = None,
+        conclusion: str | None = None,
+        runner_name: str | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> Job:
+        """Store or refresh one job of ``attempt`` from semantic values.
 
-        The lookup is keyed by ``(attempt_id, github_job_id)``:
-
-        1. a stored job moves through the forward-only state machine (a
-           stale or out-of-order payload is logged and skipped, never
-           fatal) and is refreshed in place (name, runner, timestamps);
-        2. otherwise the payload is stored as a new row.
-
-        A ``steps`` array in the payload is cascaded: every entry is
-        upserted for the stored job through :meth:`Step.upsert_from_remote
-        <rhosocial.github_actions_tracker.models.step.Step.upsert_from_remote>`.
+        The key is ``(attempt_id, github_job_id)``. A stored job moves through
+        the forward-only state machine -- a stale or out-of-order value is
+        logged and skipped, never fatal -- and is refreshed in place; an unseen
+        job is inserted.
 
         Args:
             attempt: The persisted attempt the job belongs to -- the **direct**
-                parent, not the run. Resolving the attempt number is the run'"'"'s
-                job (:meth:`WorkflowRun.sync_jobs_from_remote`), because only the
-                parent knows which executions it has.
-            job_data: A GitHub job payload (REST object or webhook
-                fragment), optionally carrying a ``steps`` array.
+                parent, not the run. The controller resolves which attempt a
+                payload describes before handing it over.
+            github_job_id: GitHub's job id, globally unique across attempts.
+            name: The job's display name.
+            status: Canonical status; ``None`` leaves the stored one alone.
+            conclusion: Canonical conclusion, when the job finished.
+            runner_name: The runner that executed it.
+            started_at: When the job actually started.
+            completed_at: When it ended.
 
         Returns:
             The persisted :class:`Job` record.
         """
         from .errors import InvalidStateTransitionError
-        from .states import (
-            KIND_JOB,
-            StateMachine,
-            normalize_conclusion,
-            normalize_status,
-            parse_timestamp,
-        )
-        from .step import Step
+        from .states import KIND_JOB, StateMachine
 
-        github_job_id = _as_int(job_data.get("id")) or 0
         # The foreign key is NOT NULL and this model has exactly one parent:
         # refusing a half-built attempt here is what keeps the cascade honest
         # instead of letting this method silently create a grandparent.
-        if attempt.id is None:
+        if not isinstance(attempt, RunAttempt) or attempt.id is None:
             raise ValueError(
-                "Job.upsert_from_remote needs a stored attempt; the run resolves "
-                "which one and stores it before handing it over"
+                "Job.record needs a stored attempt; the controller resolves which "
+                "one and stores it before handing it over"
             )
 
-        job = cls.find_one(
-            (cls.c.attempt_id == attempt.id) & (cls.c.github_job_id == github_job_id)
+        values = {
+            "name": name,
+            "status": status,
+            "conclusion": conclusion,
+            "runner_name": runner_name,
+            "started_at": started_at,
+            "completed_at": completed_at,
+        }
+        defaults = {field: value for field, value in values.items() if value is not None}
+        defaults["github_job_id"] = github_job_id
+        job, created = cls.find_one_or_create(
+            defaults=defaults, attempt_id=attempt.id, github_job_id=github_job_id
         )
+        if created:
+            return job
 
-        status = normalize_status(job_data.get("status"))
-        conclusion = normalize_conclusion(job_data.get("conclusion"))
-        started_at = parse_timestamp(job_data.get("started_at"))
-        completed_at = parse_timestamp(job_data.get("completed_at"))
-        name = _clean_str(job_data.get("name"))
-        runner_name = _clean_str(job_data.get("runner_name")) or None
-
-        inserted = False
-        if job is None:
-            job = cls(
-                attempt_id=attempt.id or 0,
-                github_job_id=github_job_id,
-                name=name,
-                status=status,
-                conclusion=conclusion,
-                runner_name=runner_name,
-                started_at=started_at,
-                completed_at=completed_at,
-            )
-            try:
-                job.save()
-                inserted = True
-            except IntegrityError:
-                winner = cls.find_one(
-                    (cls.c.attempt_id == (attempt.id or 0)) & (cls.c.github_job_id == github_job_id)
-                )
-                if winner is None:
-                    raise
-                job = winner
-
-        if not inserted:
+        if status is not None:
             try:
                 StateMachine.apply_transition(job, status, conclusion, KIND_JOB)
             except InvalidStateTransitionError as exc:
                 logger.warning("Ignoring out-of-order status for job %s: %s", github_job_id, exc)
-            if name:
-                job.name = name
-            job.runner_name = runner_name or job.runner_name
-            if started_at is not None:
-                job.started_at = started_at
-            if completed_at is not None:
-                job.completed_at = completed_at
-            if job.is_dirty:
-                job.save()
-
-        for step_data in job_data.get("steps") or []:
-            Step(job_id=job.id or 0).upsert_from_remote(step_data)
+        if name:
+            job.name = name
+        if runner_name:
+            job.runner_name = runner_name
+        if started_at is not None:
+            job.started_at = started_at
+        if completed_at is not None:
+            job.completed_at = completed_at
+        if job.is_dirty:
+            job.save()
         return job
 
 
@@ -328,89 +288,57 @@ class AsyncJob(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord)
     # ``job.steps()`` to get the stored steps in number order.
 
     @classmethod
-    async def upsert_from_remote(
-        cls, attempt: AsyncRunAttempt, job_data: Mapping[str, Any]
+    async def record(
+        cls,
+        attempt: AsyncRunAttempt,
+        *,
+        github_job_id: int,
+        name: str | None = None,
+        status: str | None = None,
+        conclusion: str | None = None,
+        runner_name: str | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
     ) -> AsyncJob:
-        """Create or update a job record from a remote job payload.
-
-        See :meth:`Job.upsert_from_remote` for the
-        ``(attempt_id, github_job_id)`` key resolution, the state machine
-        semantics and the ``steps`` cascade; the stored field semantics are
-        identical.
-        """
+        """Store or refresh one job of ``attempt``; see :meth:`Job.record`."""
         from .errors import InvalidStateTransitionError
-        from .states import (
-            KIND_JOB,
-            StateMachine,
-            normalize_conclusion,
-            normalize_status,
-            parse_timestamp,
-        )
-        from .step import AsyncStep
+        from .states import KIND_JOB, StateMachine
 
-        github_job_id = _as_int(job_data.get("id")) or 0
-        if attempt.id is None:
+        if not isinstance(attempt, AsyncRunAttempt) or attempt.id is None:
             raise ValueError(
-                "Job.upsert_from_remote needs a stored attempt: the run resolves "
-                "which one and stores it before handing it over"
+                "Job.record needs a stored attempt: the controller resolves which "
+                "one and stores it before handing it over"
             )
 
-        job = await cls.find_one(
-            (cls.c.attempt_id == attempt.id) & (cls.c.github_job_id == github_job_id)
+        values = {
+            "name": name,
+            "status": status,
+            "conclusion": conclusion,
+            "runner_name": runner_name,
+            "started_at": started_at,
+            "completed_at": completed_at,
+        }
+        defaults = {field: value for field, value in values.items() if value is not None}
+        defaults["github_job_id"] = github_job_id
+        job, created = await cls.find_one_or_create(
+            defaults=defaults, attempt_id=attempt.id, github_job_id=github_job_id
         )
+        if created:
+            return job
 
-        status = normalize_status(job_data.get("status"))
-        conclusion = normalize_conclusion(job_data.get("conclusion"))
-        started_at = parse_timestamp(job_data.get("started_at"))
-        completed_at = parse_timestamp(job_data.get("completed_at"))
-        name = _clean_str(job_data.get("name"))
-        runner_name = _clean_str(job_data.get("runner_name")) or None
-
-        inserted = False
-        if job is None:
-            job = cls(
-                attempt_id=attempt.id or 0,
-                github_job_id=github_job_id,
-                name=name,
-                status=status,
-                conclusion=conclusion,
-                runner_name=runner_name,
-                started_at=started_at,
-                completed_at=completed_at,
-            )
-            try:
-                await job.save()
-                inserted = True
-            except IntegrityError:
-                # ``queued`` and ``in_progress`` for the same job can be
-                # delivered at the same moment: both read "no row", both insert,
-                # and the unique constraint rejects the loser. The row that won
-                # is the one to update, not an error to report.
-                winner = await cls.find_one(
-                    (cls.c.attempt_id == (attempt.id or 0)) & (cls.c.github_job_id == github_job_id)
-                )
-                if winner is None:
-                    raise
-                job = winner
-
-        if not inserted:
-            # A stored job (or the winner of the insert race) moves through the
-            # forward-only state machine: a stale or out-of-order payload is
-            # logged and skipped, never fatal.
+        if status is not None:
             try:
                 StateMachine.apply_transition(job, status, conclusion, KIND_JOB)
             except InvalidStateTransitionError as exc:
                 logger.warning("Ignoring out-of-order status for job %s: %s", github_job_id, exc)
-            if name:
-                job.name = name
-            job.runner_name = runner_name or job.runner_name
-            if started_at is not None:
-                job.started_at = started_at
-            if completed_at is not None:
-                job.completed_at = completed_at
-            if job.is_dirty:
-                await job.save()
-
-        for step_data in job_data.get("steps") or []:
-            await AsyncStep(job_id=job.id or 0).upsert_from_remote(step_data)
+        if name:
+            job.name = name
+        if runner_name:
+            job.runner_name = runner_name
+        if started_at is not None:
+            job.started_at = started_at
+        if completed_at is not None:
+            job.completed_at = completed_at
+        if job.is_dirty:
+            await job.save()
         return job

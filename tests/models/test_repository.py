@@ -19,6 +19,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from conftest import FakeGithub, make_repository_service
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.core.exceptions import (
     RepositoryNotFoundError,
     TokenDeactivatedError,
@@ -197,8 +198,8 @@ class TestUnsubscribe:
     async def test_purges_cached_data(self, fake_client: FakeGithub, bound) -> None:
         fake_client.repo_info = _public_repo_info()
         repo = await _subscribe(fake_client, "acme/public")
-        run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload())
-        await AsyncJob.upsert_from_remote(run, _job_payload())
+        run = await RunData().adopt_run(repo, _run_payload())
+        await RunData().store_job(run, _job_payload())
 
         await repo.unsubscribe()
 

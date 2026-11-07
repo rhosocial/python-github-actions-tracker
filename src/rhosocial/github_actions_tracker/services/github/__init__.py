@@ -13,14 +13,17 @@ The grouping is by resource, which is the unit GitHub itself uses:
 * :class:`~.repositories.GithubRepositories` -- ``/repos``, metadata, workflows
   and credential-scoped discovery.
 
-Payloads go back as ``Mapping`` rather than as a hand-written object: the models
-already parse them, and a second parser would be a copy that drifts.
+:class:`~.payloads.GithubPayloads` translates the JSON those groups return into
+model-shaped values. It is the only class that knows a GitHub field name, which
+is what keeps a rename in the interface from reaching the controllers and the
+models.
 """
 
 from __future__ import annotations
 
 from .base import TokenSource
 from .credentials import GithubCredentials
+from .payloads import GithubPayloads
 from .protocols import (
     CredentialProbe,
     RepositoryReader,
@@ -35,6 +38,7 @@ from .webhooks import GithubWebhooks
 __all__ = [
     "CredentialProbe",
     "GithubCredentials",
+    "GithubPayloads",
     "GithubRepositories",
     "GithubRuns",
     "GithubWebhooks",

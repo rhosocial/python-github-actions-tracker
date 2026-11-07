@@ -10,8 +10,8 @@ of one run read "no row" together, both insert, and the loser used to surface an
 What this mixin promises, and what these tests pin:
 
 * an absent row is created with the caller's defaults, and ``created`` says so;
-* a present row is returned untouched (refreshing it stays with
-  ``upsert_from_remote``, which knows which fields a payload may overwrite);
+* a present row is returned untouched (refreshing it stays with the model's
+  value entry, which knows which fields may be overwritten);
 * an empty lookup is refused rather than matching an arbitrary row;
 * the async and sync halves answer identically.
 """

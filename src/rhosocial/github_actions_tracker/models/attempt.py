@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import logging
 import sys
-from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -55,124 +54,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _as_int(value: Any) -> int | None:
-    """Coerce a GitHub scalar to ``int``, returning ``None`` when impossible."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+class _AttemptMerge:
+    """The forward-only merge both attempt twins apply to a stored row."""
 
+    @staticmethod
+    def _merge(record: Any, values: dict[str, Any]) -> bool:
+        """Apply semantic values to an attempt row, refusing to move backwards.
 
-def _clean_str(value: Any, default: str = "") -> str:
-    """Return a trimmed string, falling back to ``default`` for blank values."""
-    if value is None:
-        return default
-    text = str(value).strip()
-    return text or default
+        ``status``/``conclusion`` go through the forward-only state machine;
+        timestamps and metadata are filled in when supplied, and
+        ``completed_at`` only while the execution is completed -- a late
+        ``in_progress`` value must not clear it.
+        """
+        from .errors import InvalidStateTransitionError
+        from .states import KIND_RUN, STATUS_COMPLETED, StateMachine
 
+        before = (record.status, record.conclusion)
+        changed = False
+        status = values.get("status")
+        if status is not None:
+            try:
+                changed = StateMachine.apply_transition(
+                    record, status, values.get("conclusion"), KIND_RUN
+                )
+            except InvalidStateTransitionError as exc:
+                logger.warning(
+                    "Ignoring out-of-order status for attempt %s of run %s: %s",
+                    record.attempt_number,
+                    record.run_id,
+                    exc,
+                )
 
-def _actor_login(data: Mapping[str, Any]) -> str | None:
-    """The actor login out of a payload, tolerant of the field being absent."""
-    actor = data.get("actor")
-    if isinstance(actor, Mapping):
-        return _clean_str(actor.get("login")) or None
-    return _clean_str(actor) or None
-
-
-def _completed_at(data: Mapping[str, Any], status: str) -> Any:
-    """The attempt's completion timestamp, tolerating a missing one.
-
-    A completed execution does not always carry ``completed_at``: GitHub omits
-    it on some finished runs (observed with cancelled or superseded attempts),
-    and a null there would make a duration computed from "now" grow without
-    bound. ``updated_at`` is the last state change, which for a finished
-    execution is its completion, so it is the fallback.
-    """
-    raw = data.get("completed_at")
-    if raw:
-        return raw
-    if status == "completed":
-        return data.get("updated_at")
-    return None
-
-
-def _values_from_payload(data: Mapping[str, Any]) -> dict[str, Any]:
-    """The attempt-shaped columns a run or attempt payload carries.
-
-    Both shapes work: ``GET /runs/{id}`` returns the *latest* attempt's values
-    under ``run_attempt`` equal to that attempt, and
-    ``GET /runs/{id}/attempts/{n}`` returns that attempt's own. Reading them the
-    same way is what lets either source upsert this table.
-    """
-    from .states import normalize_conclusion, normalize_status, parse_timestamp
-
-    status = normalize_status(data.get("status"))
-    return {
-        "status": status,
-        "conclusion": normalize_conclusion(data.get("conclusion")),
-        "actor": _actor_login(data),
-        "started_at": parse_timestamp(data.get("run_started_at") or data.get("started_at")),
-        "completed_at": parse_timestamp(_completed_at(data, status)),
-        "github_created_at": parse_timestamp(data.get("created_at")),
-        "github_updated_at": parse_timestamp(data.get("updated_at")),
-    }
-
-
-def _merge(record: Any, values: dict[str, Any]) -> bool:
-    """Apply a payload's values to an attempt row, refusing to move backwards.
-
-    ``status``/``conclusion`` go through the forward-only state machine;
-    timestamps and metadata are filled in when the payload carries them, and
-    ``completed_at`` only when the execution is (now) completed -- a late
-    ``in_progress`` payload must not clear it.
-    """
-    from .errors import InvalidStateTransitionError
-    from .states import KIND_RUN, STATUS_COMPLETED, StateMachine
-
-    before = (record.status, record.conclusion)
-    changed = False
-    try:
-        changed = StateMachine.apply_transition(
-            record, values.get("status"), values.get("conclusion"), KIND_RUN
-        )
-    except InvalidStateTransitionError as exc:
-        logger.warning(
-            "Ignoring out-of-order status for attempt %s of run %s: %s",
-            record.attempt_number,
-            record.run_id,
-            exc,
-        )
-
-    # A same-status replay refreshes the conclusion without changing the
-    # status, so the machine's return value alone does not say "saved".
-    if (record.status, record.conclusion) != before:
-        changed = True
-
-    for name, value in values.items():
-        if name in ("status", "conclusion") or value is None:
-            continue
-        if name == "completed_at" and record.status != STATUS_COMPLETED:
-            continue
-        if getattr(record, name) != value:
-            setattr(record, name, value)
+        # A same-status replay refreshes the conclusion without changing the
+        # status, so the machine's return value alone does not say "saved".
+        if (record.status, record.conclusion) != before:
             changed = True
-    return changed
 
-
-def _advance(record: Any, values: dict[str, Any]) -> Any:
-    """Merge in the sync twin and save when anything moved."""
-    if _merge(record, values):
-        record.save()
-    return record
-
-
-async def _advance_async(record: Any, values: dict[str, Any]) -> Any:
-    """Merge in the async twin and save when anything moved."""
-    if _merge(record, values):
-        await record.save()
-    return record
+        for name, value in values.items():
+            if name in ("status", "conclusion") or value is None:
+                continue
+            if name == "completed_at" and record.status != STATUS_COMPLETED:
+                continue
+            if getattr(record, name) != value:
+                setattr(record, name, value)
+                changed = True
+        return changed
 
 
 #: Conclusions that mean "this job did its work". Used by the succeeded-span
@@ -215,11 +141,13 @@ class _AttemptTimingFields:
     """
 
     job_span_seconds: ClassVar[DerivedField] = DerivedField(
-        lambda d: _job_span_seconds(d, "RunAttempt", ran_only=False)
+        lambda d: _AttemptDerived.job_span_seconds(d, "RunAttempt", ran_only=False)
     )
-    queue_seconds: ClassVar[DerivedField] = DerivedField(lambda d: _queue_seconds(d, "RunAttempt"))
+    queue_seconds: ClassVar[DerivedField] = DerivedField(
+        lambda d: _AttemptDerived.queue_seconds(d, "RunAttempt")
+    )
     succeeded_job_span_seconds: ClassVar[DerivedField] = DerivedField(
-        lambda d: _job_span_seconds(d, "RunAttempt", ran_only=True)
+        lambda d: _AttemptDerived.job_span_seconds(d, "RunAttempt", ran_only=True)
     )
 
 
@@ -227,84 +155,97 @@ class _AsyncAttemptTimingFields:
     """The timing fields of the asynchronous twin; see :class:`_AttemptTimingFields`."""
 
     job_span_seconds: ClassVar[DerivedField] = DerivedField(
-        lambda d: _job_span_seconds(d, "AsyncRunAttempt", ran_only=False)
+        lambda d: _AttemptDerived.job_span_seconds(d, "AsyncRunAttempt", ran_only=False)
     )
     queue_seconds: ClassVar[DerivedField] = DerivedField(
-        lambda d: _queue_seconds(d, "AsyncRunAttempt")
+        lambda d: _AttemptDerived.queue_seconds(d, "AsyncRunAttempt")
     )
     succeeded_job_span_seconds: ClassVar[DerivedField] = DerivedField(
-        lambda d: _job_span_seconds(d, "AsyncRunAttempt", ran_only=True)
+        lambda d: _AttemptDerived.job_span_seconds(d, "AsyncRunAttempt", ran_only=True)
     )
 
 
-def _queue_seconds(dialect: Any, model_name: str) -> Any:
-    """How long this attempt waited before it started running.
+class _AttemptDerived:
+    """Derived-field factories the model class body cannot name directly.
 
-    ``run_started_at`` against ``created_at`` -- both columns of this row, so no
-    subquery is needed; the expression is wrapped only so it renders as one term
-    in the SELECT list. ``None`` while either is missing, which is the honest
-    answer for an attempt GitHub has not reported a start for.
-
-    Why not ``extract``: the expression system's ``EXTRACT`` speaks calendar
-    fields (year, hour, ...) and has no ``EPOCH``, while what a caller wants here
-    is a number of seconds. The arithmetic is written out rather than expressed
-    through a helper that cannot say it.
+    ``DerivedField`` is discovered by ``typing.get_type_hints`` while the class
+    is still being defined, so a lambda in the class body must not reference the
+    class itself. These helpers resolve the model through the live module at
+    query time instead.
     """
-    model = getattr(sys.modules[__name__], model_name)
-    table = model.table_name()
-    text = f"(EXTRACT(EPOCH FROM (" f'"{table}"."started_at" - "{table}"."github_created_at")))'
-    return Subquery(dialect, (text, ()))
+
+    @staticmethod
+    def queue_seconds(dialect: Any, model_name: str) -> Any:
+        """How long this attempt waited before it started running.
+
+        ``run_started_at`` against ``created_at`` -- both columns of this row, so
+        no subquery is needed; the expression is wrapped only so it renders as
+        one term in the SELECT list. ``None`` while either is missing, which is
+        the honest answer for an attempt GitHub has not reported a start for.
+
+        Why not ``extract``: the expression system's ``EXTRACT`` speaks calendar
+        fields (year, hour, ...) and has no ``EPOCH``, while what a caller wants
+        here is a number of seconds. The arithmetic is written out rather than
+        expressed through a helper that cannot say it.
+        """
+        model = getattr(sys.modules[__name__], model_name)
+        table = model.table_name()
+        text = f"(EXTRACT(EPOCH FROM (" f'"{table}"."started_at" - "{table}"."github_created_at")))'
+        return Subquery(dialect, (text, ()))
+
+    @staticmethod
+    def job_span_seconds(dialect: Any, model_name: str, *, ran_only: bool) -> Any:
+        """The span of this attempt's jobs, as one correlated subquery.
+
+        ``ran_only`` narrows it to the jobs that passed, which is a different
+        question from "how long did this execution last" -- see
+        :class:`_AttemptTimingFields`.
+
+        The inner ``LIMIT`` carries a bind parameter, so the query is nested as
+        *nodes* rather than concatenated as text: text throws the parameter away
+        and PostgreSQL is left with a bare ``%s``.
+        """
+        # The twin that matches this side: the async attempt is bound to the
+        # async job model, and a derived field is built from the query builder of
+        # the model whose backend will render it.
+        from . import job as job_module
+
+        model = getattr(sys.modules[__name__], model_name)
+        job = job_module.AsyncJob if model_name.startswith("Async") else job_module.Job
+
+        # The jobs of this attempt, as a subquery *node* so its bind parameters
+        # travel with it -- text concatenation would drop them and leave
+        # PostgreSQL with a bare ``%s``.
+        matching = Subquery(
+            dialect,
+            (
+                job.query()
+                .select(job.c.id)
+                .where(job.c.attempt_id == model.c.id)
+                .where(job.c.started_at.is_not_null())
+                .where(job.c.completed_at.is_not_null())
+                .to_sql()[0],
+                (),
+            ),
+        )
+        if ran_only:
+            # Which jobs count, spelled as one more condition on the row set
+            # above. The values are this module's own constants, never caller
+            # input.
+            passing = ", ".join(f"'{item}'" for item in sorted(_PASSING_CONCLUSIONS_DEFAULT))
+            suffix = f" AND j.conclusion IN ({passing})"
+        else:
+            suffix = ""
+        span = (
+            "SELECT EXTRACT(EPOCH FROM (MAX(j.completed_at) - MIN(j.started_at))) "
+            "FROM ghat_jobs j WHERE j.id IN " + matching.to_sql()[0] + suffix
+        )
+        return Subquery(dialect, (span, matching.to_sql()[1]))
 
 
-def _job_span_seconds(dialect: Any, model_name: str, *, ran_only: bool) -> Any:
-    """The span of this attempt's jobs, as one correlated subquery.
-
-    ``ran_only`` narrows it to the jobs that passed, which is a different
-    question from "how long did this execution last" -- see
-    :class:`_AttemptTimingFields`.
-
-    The inner ``LIMIT`` carries a bind parameter, so the query is nested as
-    *nodes* rather than concatenated as text: text throws the parameter away and
-    PostgreSQL is left with a bare ``%s``.
-    """
-    # The twin that matches this side: the async attempt is bound to the async
-    # job model, and a derived field is built from the query builder of the
-    # model whose backend will render it.
-    from . import job as job_module
-
-    model = getattr(sys.modules[__name__], model_name)
-    job = job_module.AsyncJob if model_name.startswith("Async") else job_module.Job
-
-    # The jobs of this attempt, as a subquery *node* so its bind parameters
-    # travel with it -- text concatenation would drop them and leave PostgreSQL
-    # with a bare ``%s``.
-    matching = Subquery(
-        dialect,
-        (
-            job.query()
-            .select(job.c.id)
-            .where(job.c.attempt_id == model.c.id)
-            .where(job.c.started_at.is_not_null())
-            .where(job.c.completed_at.is_not_null())
-            .to_sql()[0],
-            (),
-        ),
-    )
-    if ran_only:
-        # Which jobs count, spelled as one more condition on the row set above.
-        # The values are this module's own constants, never caller input.
-        passing = ", ".join(f"'{item}'" for item in sorted(_PASSING_CONCLUSIONS_DEFAULT))
-        suffix = f" AND j.conclusion IN ({passing})"
-    else:
-        suffix = ""
-    span = (
-        "SELECT EXTRACT(EPOCH FROM (MAX(j.completed_at) - MIN(j.started_at))) "
-        "FROM ghat_jobs j WHERE j.id IN " + matching.to_sql()[0] + suffix
-    )
-    return Subquery(dialect, (span, matching.to_sql()[1]))
-
-
-class RunAttempt(FindOrCreateMixin, _AttemptTimingFields, DefaultTimestampMixin, ActiveRecord):
+class RunAttempt(
+    FindOrCreateMixin, _AttemptMerge, _AttemptTimingFields, DefaultTimestampMixin, ActiveRecord
+):
     """One execution of a workflow run, synchronous twin."""
 
     __table_name__ = "ghat_run_attempts"
@@ -394,7 +335,7 @@ class RunAttempt(FindOrCreateMixin, _AttemptTimingFields, DefaultTimestampMixin,
         a job whose attempt has never been stored -- the fragment names the
         attempt but says nothing about its status -- so the write path asks for
         the row rather than assuming it. A minimal row is created and the fuller
-        one overwrites it later, via :meth:`upsert_from_remote`.
+        values overwrite it later, via :meth:`record`.
         """
         # One operation rather than "read, then insert": the read and the insert
         # can interleave with another delivery of the same run, and the loser of
@@ -413,42 +354,75 @@ class RunAttempt(FindOrCreateMixin, _AttemptTimingFields, DefaultTimestampMixin,
         return record
 
     @classmethod
-    def upsert_from_remote(cls, run: WorkflowRun, data: Mapping[str, Any]) -> RunAttempt:
-        """Create or refresh the attempt row a run/attempt payload describes.
+    def record(
+        cls,
+        run: WorkflowRun,
+        attempt_number: int,
+        *,
+        status: str | None = None,
+        conclusion: str | None = None,
+        actor: str | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+        github_created_at: datetime | None = None,
+        github_updated_at: datetime | None = None,
+    ) -> RunAttempt:
+        """Store or refresh one execution of ``run`` from semantic values.
 
-        Keyed by ``(run_id, attempt_number)``. A stored attempt is refreshed in
-        place; an unseen one is inserted, which is what makes attempt 1's state
-        survive a re-run instead of being overwritten by it.
+        The key is ``(run_id, attempt_number)``. A stored attempt is merged in
+        place through the forward-only state machine, so attempt 1's state
+        survives a re-run instead of being overwritten by it.
 
         Args:
-            run: The persisted run this attempt belongs to.
-            data: A run or attempt payload. The payload's own ``run_attempt``
-                wins; the run's is the fallback for fragments carrying none.
+            run: The persisted run this attempt belongs to -- the **direct**
+                parent. Which attempt number a payload describes is the
+                controller's decision, because only it knows the payload.
+            attempt_number: GitHub's ``run_attempt`` for this execution.
+            status: Canonical status; ``None`` leaves the stored one alone.
+            conclusion: Canonical conclusion, when the execution finished.
+            actor: Who triggered this execution.
+            started_at: GitHub's ``run_started_at`` for *this* attempt.
+            completed_at: GitHub's ``completed_at`` for *this* attempt.
+            github_created_at: GitHub's ``created_at``, the partition key.
+            github_updated_at: GitHub's ``updated_at``.
 
         Returns:
             The persisted :class:`RunAttempt` record.
         """
-        latest = cls.latest_for_run(run.id or 0)
-        attempt_number = _as_int(data.get("run_attempt")) or (
-            latest.attempt_number if latest else 1
+        from .run import WorkflowRun
+
+        if not isinstance(run, WorkflowRun) or run.id is None:
+            raise ValueError(
+                "RunAttempt.record needs a stored run; the controller stores the "
+                "parent before handing it over"
+            )
+
+        values = {
+            "status": status,
+            "conclusion": conclusion,
+            "actor": actor,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "github_created_at": github_created_at,
+            "github_updated_at": github_updated_at,
+        }
+        defaults = {name: value for name, value in values.items() if value is not None}
+        record, created = cls.find_one_or_create(
+            defaults=defaults, run_id=run.id, attempt_number=attempt_number
         )
-        values = _values_from_payload(data)
-
-        record = cls.find_attempt(run.id or 0, attempt_number)
-        if record is None:
-            record = cls(run_id=run.id or 0, attempt_number=attempt_number, **values)
-            record.save()
+        if created:
             return record
-
-        # One attempt is one execution: its state moves forward only. A late
-        # ``in_progress`` for an attempt that already completed is the past
-        # arriving out of order and is skipped, never allowed to rewrite it.
-        _advance(record, values)
+        if cls._merge(record, values):
+            record.save()
         return record
 
 
 class AsyncRunAttempt(
-    AsyncFindOrCreateMixin, _AsyncAttemptTimingFields, DefaultTimestampMixin, AsyncActiveRecord
+    AsyncFindOrCreateMixin,
+    _AttemptMerge,
+    _AsyncAttemptTimingFields,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
 ):
     """One execution of a workflow run, asynchronous twin."""
 
@@ -542,27 +516,45 @@ class AsyncRunAttempt(
         return record
 
     @classmethod
-    async def upsert_from_remote(
-        cls, run: AsyncWorkflowRun, data: Mapping[str, Any]
+    async def record(
+        cls,
+        run: AsyncWorkflowRun,
+        attempt_number: int,
+        *,
+        status: str | None = None,
+        conclusion: str | None = None,
+        actor: str | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+        github_created_at: datetime | None = None,
+        github_updated_at: datetime | None = None,
     ) -> AsyncRunAttempt:
-        """Create or refresh the attempt row a run/attempt payload describes.
+        """Store or refresh one execution of ``run``; see :meth:`RunAttempt.record`."""
+        from .run import AsyncWorkflowRun
 
-        See :meth:`RunAttempt.upsert_from_remote`; the async twin.
-        """
-        latest = await cls.latest_for_run(run.id or 0)
-        attempt_number = _as_int(data.get("run_attempt")) or (
-            latest.attempt_number if latest else 1
+        if not isinstance(run, AsyncWorkflowRun) or run.id is None:
+            raise ValueError(
+                "RunAttempt.record needs a stored run; the controller stores the "
+                "parent before handing it over"
+            )
+
+        values = {
+            "status": status,
+            "conclusion": conclusion,
+            "actor": actor,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "github_created_at": github_created_at,
+            "github_updated_at": github_updated_at,
+        }
+        defaults = {name: value for name, value in values.items() if value is not None}
+        record, created = await cls.find_one_or_create(
+            defaults=defaults, run_id=run.id, attempt_number=attempt_number
         )
-        values = _values_from_payload(data)
-
-        record = await cls.find_attempt(run.id or 0, attempt_number)
-        if record is None:
-            record = cls(run_id=run.id or 0, attempt_number=attempt_number, **values)
-            await record.save()
+        if created:
             return record
-
-        # See :meth:`RunAttempt.upsert_from_remote`: forward-only, per attempt.
-        await _advance_async(record, values)
+        if cls._merge(record, values):
+            await record.save()
         return record
 
 

@@ -12,12 +12,11 @@ module never imports a provider's models: it reads the binding's opaque
 ``(kind, ref)`` pair and asks the registry to resolve it.
 
 The model stores; it does not fetch. Subscribing, unsubscribing and refreshing
-the cached workflows all involve a GitHub call, so they live in the controllers
-(``core/services.py``); what remains here is the local half of each operation --
-:meth:`~Repository.upsert_from_remote` to store a payload the controller
-fetched, and :meth:`~Repository.unsubscribe` to drop the local rows the
-controller has already dealt with remotely. The twins are behavior-identical;
-the sync one exists for the project's sync/async parity rule.
+the cached workflows all involve a GitHub call, so they live in the controllers.
+What remains here is the local half of each operation: creating a row from the
+values a controller obtained, and :meth:`~Repository.unsubscribe` to drop the
+local rows the controller has already dealt with remotely. The twins are
+behavior-identical; the sync one exists for the project's sync/async parity rule.
 
 References that would make the import graph cyclic -- the token, workflow,
 run, job, step and log models, plus the ``core`` package (whose ``__init__``
@@ -29,8 +28,7 @@ instead.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
@@ -44,6 +42,7 @@ from rhosocial.activerecord.relation.descriptors import HasOne
 #: refers back to this module only under ``TYPE_CHECKING``, so the import is not
 #: a cycle.
 from .binding import AsyncRepositoryBinding, RepositoryBinding
+from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .webhook_secret import AsyncRepoWebhookSecret, RepoWebhookSecret
 
@@ -59,43 +58,7 @@ DEFAULT_PER_PAGE = 30
 MAX_PER_PAGE = 100
 
 
-def _clean_str(value: Any, default: str = "") -> str:
-    """Return a trimmed string, falling back to ``default`` for blank values."""
-    if value is None:
-        return default
-    text = str(value).strip()
-    return text or default
-
-
-def _as_int(value: Any) -> int | None:
-    """Coerce a GitHub scalar to ``int``, returning ``None`` when impossible."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _repo_owner(repo_info: Mapping[str, Any], full_name: str) -> str:
-    """Resolve the owner login from a repository payload."""
-    owner = repo_info.get("owner")
-    if isinstance(owner, Mapping):
-        return _clean_str(owner.get("login")) or full_name.split("/", 1)[0]
-    return _clean_str(owner) or full_name.split("/", 1)[0]
-
-
-def _repo_name(repo_info: Mapping[str, Any], full_name: str) -> str:
-    """Resolve the repository name from a repository payload."""
-    name = _clean_str(repo_info.get("name"))
-    if name:
-        return name
-    if "/" in full_name:
-        return full_name.split("/", 1)[1]
-    return full_name
-
-
-class Repository(DefaultTimestampMixin, ActiveRecord):
+class Repository(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
     """GitHub repository subscription, synchronous twin."""
 
     __table_name__ = "ghat_repositories"
@@ -140,46 +103,6 @@ class Repository(DefaultTimestampMixin, ActiveRecord):
         return cls.find_one(cls.c.github_repo_id == github_repo_id)
 
     # ---- behavior -------------------------------------------------------------
-
-    @classmethod
-    def upsert_from_remote(
-        cls,
-        repo_info: Mapping[str, Any],
-        full_name: str | None = None,
-    ) -> Repository:
-        """Store a repository from GitHub metadata, or return the existing row.
-
-        Idempotent by ``full_name``: subscribing twice must return the row the
-        first call stored, because the operator's declaration wins over
-        whatever GitHub reports later, and a silent rebind is exactly what the
-        ``UNIQUE(repository_id)`` binding is there to prevent.
-
-        Args:
-            repo_info: A GitHub repository object.
-            full_name: ``owner/repo`` as the caller asked for it. The payload's
-                own ``full_name`` is used when omitted, and the caller's
-                spelling wins when both are present: it is the name the caller
-                confirmed, and GitHub answers a slightly different one for a
-                repository that was renamed mid-flight.
-
-        Returns:
-            The stored :class:`Repository` record.
-        """
-        name = _clean_str(full_name or repo_info.get("full_name"))
-        existing = cls.find_one(cls.c.full_name == name)
-        if existing is not None:
-            return existing
-
-        repo = cls(
-            github_repo_id=_as_int(repo_info.get("id")) or 0,
-            full_name=name,
-            owner=_repo_owner(repo_info, name),
-            name=_repo_name(repo_info, name),
-            is_private=bool(repo_info.get("is_private", False)),
-            default_branch=_clean_str(repo_info.get("default_branch"), "main"),
-        )
-        repo.save()
-        return repo
 
     def unsubscribe(self) -> None:
         """Drop this repository's cached data, its binding and the row.
@@ -293,7 +216,10 @@ class Repository(DefaultTimestampMixin, ActiveRecord):
             if workflow is not None:
                 return workflow
 
-        numeric_id = _as_int(ref)
+        try:
+            numeric_id = int(ref)
+        except (TypeError, ValueError):
+            numeric_id = None
         if numeric_id is not None:
             workflow = Workflow.find_one(
                 (Workflow.c.repository_id == repo_id) & (Workflow.c.workflow_id == numeric_id)
@@ -350,7 +276,7 @@ class Repository(DefaultTimestampMixin, ActiveRecord):
         )
 
 
-class AsyncRepository(DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncRepository(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
     """GitHub repository subscription, asynchronous twin.
 
     Behavior-identical to :class:`Repository`; every method performs the
@@ -399,33 +325,6 @@ class AsyncRepository(DefaultTimestampMixin, AsyncActiveRecord):
         return await cls.find_one(cls.c.github_repo_id == github_repo_id)
 
     # ---- behavior -------------------------------------------------------------
-
-    @classmethod
-    async def upsert_from_remote(
-        cls,
-        repo_info: Mapping[str, Any],
-        full_name: str | None = None,
-    ) -> AsyncRepository:
-        """Store a repository from GitHub metadata, or return the existing row.
-
-        See :meth:`Repository.upsert_from_remote` for the idempotence rule and
-        the ``full_name`` precedence; the stored fields are identical.
-        """
-        name = _clean_str(full_name or repo_info.get("full_name"))
-        existing = await cls.find_one(cls.c.full_name == name)
-        if existing is not None:
-            return existing
-
-        repo = cls(
-            github_repo_id=_as_int(repo_info.get("id")) or 0,
-            full_name=name,
-            owner=_repo_owner(repo_info, name),
-            name=_repo_name(repo_info, name),
-            is_private=bool(repo_info.get("is_private", False)),
-            default_branch=_clean_str(repo_info.get("default_branch"), "main"),
-        )
-        await repo.save()
-        return repo
 
     async def unsubscribe(self) -> None:
         """Drop this repository's cached data, its binding and the row.
@@ -533,7 +432,10 @@ class AsyncRepository(DefaultTimestampMixin, AsyncActiveRecord):
             if workflow is not None:
                 return workflow
 
-        numeric_id = _as_int(ref)
+        try:
+            numeric_id = int(ref)
+        except (TypeError, ValueError):
+            numeric_id = None
         if numeric_id is not None:
             workflow = await AsyncWorkflow.find_one(
                 (AsyncWorkflow.c.repository_id == repo_id)

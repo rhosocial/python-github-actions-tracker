@@ -220,7 +220,6 @@ class TestDurationSample:
     async def _adopt(self, runs: list[dict]) -> int:
         """Adopt runs and the one job each carries, so a job span exists."""
         from rhosocial.github_actions_tracker.models import (
-            AsyncJob,
             AsyncRunAttempt,
             AsyncWorkflow,
         )
@@ -228,11 +227,11 @@ class TestDurationSample:
         repo = await _tracked()
         workflow = None
         for payload in runs:
-            run = await AsyncWorkflowRun.adopt_from_remote(repo, payload)
+            run = await RunData().adopt_run(repo, payload)
             workflow = await AsyncWorkflow.find_one(AsyncWorkflow.c.id == run.workflow_id)
             if payload.get("job"):
                 attempt = await AsyncRunAttempt.ensure(run, 1)
-                await AsyncJob.upsert_from_remote(
+                await RunData().store_job(
                     attempt,
                     {
                         "id": payload["id"] * 10,

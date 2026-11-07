@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from conftest import FakeGithub, make_webhook_service
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRepository,
@@ -109,12 +110,8 @@ class TestRepeatedDelivery:
         """The run's workflow is upserted by the same delivery; it must not race itself."""
         repo = await _subscribe()
 
-        first = await AsyncWorkflow(
-            repository_id=repo.id or 0, workflow_id=11, name="CI", path="a.yml"
-        ).upsert_from_remote({"id": 11, "name": "CI", "path": "a.yml"})
-        second = await AsyncWorkflow(
-            repository_id=repo.id or 0, workflow_id=11, name="CI", path="a.yml"
-        ).upsert_from_remote({"id": 11, "name": "CI", "path": "a.yml"})
+        first = await RunData().store_workflow(repo, {"id": 11, "name": "CI", "path": "a.yml"})
+        second = await RunData().store_workflow(repo, {"id": 11, "name": "CI", "path": "a.yml"})
 
         assert second.id == first.id
         assert await AsyncWorkflow.query().count() == 1

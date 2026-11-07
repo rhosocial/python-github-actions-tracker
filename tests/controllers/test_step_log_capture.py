@@ -140,8 +140,8 @@ def _archive(*, steps: bool = True, missing: set[int] | None = None) -> bytes:
 async def _ready(fake: FakeGithub) -> tuple[object, AsyncWorkflowRun, AsyncJob]:
     """A subscribed repository, a stored run and job, and the fake's archive."""
     repo = await subscribe(fake, full_name=REPO)
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload())
-    job = await AsyncJob.upsert_from_remote(run, _job_payload())
+    run = await RunData().adopt_run(repo, _run_payload())
+    job = await RunData().store_job(run, _job_payload())
     fake.run_log_archive = _archive()
     snapshot = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
     assert snapshot is not None
@@ -202,7 +202,7 @@ class TestCapture:
         """Two hours past completion the archive is flat; fetching it is waste."""
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(minutes_ago=120))
+        await RunData().adopt_run(repo, _run_payload(minutes_ago=120))
         snapshot = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert snapshot is not None
 
@@ -245,7 +245,7 @@ class TestCapture:
     async def test_a_running_run_is_left_for_its_completion(self, bound) -> None:
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(status="in_progress"))
+        await RunData().adopt_run(repo, _run_payload(status="in_progress"))
         snapshot = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert snapshot is not None
 
@@ -260,10 +260,10 @@ class TestOneJobAtATime:
     async def test_a_finished_job_of_a_running_run_is_captured(self, bound) -> None:
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(status="in_progress"))
+        await RunData().adopt_run(repo, _run_payload(status="in_progress"))
         run = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert run is not None
-        job = await AsyncJob.upsert_from_remote(run, _job_payload())
+        job = await RunData().store_job(run, _job_payload())
         fake.run_log_archive = _archive()
 
         report = await _capture(fake).ensure(repo, run, job=job)
@@ -274,12 +274,12 @@ class TestOneJobAtATime:
     async def test_a_running_job_is_not_captured_yet(self, bound) -> None:
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(status="in_progress"))
+        await RunData().adopt_run(repo, _run_payload(status="in_progress"))
         run = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert run is not None
         payload = _job_payload()
         payload.update({"status": "in_progress", "conclusion": None, "completed_at": None})
-        job = await AsyncJob.upsert_from_remote(run, payload)
+        job = await RunData().store_job(run, payload)
 
         report = await _capture(fake).ensure(repo, run, job=job)
 
@@ -290,7 +290,7 @@ class TestOneJobAtATime:
         """A long run can finish hours after an early job; that job is gone."""
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(status="in_progress"))
+        await RunData().adopt_run(repo, _run_payload(status="in_progress"))
         run = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert run is not None
         payload = _job_payload()
@@ -300,7 +300,7 @@ class TestOneJobAtATime:
                 "completed_at": _stamp(150),
             }
         )
-        job = await AsyncJob.upsert_from_remote(run, payload)
+        job = await RunData().store_job(run, payload)
 
         report = await _capture(fake).ensure(repo, run, job=job)
 
@@ -377,7 +377,7 @@ class TestTheJobDelivery:
 
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(status="in_progress"))
+        await RunData().adopt_run(repo, _run_payload(status="in_progress"))
         fake.run_log_archive = _archive()
         service = make_webhook_service(client=fake, logs=_capture(fake))
 
@@ -592,7 +592,7 @@ class TestRunFailureGrouping:
         run = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert run is not None
         second = {**_job_payload(), "id": JOB_ID + 1, "name": second_name}
-        await AsyncJob.upsert_from_remote(run, second)
+        await RunData().store_job(run, second)
         return run
 
     @staticmethod
@@ -679,7 +679,7 @@ class TestRunFailureGrouping:
         await _ready(fake)
         run = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert run is not None
-        await AsyncJob.upsert_from_remote(
+        await RunData().store_job(
             run,
             {
                 **_job_payload(),
@@ -761,7 +761,7 @@ class TestHealingAStaleJob:
 
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(status="in_progress"))
+        await RunData().adopt_run(repo, _run_payload(status="in_progress"))
         service = make_webhook_service(client=fake, logs=_capture(fake))
         payload = {
             "action": "completed",
@@ -837,12 +837,12 @@ class TestRefreshLogs:
     async def test_the_status_says_expired_once_the_window_closed(self, bound) -> None:
         fake = _fake()
         repo = await subscribe(fake, full_name=REPO)
-        await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(minutes_ago=120))
+        await RunData().adopt_run(repo, _run_payload(minutes_ago=120))
         run = await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.github_run_id == RUN_ID)
         assert run is not None
         old_job = _job_payload()
         old_job.update({"started_at": _stamp(125), "completed_at": _stamp(120)})
-        await AsyncJob.upsert_from_remote(run, old_job)
+        await RunData().store_job(run, old_job)
         service = _query(fake)
 
         detail = await service.get_job_detail(REPO, JOB_ID)

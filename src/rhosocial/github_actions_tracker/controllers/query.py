@@ -397,10 +397,10 @@ class QueryController:
         previous_status = None if stored is None else stored.latest_status
 
         if stored is None:
-            run = await self._store.adopt(repo, remote)
+            run = await self._store.adopt_run(repo, remote)
         else:
             await self._require_scope(stored, repo)
-            run = await self._store.update(stored, remote)
+            run = await self._store.update_run(stored, remote)
 
         jobs = await self._readers.get_run_jobs(repository, run_id)
         job_ids = await self._store.sync_jobs(run, jobs)
@@ -905,9 +905,9 @@ class QueryController:
         github_run_id = int(payload.get("id") or 0)
         stored = await self._store.run(github_run_id, with_state=False) if github_run_id else None
         if stored is None:
-            return await self._store.adopt(repo, payload)
+            return await self._store.adopt_run(repo, payload)
         await self._require_scope(stored, repo)
-        return await self._store.update(stored, payload)
+        return await self._store.update_run(stored, payload)
 
     async def _upsert_page(
         self, repo: AsyncRepository, payloads: Sequence[Mapping[str, Any]]

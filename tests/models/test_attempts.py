@@ -14,12 +14,12 @@ from __future__ import annotations
 
 from conftest import FakeGithub, subscribe
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.models import (
-    AsyncJob,
     AsyncRunAttempt,
     AsyncWorkflowRun,
 )
-from rhosocial.github_actions_tracker.models.run import _pull_request_number
+from rhosocial.github_actions_tracker.services.github.payloads import GithubPayloads
 
 RUN_ID = 777000
 
@@ -75,22 +75,23 @@ async def test_a_payload_without_an_attempt_lands_on_the_newest_one(
     """Older payloads omit ``run_attempt``; they describe the current execution."""
     fake_client.repo_info = {**fake_client.repo_info, "is_private": False}
     repo = await subscribe(fake_client, "acme/demo")
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=2))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=2))
 
     fragment = _run_payload(attempt=2, status="in_progress")
     del fragment["run_attempt"]
-    await run.update_from_remote(fragment)
+    await RunData().update_run(run, fragment)
 
     latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
     assert latest is not None and latest.attempt_number == 2
     assert await AsyncRunAttempt.query().count() == 1
 
 
-def test_pull_request_helper_treats_empty_as_unknown() -> None:
+def test_pull_request_translation_treats_empty_as_unknown() -> None:
     """An empty array is "unknown" (fork PRs), never "no pull request"."""
-    assert _pull_request_number({}) is None
-    assert _pull_request_number({"pull_requests": []}) is None
-    assert _pull_request_number({"pull_requests": [{"number": 126}]}) == 126
+    payloads = GithubPayloads()
+    assert payloads.run({})["pr_number"] is None
+    assert payloads.run({"pull_requests": []})["pr_number"] is None
+    assert payloads.run({"pull_requests": [{"number": 126}]})["pr_number"] == 126
 
 
 async def test_adopt_stores_attempt_and_pr_number(fake_client: FakeGithub, bound) -> None:
@@ -98,9 +99,7 @@ async def test_adopt_stores_attempt_and_pr_number(fake_client: FakeGithub, bound
     fake_client.repo_info = {**fake_client.repo_info, "is_private": False}
     repo = await subscribe(fake_client, "acme/demo")
 
-    run = await AsyncWorkflowRun.adopt_from_remote(
-        repo, _run_payload(attempt=3, prs=[{"number": 126}])
-    )
+    run = await RunData().adopt_run(repo, _run_payload(attempt=3, prs=[{"number": 126}]))
     assert run.latest_attempt == 3
     assert run.pr_number == 126
 
@@ -114,8 +113,8 @@ async def test_update_advances_the_attempt(fake_client: FakeGithub, bound) -> No
     fake_client.repo_info = {**fake_client.repo_info, "is_private": False}
     repo = await subscribe(fake_client, "acme/demo")
 
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=1))
-    await run.update_from_remote(_run_payload(attempt=2))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=1))
+    await RunData().update_run(run, _run_payload(attempt=2))
     assert run.latest_attempt == 2
     stored = await AsyncWorkflowRun.find_by_github_id(RUN_ID, derived=True)
     assert stored is not None and stored.latest_attempt == 2
@@ -131,11 +130,11 @@ async def test_jobs_of_attempt_isolates_attempts(fake_client: FakeGithub, bound)
     fake_client.repo_info = {**fake_client.repo_info, "is_private": False}
     repo = await subscribe(fake_client, "acme/demo")
 
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=1))
-    await AsyncJob.upsert_from_remote(run, _job_payload(1001, attempt=1, name="first-attempt"))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=1))
+    await RunData().store_job(run, _job_payload(1001, attempt=1, name="first-attempt"))
 
-    await run.update_from_remote(_run_payload(attempt=2))
-    await AsyncJob.upsert_from_remote(run, _job_payload(2001, attempt=2, name="second-attempt"))
+    await RunData().update_run(run, _run_payload(attempt=2))
+    await RunData().store_job(run, _job_payload(2001, attempt=2, name="second-attempt"))
 
     latest = await run.jobs_of_attempt()
     assert [job.name for job in latest] == ["second-attempt"]
@@ -154,11 +153,11 @@ async def test_job_attempt_falls_back_to_the_run(fake_client: FakeGithub, bound)
     fake_client.repo_info = {**fake_client.repo_info, "is_private": False}
     repo = await subscribe(fake_client, "acme/demo")
 
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=5))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=5))
     payload = _job_payload(3001, attempt=5)
     del payload["run_attempt"]
 
-    job = await AsyncJob.upsert_from_remote(run, payload)
+    job = await RunData().store_job(run, payload)
     # The fragment carried no attempt, so the run's (5) was used: the job now
     # hangs off attempt 5 rather than remembering the number itself.
     attempt = await AsyncRunAttempt.find_attempt(run.id or 0, 5)
@@ -183,9 +182,9 @@ async def test_the_loser_of_a_step_insert_race_adopts_the_winner(
 
     fake_client.repo_info = {**fake_client.repo_info, "is_private": False}
     repo = await subscribe(fake_client, "acme/demo")
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=1))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=1))
     # The job payload carries step 1, so the row already exists.
-    job = await AsyncJob.upsert_from_remote(run, _job_payload(3001, attempt=1))
+    job = await RunData().store_job(run, _job_payload(3001, attempt=1))
 
     step_payload = {"number": 1, "name": "checkout", "status": "completed", "conclusion": "success"}
 
@@ -207,7 +206,7 @@ async def test_the_loser_of_a_step_insert_race_adopts_the_winner(
 
     monkeypatch.setattr(AsyncStep, "save", lose)
 
-    stored = await AsyncStep(job_id=job.id or 0).upsert_from_remote(step_payload)
+    stored = await RunData().store_step(job, step_payload)
 
     monkeypatch.setattr(AsyncStep, "save", original_save)
     assert stored.job_id == job.id

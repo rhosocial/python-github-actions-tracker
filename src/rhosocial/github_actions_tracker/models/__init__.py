@@ -20,7 +20,7 @@ Relations are declared on the models themselves (``Repository.workflows``,
 annotation targets are sibling models in other modules, and every model file
 uses ``from __future__ import annotations``, so the descriptor sees a string
 that only resolves once the sibling name is in the owning module's globals.
-:func:`_publish_relation_targets` does exactly that: it publishes every model
+:class:`_RelationPublisher` does exactly that: it publishes every model
 class into every model module, after the classes exist. Doing it here -- the one
 module that imports all of them -- keeps the model files free of circular
 imports while still letting ``typing.get_type_hints`` resolve the annotations.
@@ -70,8 +70,8 @@ _MODEL_CLASSES: tuple[type, ...] = (
 )
 
 
-def _publish_relation_targets() -> None:
-    """Publish every model name into every model module's globals.
+class _RelationPublisher:
+    """Publishes every model name into every model module's globals.
 
     Relation annotations are strings (``from __future__ import annotations``)
     and are resolved through the owning class's module namespace. A relation
@@ -82,17 +82,21 @@ def _publish_relation_targets() -> None:
     Publishing the names here -- after every class exists -- makes the
     annotation resolvable without adding a runtime import cycle to the model
     files. Only names that are model classes are published, so a module's own
-    helper functions and constants are untouched.
+    helpers and constants are untouched.
     """
-    import sys
 
-    modules = {sys.modules[cls.__module__]: cls.__module__ for cls in _MODEL_CLASSES}
-    for module in modules:
-        for cls in _MODEL_CLASSES:
-            setattr(module, cls.__name__, cls)
+    @classmethod
+    def publish(cls) -> None:
+        """Publish the model names, once, at package import time."""
+        import sys
+
+        modules = {sys.modules[item.__module__]: item.__module__ for item in _MODEL_CLASSES}
+        for module in modules:
+            for item in _MODEL_CLASSES:
+                setattr(module, item.__name__, item)
 
 
-_publish_relation_targets()
+_RelationPublisher.publish()
 
 #: The async twins, one per entity: exactly the set a process binds to its one
 #: connection. Derived, not listed, so a new model cannot be forgotten here.

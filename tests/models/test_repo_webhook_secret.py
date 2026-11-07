@@ -26,7 +26,6 @@ from rhosocial.github_actions_tracker.models.webhook_secret import (
     STATE_PENDING_USER,
     STATE_PUSHED,
     STATE_UNKNOWN,
-    generate_secret,
 )
 
 
@@ -67,7 +66,7 @@ class TestTheRow:
         first = await AsyncRepoWebhookSecret.set(repo.id or 0, "old")
         rotated = await AsyncRepoWebhookSecret.rotate(repo.id or 0)
         assert rotated.secret != first.secret
-        assert len(rotated.secret) == len(generate_secret())
+        assert len(rotated.secret) == len(RepoWebhookSecret.generate_secret())
 
     async def test_an_empty_secret_is_refused(self, bound) -> None:
         repo = await _repo()

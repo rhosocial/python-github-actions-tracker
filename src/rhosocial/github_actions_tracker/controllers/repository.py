@@ -36,16 +36,15 @@ from ..models.webhook_secret import (
     STATE_PUSHED,
     STATE_UNKNOWN,
     AsyncRepoWebhookSecret,
-    generate_secret,
 )
+from ..services.github.payloads import GithubPayloads
 from ..services.github.protocols import RepositoryReader, RunReader, WebhookManager
 from ..views import BindingSummary, RunRecord, _clean_str, _webhook_defaults
-from .run import RunController
+from .run import RunController, RunData
 
 if TYPE_CHECKING:
     from ..models import AsyncWorkflowRun
     from .query import QueryController
-    from .run import RunData
 
 __all__ = [
     "DEFAULT_WEBHOOK_EVENTS",
@@ -423,11 +422,11 @@ class RepositoryController:
 
             run = await self._runs_data.run(github_run_id)
             if run is None:
-                run = await self._runs_data.adopt(repo, remote)
+                run = await self._runs_data.adopt_run(repo, remote)
             else:
                 if not await self._runs_data.belongs_to(run, repo):
                     continue
-                run = await self._runs_data.update(run, remote)
+                run = await self._runs_data.update_run(run, remote)
 
             # The pull request is already in hand, so its base branch costs
             # nothing -- and it is often the only place to get it: the run
@@ -608,7 +607,7 @@ class RepositoryController:
         normal outcome, not an error: the secret stays ``pending_user`` and the
         operator pastes it.
         """
-        secret = _clean_str(supplied) or generate_secret()
+        secret = _clean_str(supplied) or AsyncRepoWebhookSecret.generate_secret()
         url = webhook_url or _webhook_defaults()["url"]
 
         state = STATE_UNKNOWN if _clean_str(supplied) else STATE_PENDING_USER
@@ -723,6 +722,23 @@ class RepositoryController:
 class RepositoryData:
     """Repositories, their credential bindings, and their cached workflows."""
 
+    def __init__(
+        self,
+        *,
+        runs_data: RunData | None = None,
+        payloads: GithubPayloads | None = None,
+    ) -> None:
+        """Build the row layer.
+
+        Args:
+            runs_data: The run row layer, which owns the workflow upsert shared
+                by both controllers. A private instance keeps existing callers
+                of ``RepositoryData()`` working.
+            payloads: The service that translates GitHub payloads.
+        """
+        self._runs_data = runs_data or RunData()
+        self._payloads = payloads or GithubPayloads()
+
     async def by_name(self, full_name: str) -> AsyncRepository | None:
         """The tracked repository called ``full_name``, or ``None``."""
         return await AsyncRepository.find_by_full_name(full_name)
@@ -765,8 +781,19 @@ class RepositoryData:
         return {row.repository_id for row in rows}
 
     async def store(self, payload: Mapping[str, object], full_name: str) -> AsyncRepository:
-        """Store or refresh a repository from a GitHub payload."""
-        return await AsyncRepository.upsert_from_remote(payload, full_name)
+        """Store a repository from values a service produced, or return its row.
+
+        Idempotent by ``full_name``: subscribing twice returns the row the first
+        call stored, because the operator's declaration wins over whatever
+        GitHub reports later.
+        """
+        values = self._payloads.repository(payload, full_name)
+        name = values["full_name"]
+        existing = await AsyncRepository.find_by_full_name(name)
+        if existing is not None:
+            return existing
+        repository, _ = await AsyncRepository.find_one_or_create(defaults=values, full_name=name)
+        return repository
 
     async def bind(self, repository_id: int, kind: str, ref: int) -> None:
         """Record that the credential ``(kind, ref)`` answers for this repository.
@@ -834,11 +861,10 @@ class RepositoryData:
     ) -> AsyncWorkflow:
         """Store or refresh one workflow from a GitHub payload.
 
-        The upsert key -- ``(repository_id, workflow_id)``, with the path as a
-        second chance -- is the model's; a copy of the field mapping here would
-        be a copy that drifts.
+        Delegated to the run row layer: adopting a run needs the same upsert, and
+        a copy here would be a copy that drifts.
         """
-        return await AsyncWorkflow(repository_id=repo.id or 0).upsert_from_remote(payload)
+        return await self._runs_data.store_workflow(repo, payload)
 
     async def store_workflows(
         self, repo: AsyncRepository, payloads: Sequence[Mapping[str, object]]

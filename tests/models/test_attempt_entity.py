@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from conftest import FakeGithub, subscribe
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.models import (
-    AsyncJob,
     AsyncRunAttempt,
     AsyncWorkflowRun,
 )
@@ -76,14 +76,14 @@ def _job_payload(job_id: int, attempt: int, name: str, conclusion: str = "succes
 async def test_each_attempt_keeps_its_own_state(bound) -> None:
     """A re-run must not overwrite attempt 1 with attempt 2's timestamps."""
     repo = await subscribe(_client())
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=1))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=1))
 
     # Attempt 2 arrives as a *new payload for the same run id*.
     later = dict(_run_payload(attempt=2))
     later["run_started_at"] = "2026-10-26T08:55:41Z"
     later["created_at"] = "2026-10-26T08:55:43Z"
     later["updated_at"] = "2026-10-26T08:59:52Z"
-    await run.update_from_remote(later)
+    await RunData().update_run(run, later)
 
     first = await AsyncRunAttempt.find_attempt(run.id or 0, 1)
     second = await AsyncRunAttempt.find_attempt(run.id or 0, 2)
@@ -99,11 +99,11 @@ async def test_each_attempt_keeps_its_own_state(bound) -> None:
 async def test_the_run_row_reports_the_latest_attempt(bound) -> None:
     """The newest execution is the highest stored attempt number."""
     repo = await subscribe(_client())
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=1))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=1))
 
     later = dict(_run_payload(attempt=3))
     later["status"] = "completed"
-    await run.update_from_remote(later)
+    await RunData().update_run(run, later)
 
     assert run.latest_attempt == 3
     stored = await AsyncWorkflowRun.find_by_github_id(RUN_ID, derived=True)
@@ -114,12 +114,12 @@ async def test_the_run_row_reports_the_latest_attempt(bound) -> None:
 async def test_jobs_of_two_attempts_stay_separate(bound) -> None:
     """Job ids differ per attempt, so both sets coexist -- and never mix."""
     repo = await subscribe(_client())
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=1))
-    await run.sync_jobs_from_remote([_job_payload(1001, 1, "first-attempt", "failure")])
+    run = await RunData().adopt_run(repo, _run_payload(attempt=1))
+    await RunData().sync_jobs(run, [_job_payload(1001, 1, "first-attempt", "failure")])
 
     later = dict(_run_payload(attempt=2))
-    await run.update_from_remote(later)
-    await run.sync_jobs_from_remote([_job_payload(2001, 2, "second-attempt", "success")])
+    await RunData().update_run(run, later)
+    await RunData().sync_jobs(run, [_job_payload(2001, 2, "second-attempt", "success")])
 
     assert [job.name for job in await run.jobs_of_attempt()] == ["second-attempt"]
     assert [job.name for job in await run.jobs_of_attempt(1)] == ["first-attempt"]
@@ -140,16 +140,16 @@ async def test_jobs_of_two_attempts_stay_separate(bound) -> None:
 async def test_a_job_fragment_creates_the_attempt_it_names(bound) -> None:
     """A ``workflow_job`` fragment can arrive for an attempt we never stored.
 
-    The foreign key is NOT NULL, so ``upsert_from_remote`` cannot file the job
-    under an attempt row that does not exist yet -- it creates a minimal one and
-    the fuller payload fills it in later.
+    The foreign key is NOT NULL, so a job cannot be filed under an attempt row
+    that does not exist yet -- the controller creates a minimal one and the
+    fuller values fill it in later.
     """
     repo = await subscribe(_client())
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(attempt=1))
+    run = await RunData().adopt_run(repo, _run_payload(attempt=1))
 
     fragment = _job_payload(3001, 1, "out-of-order")
     del fragment["run_id"]  # webhook fragments do not always carry it
-    job = await AsyncJob.upsert_from_remote(run, fragment)
+    job = await RunData().store_job(run, fragment)
 
     attempt = await AsyncRunAttempt.find_one(AsyncRunAttempt.c.id == job.attempt_id)
     assert attempt is not None

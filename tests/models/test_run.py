@@ -1,9 +1,9 @@
 # tests/models/test_run.py
 """AsyncWorkflowRun: adoption, remote updates and the query scopes.
 
-The run model is the mirror of a GitHub Actions execution. ``adopt_from_remote``
-stores a run the system has never seen (upserting its workflow first),
-``update_from_remote`` applies remote payloads through the forward-only state
+The run model is the mirror of a GitHub Actions execution. ``RunData.adopt_run``
+stores a run the system has never seen (creating its workflow first),
+``RunData.update_run`` applies a payload through the forward-only state
 machine, and the query domain (``recent``, ``latest_by_branch``,
 ``latest_per_workflow``, ``status_summary``) reads the local mirror only.
 """
@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.models import (
-    AsyncJob,
     AsyncRepository,
     AsyncWorkflowRun,
 )
@@ -73,14 +73,10 @@ def _run_payload(
 
 async def _seed_two_workflows(repo: AsyncRepository) -> tuple[int, int]:
     """Adopt three runs of workflow 7 and one of workflow 8; return local ids."""
-    await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(501, 1))
-    await AsyncWorkflowRun.adopt_from_remote(
-        repo, _run_payload(502, 2, status="in_progress", branch="feature")
-    )
-    await AsyncWorkflowRun.adopt_from_remote(
-        repo, _run_payload(503, 3, status="completed", conclusion="success")
-    )
-    await AsyncWorkflowRun.adopt_from_remote(
+    await RunData().adopt_run(repo, _run_payload(501, 1))
+    await RunData().adopt_run(repo, _run_payload(502, 2, status="in_progress", branch="feature"))
+    await RunData().adopt_run(repo, _run_payload(503, 3, status="completed", conclusion="success"))
+    await RunData().adopt_run(
         repo,
         _run_payload(
             510,
@@ -101,7 +97,7 @@ class TestAdoptFromRemote:
     async def test_stores_the_run_and_upserts_its_workflow(self, bound) -> None:
         repo = await _make_repo()
 
-        run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(500, 1))
+        run = await RunData().adopt_run(repo, _run_payload(500, 1))
 
         assert run.id is not None
         assert run.github_run_id == 500
@@ -118,7 +114,7 @@ class TestAdoptFromRemote:
     async def test_maps_the_full_payload(self, bound) -> None:
         repo = await _make_repo()
 
-        run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(500, 1))
+        run = await RunData().adopt_run(repo, _run_payload(500, 1))
 
         assert run.latest_attempt == 1
         assert run.latest_status == "queued"
@@ -132,16 +128,14 @@ class TestAdoptFromRemote:
     async def test_normalizes_status_synonyms(self, bound) -> None:
         repo = await _make_repo()
 
-        run = await AsyncWorkflowRun.adopt_from_remote(
-            repo, _run_payload(500, 1, status="requested")
-        )
+        run = await RunData().adopt_run(repo, _run_payload(500, 1, status="requested"))
 
         assert run.latest_status == "queued"
 
     async def test_accepts_the_webhook_started_at_spelling(self, bound) -> None:
         repo = await _make_repo()
 
-        run = await AsyncWorkflowRun.adopt_from_remote(
+        run = await RunData().adopt_run(
             repo,
             _run_payload(500, 1, started_key="started_at"),
         )
@@ -150,7 +144,7 @@ class TestAdoptFromRemote:
 
     async def test_adopted_run_is_found_by_github_id(self, bound) -> None:
         repo = await _make_repo()
-        adopted = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(500, 1))
+        adopted = await RunData().adopt_run(repo, _run_payload(500, 1))
 
         found = await AsyncWorkflowRun.find_by_github_id(500)
 
@@ -161,16 +155,16 @@ class TestAdoptFromRemote:
 class TestUpdateFromRemote:
     async def test_moves_forward_through_the_state_machine(self, bound) -> None:
         repo = await _make_repo()
-        run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(500, 1))
+        run = await RunData().adopt_run(repo, _run_payload(500, 1))
 
-        await run.update_from_remote(_run_payload(500, 1, status="in_progress"))
+        await RunData().update_run(run, _run_payload(500, 1, status="in_progress"))
         stored = await AsyncWorkflowRun.find_by_github_id(500, derived=True)
         assert stored is not None
         assert stored.latest_status == "in_progress"
         assert stored.latest_started_at is not None
 
-        await stored.update_from_remote(
-            _run_payload(500, 1, status="completed", conclusion="success")
+        await RunData().update_run(
+            stored, _run_payload(500, 1, status="completed", conclusion="success")
         )
         final = await AsyncWorkflowRun.find_by_github_id(500, derived=True)
         assert final is not None
@@ -181,12 +175,12 @@ class TestUpdateFromRemote:
     async def test_ignores_out_of_order_status_but_backfills_metadata(self, bound) -> None:
         """A stale payload must not resurrect a completed run (never fatal)."""
         repo = await _make_repo()
-        run = await AsyncWorkflowRun.adopt_from_remote(
+        run = await RunData().adopt_run(
             repo, _run_payload(500, 1, status="completed", conclusion="success")
         )
 
         stale = _run_payload(500, 2, status="queued", branch="stale-branch")
-        await run.update_from_remote(stale)
+        await RunData().update_run(run, stale)
 
         stored = await AsyncWorkflowRun.find_by_github_id(500, derived=True)
         assert stored is not None
@@ -200,11 +194,11 @@ class TestUpdateFromRemote:
 
     async def test_same_status_replay_refreshes_the_conclusion(self, bound) -> None:
         repo = await _make_repo()
-        run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(500, 1))
+        run = await RunData().adopt_run(repo, _run_payload(500, 1))
 
-        await run.update_from_remote(_run_payload(500, 1, status="completed"))
+        await RunData().update_run(run, _run_payload(500, 1, status="completed"))
         correction = _run_payload(500, 1, status="completed", conclusion="failure")
-        await run.update_from_remote(correction)
+        await RunData().update_run(run, correction)
 
         stored = await AsyncWorkflowRun.find_by_github_id(500, derived=True)
         assert stored is not None
@@ -213,11 +207,11 @@ class TestUpdateFromRemote:
 
     async def test_updates_metadata_without_touching_the_status(self, bound) -> None:
         repo = await _make_repo()
-        run = await AsyncWorkflowRun.adopt_from_remote(repo, _run_payload(500, 1))
+        run = await RunData().adopt_run(repo, _run_payload(500, 1))
 
         updated = _run_payload(500, 3, status="queued", branch="feature-x")
         updated["head_commit"] = {"message": "rebased"}
-        await run.update_from_remote(updated)
+        await RunData().update_run(run, updated)
 
         stored = await AsyncWorkflowRun.find_by_github_id(500, derived=True)
         assert stored is not None
@@ -233,7 +227,7 @@ class TestAttemptOwnsTheState:
         from rhosocial.github_actions_tracker.models.attempt import AsyncRunAttempt
 
         repo = await _make_repo()
-        run = await AsyncWorkflowRun.adopt_from_remote(
+        run = await RunData().adopt_run(
             repo, _run_payload(500, 1, status="completed", conclusion="success")
         )
 
@@ -331,10 +325,8 @@ class TestQueryScopes:
 
     async def test_jobs_returns_stored_jobs_in_id_order(self, bound) -> None:
         repo = await _make_repo()
-        run = await AsyncWorkflowRun.adopt_from_remote(
-            repo, _run_payload(500, 1, status="completed")
-        )
-        await AsyncJob.upsert_from_remote(
+        run = await RunData().adopt_run(repo, _run_payload(500, 1, status="completed"))
+        await RunData().store_job(
             run,
             {
                 "id": 902,
@@ -344,7 +336,7 @@ class TestQueryScopes:
                 "conclusion": "success",
             },
         )
-        await AsyncJob.upsert_from_remote(
+        await RunData().store_job(
             run,
             {
                 "id": 901,

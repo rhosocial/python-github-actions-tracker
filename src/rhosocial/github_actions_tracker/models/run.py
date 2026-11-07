@@ -5,8 +5,7 @@ A run is one GitHub Actions workflow execution, mirrored locally and updated
 exclusively through the two passive channels: a GitHub webhook delivery or an
 explicit pull. The pull channel never short-circuits on a terminal local state,
 so it doubles as the reconciliation tool for a missed webhook, and it adopts runs
-the system has never seen (:meth:`WorkflowRun.adopt_from_remote`, which upserts
-the run's workflow first).
+the system has never seen (the controller creates the run's workflow row first).
 
 Neither channel is implemented here: reading a run from GitHub and deciding what
 to do with it is service work (:meth:`QueryController.refresh_run
@@ -14,10 +13,10 @@ to do with it is service work (:meth:`QueryController.refresh_run
 :meth:`TriggerController.wait_for_completion
 <rhosocial.github_actions_tracker.controllers.trigger.TriggerController.wait_for_completion>`
 for
-polling). The model takes payloads it is handed -- ``adopt_from_remote``,
-``update_from_remote`` and ``sync_jobs_from_remote`` -- and owns the write rules
-they imply: the attempt-scoped state machine, the attempt row every job hangs
-off, and the job/step cascade.
+polling). The model takes **semantic values** it is handed
+(:meth:`WorkflowRun.refresh_metadata`) and owns the write rules those values
+imply; the controller translates the GitHub payload and resolves the attempt a
+job hangs off.
 
 The query domain deliberately exercises the three query builders of the ORM:
 plain ``ActiveQuery`` chaining (:meth:`WorkflowRun.recent`,
@@ -37,11 +36,9 @@ from __future__ import annotations
 
 import logging
 import sys
-from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from rhosocial.activerecord.backend.errors import IntegrityError
 from rhosocial.activerecord.backend.expression.core import Subquery
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.base.fields import DerivedField
@@ -57,165 +54,25 @@ from .relations import AsyncOrderedHasMany, OrderedHasMany
 if TYPE_CHECKING:
     from .attempt import AsyncRunAttempt, RunAttempt
     from .job import AsyncJob, Job
-    from .repository import AsyncRepository, Repository
     from .workflow import AsyncWorkflow, Workflow
 
 logger = logging.getLogger(__name__)
 
 
-def _as_int(value: Any) -> int | None:
-    """Coerce a GitHub scalar to ``int``, returning ``None`` when impossible."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+class _RunDerived:
+    """Helpers the derived-field factories cannot name directly.
 
-
-def _clean_str(value: Any, default: str = "") -> str:
-    """Return a trimmed string, falling back to ``default`` for blank values."""
-    if value is None:
-        return default
-    text = str(value).strip()
-    return text or default
-
-
-def _head_commit(run_data: Mapping[str, Any]) -> Mapping[str, Any]:
-    """The ``head_commit`` object of a run payload, or an empty mapping."""
-    head_commit = run_data.get("head_commit")
-    return head_commit if isinstance(head_commit, Mapping) else {}
-
-
-def _commit_message(run_data: Mapping[str, Any]) -> str:
-    """Extract the commit message from a REST run or webhook payload."""
-    return _clean_str(_head_commit(run_data).get("message"))
-
-
-def _commit_time(run_data: Mapping[str, Any]) -> datetime | None:
-    """The commit's own timestamp, when the payload carries one."""
-    from .states import parse_timestamp
-
-    return parse_timestamp(_head_commit(run_data).get("timestamp"))
-
-
-def _commit_author(run_data: Mapping[str, Any]) -> str:
-    """The commit author's name.
-
-    Distinct from the run's ``actor``: one is who wrote the code, the other is
-    who asked CI to run it, and a re-run makes them different people.
+    ``DerivedField`` is discovered by ``typing.get_type_hints`` while the model
+    class is still being defined, so a lambda in the class body must not name
+    that class. It resolves one column of the run's newest attempt through the
+    live module instead.
     """
-    author = _head_commit(run_data).get("author")
-    if isinstance(author, Mapping):
-        return _clean_str(author.get("name"))
-    return ""
 
-
-def _head_repo(run_data: Mapping[str, Any]) -> str:
-    """``head_repository.full_name``, which differs from the subscription on a fork."""
-    head_repository = run_data.get("head_repository")
-    if isinstance(head_repository, Mapping):
-        return _clean_str(head_repository.get("full_name"))
-    return ""
-
-
-def _base_ref(run_data: Mapping[str, Any]) -> str:
-    """Target branch of the pull request that produced the run, if any."""
-    pull_requests = run_data.get("pull_requests")
-    if not isinstance(pull_requests, list) or not pull_requests:
-        return ""
-    first = pull_requests[0]
-    if not isinstance(first, Mapping):
-        return ""
-    base = first.get("base")
-    return _clean_str(base.get("ref")) if isinstance(base, Mapping) else ""
-
-
-def _display_title(run_data: Mapping[str, Any]) -> str:
-    """GitHub's own one-line title for the run."""
-    return _clean_str(run_data.get("display_title"))
-
-
-def _actor(run_data: Mapping[str, Any]) -> str:
-    """Extract the triggering actor login from a run payload."""
-    for key in ("actor", "triggering_actor"):
-        actor = run_data.get(key)
-        if isinstance(actor, Mapping):
-            login = _clean_str(actor.get("login"))
-            if login:
-                return login
-        elif actor:
-            return _clean_str(actor)
-    return ""
-
-
-def _latest_column(dialect: Any, model_name: str, attribute: str) -> Any:
-    """One column of a run's newest attempt, resolved once the class exists.
-
-    The derived-field factories are re-created by ``typing.get_type_hints`` while
-    the model class is still being defined, and the globals they capture are a
-    snapshot from that moment -- so they must not name the class directly. The
-    lookup happens here, at query time, through the live module.
-    """
-    model = getattr(sys.modules[__name__], model_name)
-    return model._latest_column(dialect, attribute)
-
-
-def _belongs_to_pull_request(data: Mapping[str, Any], number: int, head_sha: str) -> bool:
-    """Whether a remote run payload belongs to a pull request.
-
-    GitHub offers no PR-number filter on the runs endpoint, so attribution is
-    done here in two tiers:
-
-    * When the run carries a non-empty ``pull_requests`` array, it is
-      authoritative and exclusive -- GitHub populates it while the pull request
-      is open (the state this feature targets), so a number miss means the run
-      belongs to a different pull request.
-    * When the array is empty or absent (closed/merged pull requests, where
-      GitHub drops the attribution), the run is matched on ``event`` plus a
-      matching ``head_sha``. Best-effort: two pull requests sharing a head commit
-      become indistinguishable, which is why open pull requests are the case
-      this supports.
-    """
-    prs = data.get("pull_requests")
-    if prs:
-        return any(isinstance(pr, Mapping) and _as_int(pr.get("number")) == number for pr in prs)
-    event = _clean_str(data.get("event"))
-    sha = _clean_str(data.get("head_sha"))
-    return event == "pull_request" and bool(head_sha) and sha == head_sha
-
-
-def _pull_request_number(data: Mapping[str, Any]) -> int | None:
-    """Cached PR number from a run payload, or ``None``.
-
-    Only the first entry is used: a run belongs to one pull request in practice,
-    and the field is absent for fork PRs, so ``None`` is "unknown", not "none".
-    """
-    pull_requests = data.get("pull_requests")
-    if not pull_requests:
-        return None
-    for entry in pull_requests:
-        if isinstance(entry, Mapping):
-            number = _as_int(entry.get("number"))
-            if number:
-                return number
-    return None
-
-
-def _run_url(repo_full_name: str, github_run_id: int) -> str:
-    """Build the GitHub HTML URL of a run."""
-    return f"https://github.com/{repo_full_name}/actions/runs/{github_run_id}"
-
-
-def _elapsed_seconds(
-    started_at: datetime | None,
-    completed_at: datetime | None,
-) -> float | None:
-    """Elapsed seconds between two timestamps (``None`` without a start)."""
-    if started_at is None:
-        return None
-    end = completed_at or datetime.now(started_at.tzinfo)
-    return (end - started_at).total_seconds()
+    @staticmethod
+    def latest_column(dialect: Any, model_name: str, attribute: str) -> Any:
+        """One column of a run's newest attempt, resolved once the class exists."""
+        model = getattr(sys.modules[__name__], model_name)
+        return model._latest_column(dialect, attribute)
 
 
 class _RunStateFields:
@@ -232,22 +89,22 @@ class _RunStateFields:
     """
 
     latest_attempt: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "WorkflowRun", "attempt_number")
+        lambda d: _RunDerived.latest_column(d, "WorkflowRun", "attempt_number")
     )
     latest_status: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "WorkflowRun", "status")
+        lambda d: _RunDerived.latest_column(d, "WorkflowRun", "status")
     )
     latest_conclusion: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "WorkflowRun", "conclusion")
+        lambda d: _RunDerived.latest_column(d, "WorkflowRun", "conclusion")
     )
     latest_started_at: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "WorkflowRun", "started_at")
+        lambda d: _RunDerived.latest_column(d, "WorkflowRun", "started_at")
     )
     latest_github_created_at: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "WorkflowRun", "github_created_at")
+        lambda d: _RunDerived.latest_column(d, "WorkflowRun", "github_created_at")
     )
     latest_completed_at: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "WorkflowRun", "completed_at")
+        lambda d: _RunDerived.latest_column(d, "WorkflowRun", "completed_at")
     )
 
 
@@ -255,22 +112,22 @@ class _AsyncRunStateFields:
     """The derived fields of the asynchronous run; see :class:`_RunStateFields`."""
 
     latest_attempt: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "AsyncWorkflowRun", "attempt_number")
+        lambda d: _RunDerived.latest_column(d, "AsyncWorkflowRun", "attempt_number")
     )
     latest_status: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "AsyncWorkflowRun", "status")
+        lambda d: _RunDerived.latest_column(d, "AsyncWorkflowRun", "status")
     )
     latest_conclusion: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "AsyncWorkflowRun", "conclusion")
+        lambda d: _RunDerived.latest_column(d, "AsyncWorkflowRun", "conclusion")
     )
     latest_started_at: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "AsyncWorkflowRun", "started_at")
+        lambda d: _RunDerived.latest_column(d, "AsyncWorkflowRun", "started_at")
     )
     latest_github_created_at: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "AsyncWorkflowRun", "github_created_at")
+        lambda d: _RunDerived.latest_column(d, "AsyncWorkflowRun", "github_created_at")
     )
     latest_completed_at: ClassVar[DerivedField] = DerivedField(
-        lambda d: _latest_column(d, "AsyncWorkflowRun", "completed_at")
+        lambda d: _RunDerived.latest_column(d, "AsyncWorkflowRun", "completed_at")
     )
 
 
@@ -531,155 +388,55 @@ class WorkflowRun(FindOrCreateMixin, _RunStateFields, DefaultTimestampMixin, Act
 
     # ---- behavior -------------------------------------------------------------
 
-    @classmethod
-    def adopt_from_remote(cls, repo: Repository, remote: Mapping[str, Any]) -> WorkflowRun:
-        """Store a run that only exists on GitHub so far.
+    def refresh_metadata(
+        self,
+        *,
+        run_number: int | None = None,
+        pr_number: int | None = None,
+        event: str | None = None,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        commit_message: str | None = None,
+        display_title: str | None = None,
+        head_repo: str | None = None,
+        commit_time: datetime | None = None,
+        commit_author: str | None = None,
+        base_ref: str | None = None,
+        actor: str | None = None,
+    ) -> WorkflowRun:
+        """Apply attempt-independent metadata to this stored run.
 
-        The run's workflow is upserted first (:meth:`Workflow.upsert_from_remote`),
-        so the pull channel can adopt a run of a workflow the system has
-        never tracked. The start timestamp accepts both GitHub spellings
-        (``run_started_at`` on REST payloads, ``started_at`` on webhooks).
+        The execution a payload describes -- its status, conclusion and
+        timestamps -- belongs to ``ghat_run_attempts``, the single record of it.
+        Only identity and commit metadata land here, so a late payload for an
+        older attempt cannot rewrite the run's current state.
 
-        Args:
-            repo: The subscription the run belongs to.
-            remote: A GitHub run payload (REST object or webhook fragment).
-
-        Returns:
-            The persisted :class:`WorkflowRun` record.
+        ``None``, a blank string and zero mean "the caller does not know a new
+        value", never "clear it": a run payload carries no PR number once the
+        pull request is closed, and writing ``None`` would erase the cache.
         """
-        from .workflow import Workflow
-
-        # No ``state``: a run payload describes the execution, not the workflow's
-        # health. Creating a row here says "this workflow exists"; ``state`` stays
-        # ``unknown`` until a workflow payload or the list endpoint tells us, so
-        # adopting an old run cannot resurrect a workflow that was deleted.
-        workflow = Workflow(
-            repository_id=repo.id or 0,
-            workflow_id=_as_int(remote.get("workflow_id")) or 0,
-            name=_clean_str(remote.get("name")),
-            path=_clean_str(remote.get("path")),
-        )
-        workflow = workflow.upsert_from_remote(remote)
-
-        run = cls(
-            workflow_id=workflow.id or 0,
-            github_run_id=_as_int(remote.get("id")) or 0,
-            run_number=_as_int(remote.get("run_number")) or 0,
-            pr_number=_pull_request_number(remote),
-            event=_clean_str(remote.get("event")),
-            branch=_clean_str(remote.get("head_branch")),
-            commit_sha=_clean_str(remote.get("head_sha")),
-            commit_message=_commit_message(remote),
-            display_title=_display_title(remote),
-            head_repo=_head_repo(remote),
-            commit_time=_commit_time(remote),
-            commit_author=_commit_author(remote),
-            base_ref=_base_ref(remote),
-            actor=_actor(remote),
-        )
-        try:
-            run.save()
-        except IntegrityError:
-            # Two deliveries of the same run can adopt it at the same moment --
-            # job events of one run all arrive together, and each notices the
-            # run missing before any of them inserts it. The loser re-reads the
-            # winner's row instead of failing the whole delivery.
-            existing = cls.find_one(
-                (cls.c.workflow_id == run.workflow_id) & (cls.c.github_run_id == run.github_run_id)
-            )
-            if existing is None:
-                raise
-            return existing
-        logger.info("Adopted run %s from '%s'", run.github_run_id, repo.full_name)
-        # The execution this payload describes gets its own row, so the run's
-        # timestamps and its attempt's timestamps are two facts rather than one
-        # overwritten by the next re-run.
-        from .attempt import RunAttempt
-
-        attempt = RunAttempt.upsert_from_remote(run, remote)
-        run._apply_attempt_state(attempt)
-        return run
-
-    def update_from_remote(self, remote: Mapping[str, Any]) -> WorkflowRun:
-        """Apply a remote run payload to this stored record.
-
-        Only attempt-independent metadata lands on the run row: the execution
-        a payload describes -- its status, conclusion and timestamps -- is
-        written to ``ghat_run_attempts``, which is the single record of it. A
-        late payload for an older attempt therefore updates that attempt's row
-        and cannot rewrite the run's current state.
-        """
-        self.run_number = _as_int(remote.get("run_number")) or self.run_number
-        # The attempt this payload describes must have a row of its own, filled
-        # from *this* payload -- not a minimal row the next payload would have to
-        # correct. A re-run's job payloads arrive for the new number before
-        # anything has stored it, and jobs hang off that row.
-        from .attempt import RunAttempt
-
-        attempt = RunAttempt.upsert_from_remote(self, remote)
-        pr_number = _pull_request_number(remote)
-        if pr_number is not None:
-            self.pr_number = pr_number
-        self.branch = _clean_str(remote.get("head_branch"), self.branch)
-        self.commit_sha = _clean_str(remote.get("head_sha"), self.commit_sha)
-
-        message = _commit_message(remote)
-        if message:
-            self.commit_message = message
-        self.display_title = _clean_str(remote.get("display_title"), self.display_title)
-        self.head_repo = _head_repo(remote) or self.head_repo
-        commit_time = _commit_time(remote)
-        if commit_time is not None:
-            self.commit_time = commit_time
-        self.commit_author = _commit_author(remote) or self.commit_author
-        self.base_ref = _base_ref(remote) or self.base_ref
-        actor = _actor(remote)
-        if actor:
-            self.actor = actor
-
+        values = {
+            "run_number": run_number,
+            "pr_number": pr_number,
+            "event": event,
+            "branch": branch,
+            "commit_sha": commit_sha,
+            "commit_message": commit_message,
+            "display_title": display_title,
+            "head_repo": head_repo,
+            "commit_time": commit_time,
+            "commit_author": commit_author,
+            "base_ref": base_ref,
+            "actor": actor,
+        }
+        for field, value in values.items():
+            if value is None or value == "" or value == 0:
+                continue
+            if getattr(self, field) != value:
+                setattr(self, field, value)
         if self.is_dirty:
             self.save()
-        self._apply_attempt_state(attempt)
         return self
-
-    def sync_jobs_from_remote(self, remote_jobs: Sequence[Mapping[str, Any]]) -> list[int]:
-        """Store a batch of job payloads under their own attempts, and return their ids.
-
-        The write half of the read cascade: ``ghat_jobs.attempt_id`` → ``attempts``
-        → ``run``, and each job cascades its ``steps``. Doing it here rather than
-        in each caller is what keeps the three write paths (the pull channel, a
-        webhook delivery, and the query path's lazy sync) from each carrying
-        their own loop -- and their own idea of which attempt a job belongs to.
-
-        Each job's attempt is resolved from the payload, so a run whose jobs
-        span two attempts stores both, and a job is never filed under the wrong
-        one because a caller guessed.
-
-        Args:
-            remote_jobs: GitHub job payloads (REST objects or webhook
-                fragments), each optionally carrying a ``steps`` array.
-
-        Returns:
-            Local ids of the jobs stored, in payload order, skipping any that
-            could not be persisted.
-        """
-
-        from .attempt import RunAttempt
-
-        ids: list[int] = []
-        for job_data in remote_jobs:
-            # The payload names its own execution; only when it does not does the
-            # newest stored attempt answer. Never the other way round: a late job
-            # of an older attempt must land in *its* attempt.
-            number = _as_int(job_data.get("run_attempt"))
-            if not number:
-                latest = RunAttempt.latest_for_run(self.id or 0)
-                number = latest.attempt_number if latest else 1
-            attempt = RunAttempt.ensure(self, number)
-            job = Job.upsert_from_remote(attempt, job_data)
-            if job.id is not None:
-                ids.append(job.id)
-        return ids
 
     def attempt_ids(self) -> list[int]:
         """Local ids of every stored attempt of this run, number ascending.
@@ -701,16 +458,6 @@ class WorkflowRun(FindOrCreateMixin, _RunStateFields, DefaultTimestampMixin, Act
             .all()
         )
         return [row.id for row in rows if row.id is not None]
-
-    @classmethod
-    def belongs_to_pull_request(
-        cls, payload: Mapping[str, Any], number: int, head_sha: str
-    ) -> bool:
-        """Whether a run payload belongs to pull request ``number``.
-
-        See :func:`_belongs_to_pull_request` for the two attribution tiers.
-        """
-        return _belongs_to_pull_request(payload, number, head_sha)
 
     def jobs_of_attempt(self, attempt: int | None = None) -> list[Job]:
         """Return the stored jobs of one attempt, in local id order.
@@ -979,113 +726,45 @@ class AsyncWorkflowRun(
 
     # ---- behavior -------------------------------------------------------------
 
-    @classmethod
-    async def adopt_from_remote(
-        cls, repo: AsyncRepository, remote: Mapping[str, Any]
+    async def refresh_metadata(
+        self,
+        *,
+        run_number: int | None = None,
+        pr_number: int | None = None,
+        event: str | None = None,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        commit_message: str | None = None,
+        display_title: str | None = None,
+        head_repo: str | None = None,
+        commit_time: datetime | None = None,
+        commit_author: str | None = None,
+        base_ref: str | None = None,
+        actor: str | None = None,
     ) -> AsyncWorkflowRun:
-        """Store a run that only exists on GitHub so far.
-
-        See :meth:`WorkflowRun.adopt_from_remote`; the workflow upsert and
-        the ``run_started_at`` / ``started_at`` dual key are identical.
-        """
-        from .workflow import AsyncWorkflow
-
-        # No ``state``: a run payload describes the execution, not the workflow's
-        # health. Creating a row here says "this workflow exists"; ``state`` stays
-        # ``unknown`` until a workflow payload or the list endpoint tells us, so
-        # adopting an old run cannot resurrect a workflow that was deleted.
-        workflow = AsyncWorkflow(
-            repository_id=repo.id or 0,
-            workflow_id=_as_int(remote.get("workflow_id")) or 0,
-            name=_clean_str(remote.get("name")),
-            path=_clean_str(remote.get("path")),
-        )
-        workflow = await workflow.upsert_from_remote(remote)
-
-        run = cls(
-            workflow_id=workflow.id or 0,
-            github_run_id=_as_int(remote.get("id")) or 0,
-            run_number=_as_int(remote.get("run_number")) or 0,
-            pr_number=_pull_request_number(remote),
-            event=_clean_str(remote.get("event")),
-            branch=_clean_str(remote.get("head_branch")),
-            commit_sha=_clean_str(remote.get("head_sha")),
-            commit_message=_commit_message(remote),
-            display_title=_display_title(remote),
-            head_repo=_head_repo(remote),
-            commit_time=_commit_time(remote),
-            commit_author=_commit_author(remote),
-            base_ref=_base_ref(remote),
-            actor=_actor(remote),
-        )
-        try:
-            await run.save()
-        except IntegrityError:
-            # See :meth:`WorkflowRun.adopt_from_remote`: several job deliveries
-            # of one run can reach the insert together.
-            existing = await cls.find_one(
-                (cls.c.workflow_id == run.workflow_id) & (cls.c.github_run_id == run.github_run_id)
-            )
-            if existing is None:
-                raise
-            return existing
-        logger.info("Adopted run %s from '%s'", run.github_run_id, repo.full_name)
-        # The execution this payload describes gets its own row -- see the sync
-        # twin for why the two timestamps must stay two facts.
-        from .attempt import AsyncRunAttempt
-
-        attempt = await AsyncRunAttempt.upsert_from_remote(run, remote)
-        run._apply_attempt_state(attempt)
-        return run
-
-    async def update_from_remote(self, remote: Mapping[str, Any]) -> AsyncWorkflowRun:
-        """Apply a remote run payload to this stored record.
-
-        See :meth:`WorkflowRun.update_from_remote`: only attempt-independent
-        metadata lands here; the execution's own state goes to its attempt row.
-        """
-        self.run_number = _as_int(remote.get("run_number")) or self.run_number
-        # The attempt this payload describes must have a row of its own, or the
-        # execution it names is invisible: jobs hang off the attempt, and a
-        # re-run's job payloads arrive for the *new* number before anything has
-        # stored it.
-        from .attempt import AsyncRunAttempt
-
-        attempt = await AsyncRunAttempt.upsert_from_remote(self, remote)
-        pr_number = _pull_request_number(remote)
-        if pr_number is not None:
-            self.pr_number = pr_number
-        self.branch = _clean_str(remote.get("head_branch"), self.branch)
-        self.commit_sha = _clean_str(remote.get("head_sha"), self.commit_sha)
-
-        message = _commit_message(remote)
-        if message:
-            self.commit_message = message
-        self.display_title = _clean_str(remote.get("display_title"), self.display_title)
-        self.head_repo = _head_repo(remote) or self.head_repo
-        commit_time = _commit_time(remote)
-        if commit_time is not None:
-            self.commit_time = commit_time
-        self.commit_author = _commit_author(remote) or self.commit_author
-        self.base_ref = _base_ref(remote) or self.base_ref
-        actor = _actor(remote)
-        if actor:
-            self.actor = actor
-
+        """Apply attempt-independent metadata; see :meth:`WorkflowRun.refresh_metadata`."""
+        values = {
+            "run_number": run_number,
+            "pr_number": pr_number,
+            "event": event,
+            "branch": branch,
+            "commit_sha": commit_sha,
+            "commit_message": commit_message,
+            "display_title": display_title,
+            "head_repo": head_repo,
+            "commit_time": commit_time,
+            "commit_author": commit_author,
+            "base_ref": base_ref,
+            "actor": actor,
+        }
+        for field, value in values.items():
+            if value is None or value == "" or value == 0:
+                continue
+            if getattr(self, field) != value:
+                setattr(self, field, value)
         if self.is_dirty:
             await self.save()
-        self._apply_attempt_state(attempt)
         return self
-
-    @classmethod
-    def belongs_to_pull_request(
-        cls, payload: Mapping[str, Any], number: int, head_sha: str
-    ) -> bool:
-        """Whether a run payload belongs to pull request ``number``.
-
-        See :func:`_belongs_to_pull_request` for the two attribution tiers.
-        """
-        return _belongs_to_pull_request(payload, number, head_sha)
 
     async def jobs_of_attempt(self, attempt: int | None = None) -> list[AsyncJob]:
         """Return the stored jobs of one attempt, in local id order.
@@ -1112,27 +791,6 @@ class AsyncWorkflowRun(
             .with_("steps")
             .all()
         )
-
-    async def sync_jobs_from_remote(self, remote_jobs: Sequence[Mapping[str, Any]]) -> list[int]:
-        """Store a batch of job payloads under their own attempts.
-
-        See :meth:`WorkflowRun.sync_jobs_from_remote`; the async twin, same
-        behaviour and same ordering guarantees.
-        """
-
-        from .attempt import AsyncRunAttempt
-
-        ids: list[int] = []
-        for job_data in remote_jobs:
-            number = _as_int(job_data.get("run_attempt"))
-            if not number:
-                latest = await AsyncRunAttempt.latest_for_run(self.id or 0)
-                number = latest.attempt_number if latest else 1
-            attempt = await AsyncRunAttempt.ensure(self, number)
-            job = await AsyncJob.upsert_from_remote(attempt, job_data)
-            if job.id is not None:
-                ids.append(job.id)
-        return ids
 
     async def attempt_ids(self) -> list[int]:
         """Local ids of every stored attempt of this run, number ascending.

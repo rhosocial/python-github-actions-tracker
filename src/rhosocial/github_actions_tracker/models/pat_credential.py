@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
@@ -45,14 +45,6 @@ logger = logging.getLogger(__name__)
 
 #: Registry key this provider registers under; persisted in binding rows.
 PROVIDER_KIND = "pat"
-
-
-def _clean(value: Any, default: str = "") -> str:
-    """Return a trimmed string, falling back to ``default``."""
-    if value is None:
-        return default
-    text = str(value).strip()
-    return text or default
 
 
 class PatCredential(DefaultTimestampMixin, ActiveRecord):

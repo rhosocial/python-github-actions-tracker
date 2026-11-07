@@ -7,26 +7,22 @@ timestamps). GitHub does not give steps a stable id of their own, so the
 ``github_step_id`` column mirrors the step ``number`` -- the same convention
 the schema's ``UNIQUE(job_id, github_step_id)`` constraint is built on.
 
-Steps are stored exclusively through :meth:`Step.upsert_from_remote`, keyed
-by ``(job_id, number)``; it is called by
-:meth:`Job.upsert_from_remote
-<rhosocial.github_actions_tracker.models.job.Job.upsert_from_remote>` for every
-entry of a job payload's ``steps`` array.
+Steps are stored exclusively through :meth:`Step.record`, keyed by
+``(job_id, number)``; the controller calls it for every entry of a job
+payload's ``steps`` array.
 
 The twins are behavior-identical; the sync one exists for the project's
 sync/async parity rule. There are no cross-model references here -- the
-methods scope themselves by ``job_id`` -- so this module needs no lazy
-imports beyond the state machine used by the upsert.
+methods scope themselves by the job they are handed -- so this module needs no
+lazy imports beyond the state machine used by the write path.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
-from rhosocial.activerecord.backend.errors import IntegrityError
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -41,24 +37,6 @@ if TYPE_CHECKING:
     from .log import AsyncStepLog, StepLog
 
 logger = logging.getLogger(__name__)
-
-
-def _as_int(value: Any) -> int | None:
-    """Coerce a GitHub scalar to ``int``, returning ``None`` when impossible."""
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _clean_str(value: Any, default: str = "") -> str:
-    """Return a trimmed string, falling back to ``default`` for blank values."""
-    if value is None:
-        return default
-    text = str(value).strip()
-    return text or default
 
 
 class Step(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
@@ -105,83 +83,75 @@ class Step(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
 
     # ---- behavior -------------------------------------------------------------
 
-    def upsert_from_remote(self, step_data: Mapping[str, Any]) -> Step:
-        """Create or update this job's step from a remote step payload.
+    @classmethod
+    def record(
+        cls,
+        job: Job,
+        *,
+        number: int,
+        name: str | None = None,
+        status: str | None = None,
+        conclusion: str | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> Step:
+        """Store or refresh one step of ``job`` from semantic values.
 
-        The lookup is keyed by ``(job_id, number)`` -- the receiving
-        instance supplies the job, the payload supplies the number:
-
-        1. a stored step with that number moves through the forward-only
-           state machine (a stale or out-of-order payload is logged and
-           skipped, never fatal) and is refreshed in place (name,
-           conclusion, timestamps);
-        2. otherwise the payload is stored as a new row -- the receiving
-           instance itself when it is not persisted yet, a fresh row when
-           it is. ``github_step_id`` is set to the number, keeping the
-           column aligned with the lookup key.
+        The key is ``(job_id, number)``. ``github_step_id`` mirrors ``number``,
+        which is the convention the schema's unique constraint is built on.
+        A stored step moves through the forward-only state machine; an unseen
+        one is inserted.
 
         Args:
-            step_data: One entry of a GitHub job payload's ``steps`` array.
+            job: The persisted job the step belongs to -- the **direct** parent.
+            number: The step number inside that job.
+            name: The step's display name.
+            status: Canonical status; ``None`` leaves the stored one alone.
+            conclusion: Canonical conclusion, when the step finished.
+            started_at: When the step started.
+            completed_at: When it ended.
 
         Returns:
             The persisted :class:`Step` record.
         """
         from .errors import InvalidStateTransitionError
-        from .states import (
-            KIND_STEP,
-            StateMachine,
-            normalize_conclusion,
-            normalize_status,
-            parse_timestamp,
-        )
+        from .job import Job
+        from .states import KIND_STEP, StateMachine
 
-        cls = type(self)
+        if not isinstance(job, Job) or job.id is None:
+            raise ValueError(
+                "Step.record needs a stored job; the controller stores the parent "
+                "before handing it over"
+            )
 
-        number = _as_int(step_data.get("number")) or 0
-        status = normalize_status(step_data.get("status"))
-        conclusion = normalize_conclusion(step_data.get("conclusion"))
-        started_at = parse_timestamp(step_data.get("started_at"))
-        completed_at = parse_timestamp(step_data.get("completed_at"))
-        name = _clean_str(step_data.get("name"))
+        values = {
+            "name": name,
+            "status": status,
+            "conclusion": conclusion,
+            "started_at": started_at,
+            "completed_at": completed_at,
+        }
+        defaults = {field: value for field, value in values.items() if value is not None}
+        defaults["github_step_id"] = number
+        step, created = cls.find_one_or_create(defaults=defaults, job_id=job.id, number=number)
+        if created:
+            logger.debug("Stored step %s ('%s') for job %s", number, name, job.id)
+            return step
 
-        existing = cls.find_one((cls.c.job_id == self.job_id) & (cls.c.number == number))
-        if existing is not None:
+        if status is not None:
             try:
-                StateMachine.apply_transition(existing, status, conclusion, KIND_STEP)
+                StateMachine.apply_transition(step, status, conclusion, KIND_STEP)
             except InvalidStateTransitionError as exc:
                 logger.warning("Ignoring out-of-order status for step %s: %s", number, exc)
-            if name:
-                existing.name = name
-            if started_at is not None:
-                existing.started_at = started_at
-            if completed_at is not None:
-                existing.completed_at = completed_at
-            if existing.is_dirty:
-                existing.save()
-            return existing
-
-        record = self if self.id is None else cls(job_id=self.job_id)
-        record.job_id = self.job_id
-        record.github_step_id = number
-        record.number = number
-        record.name = name
-        record.status = status
-        record.conclusion = conclusion
-        record.started_at = started_at
-        record.completed_at = completed_at
-        try:
-            record.save()
-        except IntegrityError:
-            # A poll and a delivery (or two polls) both read "no row" and both
-            # inserted; the unique key rejects the loser. The winner is the row
-            # to answer with -- failing here used to abort the whole refresh, so
-            # one concurrent writer made the read path return an error.
-            winner = cls.find_one((cls.c.job_id == self.job_id) & (cls.c.number == number))
-            if winner is None:
-                raise
-            return winner
-        logger.debug("Stored step %s ('%s') for job %s", number, name, self.job_id)
-        return record
+        if name:
+            step.name = name
+        if started_at is not None:
+            step.started_at = started_at
+        if completed_at is not None:
+            step.completed_at = completed_at
+        if step.is_dirty:
+            step.save()
+        return step
 
 
 class AsyncStep(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
@@ -232,66 +202,56 @@ class AsyncStep(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord
 
     # ---- behavior -------------------------------------------------------------
 
-    async def upsert_from_remote(self, step_data: Mapping[str, Any]) -> AsyncStep:
-        """Create or update this job's step from a remote step payload.
-
-        See :meth:`Step.upsert_from_remote` for the ``(job_id, number)``
-        key resolution and the state machine semantics; the stored field
-        semantics are identical.
-        """
+    @classmethod
+    async def record(
+        cls,
+        job: AsyncJob,
+        *,
+        number: int,
+        name: str | None = None,
+        status: str | None = None,
+        conclusion: str | None = None,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> AsyncStep:
+        """Store or refresh one step of ``job``; see :meth:`Step.record`."""
         from .errors import InvalidStateTransitionError
-        from .states import (
-            KIND_STEP,
-            StateMachine,
-            normalize_conclusion,
-            normalize_status,
-            parse_timestamp,
+        from .job import AsyncJob
+        from .states import KIND_STEP, StateMachine
+
+        if not isinstance(job, AsyncJob) or job.id is None:
+            raise ValueError(
+                "Step.record needs a stored job; the controller stores the parent "
+                "before handing it over"
+            )
+
+        values = {
+            "name": name,
+            "status": status,
+            "conclusion": conclusion,
+            "started_at": started_at,
+            "completed_at": completed_at,
+        }
+        defaults = {field: value for field, value in values.items() if value is not None}
+        defaults["github_step_id"] = number
+        step, created = await cls.find_one_or_create(
+            defaults=defaults, job_id=job.id, number=number
         )
+        if created:
+            logger.debug("Stored step %s ('%s') for job %s", number, name, job.id)
+            return step
 
-        cls = type(self)
-
-        number = _as_int(step_data.get("number")) or 0
-        status = normalize_status(step_data.get("status"))
-        conclusion = normalize_conclusion(step_data.get("conclusion"))
-        started_at = parse_timestamp(step_data.get("started_at"))
-        completed_at = parse_timestamp(step_data.get("completed_at"))
-        name = _clean_str(step_data.get("name"))
-
-        existing = await cls.find_one((cls.c.job_id == self.job_id) & (cls.c.number == number))
-        if existing is not None:
+        if status is not None:
             try:
-                StateMachine.apply_transition(existing, status, conclusion, KIND_STEP)
+                StateMachine.apply_transition(step, status, conclusion, KIND_STEP)
             except InvalidStateTransitionError as exc:
                 logger.warning("Ignoring out-of-order status for step %s: %s", number, exc)
-            if name:
-                existing.name = name
-            if started_at is not None:
-                existing.started_at = started_at
-            if completed_at is not None:
-                existing.completed_at = completed_at
-            # See :meth:`Step.upsert_from_remote`: the bucket only ever moves
-            # from "unknown" to "known", never the other way.
-            if existing.is_dirty:
-                await existing.save()
-            return existing
-
-        record = self if self.id is None else cls(job_id=self.job_id)
-        record.job_id = self.job_id
-        record.github_step_id = number
-        record.number = number
-        record.name = name
-        record.status = status
-        record.conclusion = conclusion
-        record.started_at = started_at
-        record.completed_at = completed_at
-        try:
-            await record.save()
-        except IntegrityError:
-            # See :meth:`Step.upsert_from_remote`: the loser of an insert race
-            # adopts the winner instead of failing the caller's refresh.
-            winner = await cls.find_one((cls.c.job_id == self.job_id) & (cls.c.number == number))
-            if winner is None:
-                raise
-            return winner
-        logger.debug("Stored step %s ('%s') for job %s", number, name, self.job_id)
-        return record
+        if name:
+            step.name = name
+        if started_at is not None:
+            step.started_at = started_at
+        if completed_at is not None:
+            step.completed_at = completed_at
+        if step.is_dirty:
+            await step.save()
+        return step

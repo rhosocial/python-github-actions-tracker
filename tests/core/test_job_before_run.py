@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from conftest import FakeGithub, make_webhook_service
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncRepository,
@@ -131,8 +132,8 @@ class TestJobBeforeRun:
         """
         repo = await _subscribe()
 
-        first = await AsyncWorkflowRun.adopt_from_remote(repo, _remote_run())
-        second = await AsyncWorkflowRun.adopt_from_remote(repo, _remote_run())
+        first = await RunData().adopt_run(repo, _remote_run())
+        second = await RunData().adopt_run(repo, _remote_run())
 
         assert second.id == first.id
         assert await AsyncWorkflowRun.query().count() == 1

@@ -28,7 +28,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from rhosocial.github_actions_tracker.models import AsyncJob, AsyncRunAttempt, AsyncWorkflowRun
+from rhosocial.github_actions_tracker.controllers.run import RunData
+from rhosocial.github_actions_tracker.models import AsyncRunAttempt
 from tests.core.test_facade_views import _run_payload, subscribe
 
 BASE = datetime(2026, 9, 20, 6, 0, tzinfo=timezone.utc)
@@ -54,12 +55,10 @@ async def _attempt_with_jobs(
     }
     repo = await subscribe(fake_client)
     if pad_job_ids:
-        decoy = await AsyncWorkflowRun.adopt_from_remote(
-            repo, _run_payload(901, attempt=1, status="completed")
-        )
+        decoy = await RunData().adopt_run(repo, _run_payload(901, attempt=1, status="completed"))
         decoy_attempt = await AsyncRunAttempt.ensure(decoy, 1)
         for index in range(pad_job_ids):
-            await AsyncJob.upsert_from_remote(
+            await RunData().store_job(
                 decoy_attempt,
                 {
                     "id": 8100 + index,
@@ -75,9 +74,9 @@ async def _attempt_with_jobs(
     # because nothing else reads it. It is what makes the queue measurable.
     payload = _run_payload(900, attempt=1, status="completed")
     payload["created_at"] = (BASE + timedelta(minutes=0)).isoformat()
-    run = await AsyncWorkflowRun.adopt_from_remote(repo, payload)
+    run = await RunData().adopt_run(repo, payload)
     for index, job in enumerate(jobs):
-        await AsyncJob.upsert_from_remote(
+        await RunData().store_job(
             run,
             {
                 "id": 9001 + index,

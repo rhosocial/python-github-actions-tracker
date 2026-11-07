@@ -1,9 +1,8 @@
 # tests/services/github/test_github_repositories.py
 """``GithubRepositories``: metadata, workflows, and the one call that takes a credential.
 
-Payloads come back unchanged -- ``AsyncRepository.upsert_from_remote`` and
-``AsyncWorkflow.upsert_from_remote`` read them -- so the assertions are about the
-call, not about parsing.
+Payloads come back unchanged; :class:`GithubPayloads` translates them into
+semantic values, so the assertions are about the call, not about parsing.
 """
 
 from __future__ import annotations

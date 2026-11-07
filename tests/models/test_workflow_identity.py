@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 from rhosocial.activerecord.backend.errors import IntegrityError
 
+from rhosocial.github_actions_tracker.controllers.run import RunData
 from rhosocial.github_actions_tracker.models import (
     AsyncRepository,
     AsyncWorkflow,
@@ -32,7 +33,7 @@ async def _repository() -> AsyncRepository:
 
 
 def _run_payload(workflow_id: int = 7, name: str = "CI") -> dict[str, object]:
-    """What ``Run.adopt_from_remote`` hands to the workflow upsert.
+    """What the run row layer hands to the workflow upsert.
 
     A run payload carries the workflow identity and labels, and **no state** --
     the state belongs to the workflow, not to the execution.
@@ -47,9 +48,7 @@ def _run_payload(workflow_id: int = 7, name: str = "CI") -> dict[str, object]:
 class TestIdentity:
     async def test_by_github_id_is_the_lookup(self, bound) -> None:
         repository = await _repository()
-        workflow = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            _run_payload()
-        )
+        workflow = await RunData().store_workflow(repository, _run_payload())
 
         found = await AsyncWorkflow.by_github_id(repository.id or 0, 7)
 
@@ -60,13 +59,9 @@ class TestIdentity:
         """Name and path change; the id does not, so the aggregation still sees
         one workflow rather than two."""
         repository = await _repository()
-        first = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            _run_payload()
-        )
+        first = await RunData().store_workflow(repository, _run_payload())
 
-        renamed = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            {**_run_payload(), "name": "Renamed"}
-        )
+        renamed = await RunData().store_workflow(repository, {**_run_payload(), "name": "Renamed"})
 
         assert renamed.id == first.id
         assert renamed.name == "Renamed"
@@ -78,23 +73,17 @@ class TestTheStateIsGitHubs:
         ``active`` here would be a claim the payload never made."""
         repository = await _repository()
 
-        workflow = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            _run_payload()
-        )
+        workflow = await RunData().store_workflow(repository, _run_payload())
 
         assert workflow.state == "unknown"
 
     async def test_an_old_run_does_not_resurrect_a_deleted_workflow(self, bound) -> None:
         repository = await _repository()
-        workflow = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            _run_payload()
-        )
+        workflow = await RunData().store_workflow(repository, _run_payload())
         workflow.state = "deleted"
         await workflow.save()
 
-        again = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            _run_payload()
-        )
+        again = await RunData().store_workflow(repository, _run_payload())
 
         assert again.id == workflow.id
         assert again.state == "deleted"
@@ -104,8 +93,8 @@ class TestTheStateIsGitHubs:
         that is where ``active``/``disabled_*``/``deleted`` comes from."""
         repository = await _repository()
 
-        workflow = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            {**_run_payload(), "state": "disabled_manually"}
+        workflow = await RunData().store_workflow(
+            repository, {**_run_payload(), "state": "disabled_manually"}
         )
 
         assert workflow.state == "disabled_manually"
@@ -115,9 +104,7 @@ class TestTheRowIsHistory:
     async def test_deleting_a_workflow_with_runs_is_refused(self, bound) -> None:
         """RESTRICT, not CASCADE: one ``DELETE`` must not take a run history."""
         repository = await _repository()
-        workflow = await AsyncWorkflow(repository_id=repository.id or 0).upsert_from_remote(
-            _run_payload()
-        )
+        workflow = await RunData().store_workflow(repository, _run_payload())
         run = AsyncWorkflowRun(
             workflow_id=workflow.id or 0,
             github_run_id=11,

@@ -64,7 +64,7 @@ class TestTheCounterMoves:
         repo = await _repository()
         store = RunData()
 
-        await store.adopt(repo, _run_payload()["workflow_run"])
+        await store.adopt_run(repo, _run_payload()["workflow_run"])
 
         assert _count("created") == 1
         assert _count("updated") == 0, (
@@ -78,10 +78,10 @@ class TestTheCounterMoves:
         repo = await _repository()
         store = RunData()
 
-        await store.adopt(repo, _run_payload()["workflow_run"])
+        await store.adopt_run(repo, _run_payload()["workflow_run"])
         run = await store.run(4242, with_state=True)
         assert run is not None, "the run just adopted must be found again"
-        await store.update(run, _run_payload()["workflow_run"])
+        await store.update_run(run, _run_payload()["workflow_run"])
 
         assert _count("created") == 1
         assert _count("updated") == 1

@@ -1,9 +1,10 @@
 # tests/core/test_states.py
-"""StateMachine transition tables and the GitHub payload normalizers.
+"""StateMachine transition tables.
 
 Pure-function tests: no database, no client. The matrix pins the forward-only
-contract (``queued -> in_progress -> completed``), the idempotent replay rule,
-the conclusion vocabularies and the timestamp parsing used by both channels.
+contract (``queued -> in_progress -> completed``), the idempotent replay rule
+and the conclusion vocabularies. GitHub's spelling is translated before it gets
+here; that translation is tested in ``tests/services/github/test_payloads.py``.
 """
 
 from __future__ import annotations
@@ -26,9 +27,6 @@ from rhosocial.github_actions_tracker.models.states import (
     TRANSITIONS_BY_KIND,
     VALID_CONCLUSIONS,
     StateMachine,
-    normalize_conclusion,
-    normalize_status,
-    parse_timestamp,
 )
 
 
@@ -151,67 +149,6 @@ def test_apply_transition_rejects_invalid_conclusion() -> None:
     with pytest.raises(InvalidStateTransitionError):
         StateMachine.apply_transition(entity, STATUS_COMPLETED, "green")
     assert entity.status == STATUS_QUEUED
-
-
-def test_normalize_status_maps_aliases() -> None:
-    assert normalize_status("requested") == STATUS_QUEUED
-    assert normalize_status("pending") == STATUS_QUEUED
-    assert normalize_status("waiting") == STATUS_QUEUED
-
-
-def test_normalize_status_blanks_become_queued() -> None:
-    assert normalize_status(None) == STATUS_QUEUED
-    assert normalize_status("") == STATUS_QUEUED
-    assert normalize_status("   ") == STATUS_QUEUED
-
-
-def test_normalize_status_canonicalizes_case() -> None:
-    assert normalize_status("IN_PROGRESS") == STATUS_IN_PROGRESS
-    assert normalize_status("  Completed ") == STATUS_COMPLETED
-
-
-def test_normalize_status_passes_unknown_through() -> None:
-    assert normalize_status("frozen") == "frozen"
-
-
-def test_normalize_conclusion_treats_blanks_as_unfinished() -> None:
-    assert normalize_conclusion(None) is None
-    assert normalize_conclusion("") is None
-    assert normalize_conclusion("   ") is None
-    assert normalize_conclusion("Success") == "success"
-    assert normalize_conclusion("timed_out") == "timed_out"
-
-
-def test_parse_timestamp_accepts_github_spellings() -> None:
-    parsed = parse_timestamp("2026-10-10T12:34:56Z")
-    assert parsed == datetime(2026, 10, 10, 12, 34, 56, tzinfo=timezone.utc)
-    assert parse_timestamp("2026-10-10T12:34:56+02:00") == datetime(
-        2026, 10, 10, 10, 34, 56, tzinfo=timezone.utc
-    )
-
-
-def test_parse_timestamp_assumes_utc_for_naive_values() -> None:
-    assert parse_timestamp("2026-10-10T12:34:56") == datetime(
-        2026, 10, 10, 12, 34, 56, tzinfo=timezone.utc
-    )
-    naive = datetime(2026, 10, 10, 12, 34, 56)
-    assert parse_timestamp(naive).tzinfo == timezone.utc
-    aware = datetime(2026, 10, 10, 12, 34, 56, tzinfo=timezone.utc)
-    assert parse_timestamp(aware) is aware
-
-
-def test_parse_timestamp_accepts_epoch_numbers() -> None:
-    assert parse_timestamp(1_760_000_000) == datetime.fromtimestamp(1_760_000_000, tz=timezone.utc)
-    assert parse_timestamp(1_760_000_000.5) == datetime.fromtimestamp(
-        1_760_000_000.5, tz=timezone.utc
-    )
-
-
-def test_parse_timestamp_returns_none_for_missing_or_bad_values() -> None:
-    assert parse_timestamp(None) is None
-    assert parse_timestamp("") is None
-    assert parse_timestamp("   ") is None
-    assert parse_timestamp("not a timestamp") is None
 
 
 def test_validate_conclusion_follows_kind_vocabulary() -> None:

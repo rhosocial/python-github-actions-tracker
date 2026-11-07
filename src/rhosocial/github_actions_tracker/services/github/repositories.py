@@ -1,9 +1,9 @@
 # src/rhosocial/github_actions_tracker/services/github/repositories.py
 """Repositories and their workflows, straight from the API.
 
-Payloads go back unchanged: ``AsyncRepository.upsert_from_remote`` and
-``AsyncWorkflow.upsert_from_remote`` already read them, and a second reader here
-would be a copy that drifts.
+Payloads go back unchanged:
+:class:`~.payloads.GithubPayloads` translates them into semantic values for the
+controllers, and a second reader here would be a copy that drifts.
 
 ``list_accessible_repos`` is the one method that takes a credential. It asks what
 *that* credential can see, so the credential is the subject of the call rather

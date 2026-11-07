@@ -20,7 +20,7 @@ from typing import Any
 from conftest import FakeGithub, subscribe
 
 from rhosocial.github_actions_tracker.controllers import QueryController, RunController, RunData
-from rhosocial.github_actions_tracker.models import AsyncJob, AsyncRepository, AsyncWorkflowRun
+from rhosocial.github_actions_tracker.models import AsyncRepository, AsyncWorkflowRun
 from rhosocial.github_actions_tracker.services.github import GithubRepositories, GithubRuns
 
 
@@ -95,11 +95,11 @@ async def _seed_run(
     status: str = "completed",
 ) -> AsyncWorkflowRun:
     """Store a run with one job per given name."""
-    run = await AsyncWorkflowRun.adopt_from_remote(
+    run = await RunData().adopt_run(
         repo, _run_payload(github_run_id, attempt=attempt, status=status)
     )
     for offset, name in enumerate(job_names):
-        await AsyncJob.upsert_from_remote(run, _job_payload(github_run_id * 10 + offset, name))
+        await RunData().store_job(run, _job_payload(github_run_id * 10 + offset, name))
     return run
 
 

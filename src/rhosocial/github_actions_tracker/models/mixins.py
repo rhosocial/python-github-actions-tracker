@@ -16,8 +16,8 @@ same three statements by hand:
 
 ``find_one_or_create`` is that operation: look up by equality on the natural key,
 return the row and whether *this call* created it. It never updates an existing
-row -- refreshing a stored row from a remote payload stays with each model's
-``upsert_from_remote``, because only the model knows which fields a payload may
+row -- refreshing a stored row from new values stays with each model's value
+entry (``refresh`` / ``record``), because only the model knows which fields may
 overwrite and which are history.
 
 Sync and async are separate mixins, not one that branches: the project's

@@ -8,9 +8,10 @@ run, its attempts and their jobs and steps, kept together because the run's
 upsert is what resolves the attempt a job hangs off. A class per table would
 make every caller re-derive that order.
 
-Nothing here writes a query by hand: ``find_one``, ``query()`` and the model's
-own ``adopt_from_remote`` / ``update_from_remote`` / ``sync_jobs_from_remote``
-are the whole surface."""
+Nothing here writes a payload: :class:`GithubPayloads` translates GitHub's
+JSON into semantic values, and the controller decides which row those values
+belong to. The models expose value entries only -- ``refresh``,
+``refresh_metadata``, ``record`` -- so a GitHub rename never reaches a model."""
 
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ from ..models.errors import GhatError  # noqa: F401 - re-exported for callers
 from ..models.log import AsyncJobLog, AsyncStepLog
 from ..models.states import FAILED_CONCLUSIONS
 from ..observability import RUN_INGEST_TOTAL
+from ..services.github.payloads import GithubPayloads
 from ..services.github.protocols import RunReader
 from ..views import DurationSample
 
@@ -132,10 +134,10 @@ class RunController:
 
         run = await self._store.run(run_id)
         if run is None:
-            run = await self._store.adopt(repo, payload)
+            run = await self._store.adopt_run(repo, payload)
         else:
             await self._require_scope(run, repo)
-            run = await self._store.update(run, payload)
+            run = await self._store.update_run(run, payload)
 
         if with_jobs:
             jobs = await self._runs.get_run_jobs(repo.full_name, run_id)
@@ -279,6 +281,15 @@ class RunController:
 class RunData:
     """The repository / workflow / run aggregate, one method per question."""
 
+    def __init__(self, *, payloads: GithubPayloads | None = None) -> None:
+        """Build the row layer.
+
+        Args:
+            payloads: The service that translates GitHub payloads. The default
+                instance is stateless, so a caller that has one may share it.
+        """
+        self._payloads = payloads or GithubPayloads()
+
     async def repository(self, full_name: str) -> AsyncRepository | None:
         """The tracked repository called ``full_name``, or ``None``."""
         return await AsyncRepository.find_one(AsyncRepository.c.full_name == full_name)
@@ -351,49 +362,148 @@ class RunData:
     ) -> bool:
         """Whether a run payload belongs to pull request ``number``.
 
-        The attribution rules are the model's (see
-        :meth:`AsyncWorkflowRun.belongs_to_pull_request`); the controller only
-        makes them reachable without this module importing the model.
+        The attribution rule is the service's; the controller only makes it
+        reachable without this module knowing a GitHub field name.
         """
-        return AsyncWorkflowRun.belongs_to_pull_request(payload, number, head_sha)
+        return self._payloads.belongs_to_pull_request(payload, number, head_sha)
 
-    async def adopt(self, repo: AsyncRepository, payload: Mapping[str, object]) -> AsyncWorkflowRun:
+    async def store_workflow(
+        self, repo: AsyncRepository, payload: Mapping[str, object]
+    ) -> AsyncWorkflow:
+        """Store or refresh one workflow from a payload a service produced.
+
+        The workflow's identity is its GitHub id; the path is a second chance
+        for a row whose id was never learned. The payload does not carry the
+        workflow's ``state`` in every shape, and a blank state must not erase a
+        known ``deleted`` -- :meth:`AsyncWorkflow.refresh` enforces that.
+        """
+        values = self._payloads.workflow(payload)
+        workflow_id = values["workflow_id"]
+        path = values["path"]
+
+        existing = None
+        if workflow_id:
+            existing = await AsyncWorkflow.by_github_id(repo.id or 0, workflow_id)
+        if existing is None and path:
+            existing = await AsyncWorkflow.find_one(
+                (AsyncWorkflow.c.repository_id == (repo.id or 0)) & (AsyncWorkflow.c.path == path)
+            )
+        if existing is not None:
+            return await existing.refresh(**values)
+
+        defaults = dict(values)
+        if not defaults["state"]:
+            defaults["state"] = "unknown"
+        if workflow_id:
+            record, _ = await AsyncWorkflow.find_one_or_create(
+                defaults=defaults, repository_id=repo.id or 0, workflow_id=workflow_id
+            )
+        elif path:
+            record, _ = await AsyncWorkflow.find_one_or_create(
+                defaults=defaults, repository_id=repo.id or 0, path=path
+            )
+        else:
+            record = AsyncWorkflow(repository_id=repo.id or 0, **defaults)
+            await record.save()
+        logger.debug("Stored workflow %s ('%s') for repository %s", workflow_id, path, repo.id)
+        return record
+
+    async def adopt_run(
+        self, repo: AsyncRepository, payload: Mapping[str, object]
+    ) -> AsyncWorkflowRun:
         """Store a run GitHub knows and the database does not.
 
-        The payload goes to the model unchanged: it creates the workflow if
-        needed, normalizes the state and writes the attempt row the jobs hang off.
+        The workflow row comes first -- a run cannot point at a missing parent --
+        then the run row, keyed by ``(workflow_id, github_run_id)``, then the
+        attempt this payload describes, so jobs have a place to hang.
         """
-        run = await AsyncWorkflowRun.adopt_from_remote(repo, payload)
+        workflow = await self.store_workflow(repo, payload)
+        values = self._payloads.run(payload)
+        github_run_id = values.pop("github_run_id")
+        run, created = await AsyncWorkflowRun.find_one_or_create(
+            defaults=values, workflow_id=workflow.id or 0, github_run_id=github_run_id
+        )
+        if created:
+            attempt = await self.store_attempt(run, payload)
+            run._apply_attempt_state(attempt)
+            logger.info("Adopted run %s from '%s'", github_run_id, repo.full_name)
         # Counted here rather than in the model: a model writes a row, and the
         # registry is the controller's business. ``created`` and ``updated`` are
         # separate on purpose -- see the counter's declaration.
         RUN_INGEST_TOTAL.inc(result="created")
         return run
 
-    async def update(
+    async def update_run(
         self, run: AsyncWorkflowRun, payload: Mapping[str, object]
     ) -> AsyncWorkflowRun:
-        """Apply a payload to a stored run, through the model's state machine."""
-        updated = await run.update_from_remote(payload)
+        """Apply a payload to a stored run: metadata here, execution state there.
+
+        Only attempt-independent metadata lands on the run row. The execution
+        the payload describes is written to its own attempt, so a late payload
+        for an older attempt cannot rewrite the run's current state.
+        """
+        values = self._payloads.run(payload)
+        values.pop("github_run_id", None)
+        await run.refresh_metadata(**values)
+        attempt = await self.store_attempt(run, payload)
+        run._apply_attempt_state(attempt)
         RUN_INGEST_TOTAL.inc(result="updated")
-        return updated
+        return run
 
     async def store_attempt(
         self, run: AsyncWorkflowRun, payload: Mapping[str, object]
     ) -> AsyncRunAttempt:
-        """Upsert the attempt a payload describes; the run's state is untouched.
+        """Store the attempt a payload describes; the run's state is untouched.
 
         Used when a caller asks for a *past* attempt. The run's derived state
         must keep pointing at the newest execution, so this writes the attempt
-        row and nothing else.
+        row and nothing else. The payload's own attempt number wins; only a
+        payload that names none falls back to the newest stored attempt.
         """
-        return await AsyncRunAttempt.upsert_from_remote(run, payload)
+        number = self._payloads.attempt_number(payload)
+        if not number:
+            latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
+            number = latest.attempt_number if latest else 1
+        return await AsyncRunAttempt.record(run, number, **self._payloads.attempt(payload))
+
+    async def store_job(self, run: AsyncWorkflowRun, payload: Mapping[str, object]) -> AsyncJob:
+        """Store one job under the attempt it names, cascading its steps.
+
+        The run resolves the attempt because only the run knows which
+        executions it has; the job then takes its direct parent. The payload's
+        own attempt number wins, and only a payload that omits it falls back to
+        the newest stored attempt -- a late job of an older attempt must land in
+        *its* attempt, not in the current one.
+        """
+        number = self._payloads.attempt_number(payload)
+        if not number:
+            latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
+            number = latest.attempt_number if latest else 1
+        attempt = await AsyncRunAttempt.ensure(run, number)
+        job = await AsyncJob.record(attempt, **self._payloads.job(payload))
+        await self.store_steps(job, self._payloads.steps(payload))
+        return job
+
+    async def store_step(self, job: AsyncJob, payload: Mapping[str, object]) -> AsyncStep:
+        """Store one step of a job from a GitHub payload."""
+        return await AsyncStep.record(job, **self._payloads.step(payload))
+
+    async def store_steps(
+        self, job: AsyncJob, steps: Sequence[Mapping[str, object]]
+    ) -> list[AsyncStep]:
+        """Store every step of a job from values the service already translated."""
+        return [await AsyncStep.record(job, **values) for values in steps]
 
     async def sync_jobs(
         self, run: AsyncWorkflowRun, jobs: Sequence[Mapping[str, object]]
     ) -> list[int]:
         """Store a batch of job payloads under their own attempts."""
-        return await run.sync_jobs_from_remote(jobs)
+        ids: list[int] = []
+        for job_data in jobs:
+            job = await self.store_job(run, job_data)
+            if job.id is not None:
+                ids.append(job.id)
+        return ids
 
     # -- reading a repository's runs -------------------------------------------
 
