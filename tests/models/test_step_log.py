@@ -19,6 +19,8 @@ These tests pin the three properties the rest of the system depends on:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from conftest import FakeGithub, subscribe
 from rhosocial.activerecord.backend.errors import IntegrityError
@@ -29,6 +31,12 @@ from rhosocial.github_actions_tracker.models import (
     AsyncStepLog,
     AsyncWorkflowRun,
 )
+
+#: The trigger time of the execution these step logs belong to. A fixed value,
+#: because the column is also the partition key and half of the row'"'"'s key: two
+#: captures of one step must collide in the same partition, not in two.
+ATTEMPT_TIME = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+
 
 REPO = "acme/demo"
 RUN_ID = 607000
@@ -109,7 +117,9 @@ class TestTheOptionalSideIsAbsence:
 
     async def test_a_capture_attaches_to_its_step(self, bound) -> None:
         _, step = await _steps()
-        log = await AsyncStepLog.store_for_step(step, "line one\nline two\n")
+        log = await AsyncStepLog.store_for_step(
+            step, "line one\nline two\n", attempt_created_at=ATTEMPT_TIME
+        )
 
         await log.store()
 
@@ -121,7 +131,7 @@ class TestTheOptionalSideIsAbsence:
 
     async def test_the_step_can_reach_its_log(self, bound) -> None:
         _, step = await _steps()
-        await AsyncStepLog.store_for_step(step, "hello\n")
+        await AsyncStepLog.store_for_step(step, "hello\n", attempt_created_at=ATTEMPT_TIME)
 
         attached = await step.step_log()
 
@@ -134,10 +144,10 @@ class TestOneRowPerStep:
         """Capturing twice (a retry, a re-run) must not leave two rows."""
         _, step = await _steps()
         step_id = step.id or 0
-        await AsyncStepLog.store_for_step(step, "first\n")
+        await AsyncStepLog.store_for_step(step, "first\n", attempt_created_at=ATTEMPT_TIME)
         first = await AsyncStepLog.find_for_step(step_id)
 
-        await AsyncStepLog.store_for_step(step, "second\nthird\n")
+        await AsyncStepLog.store_for_step(step, "second\nthird\n", attempt_created_at=ATTEMPT_TIME)
 
         rows = await AsyncStepLog.for_step(step_id).all()
         assert len(rows) == 1
@@ -152,21 +162,21 @@ class TestOneRowPerStep:
         two rows for one step, where a read would pick whichever came first.
         """
         _, step = await _steps()
-        # ``save()`` is the raw path: it takes the bucket as any other column,
+        # ``save()`` is the raw path: it takes the trigger time as any other column,
         # and the 1:1 is what refuses the second row.
         await AsyncStepLog(
-            step_id=step.id or 0, log_content="first\n", bucket=step.log_bucket
+            step_id=step.id or 0, log_content="first\n", attempt_created_at=ATTEMPT_TIME
         ).save()
 
         with pytest.raises(IntegrityError):
             await AsyncStepLog(
-                step_id=step.id or 0, log_content="second\n", bucket=step.log_bucket
+                step_id=step.id or 0, log_content="second\n", attempt_created_at=ATTEMPT_TIME
             ).save()
 
     async def test_the_count_of_captured_steps_is_one_query(self, bound) -> None:
         job, step = await _steps()
         steps = await job.steps()
-        await AsyncStepLog.store_for_step(step, "x\n")
+        await AsyncStepLog.store_for_step(step, "x\n", attempt_created_at=ATTEMPT_TIME)
 
         ids = [item.id or 0 for item in steps]
         assert await AsyncStepLog.stored_count_for_steps(ids) == 1
@@ -176,7 +186,9 @@ class TestOneRowPerStep:
 class TestTheTextIsOurs:
     async def test_lines_strip_the_bom_github_puts_at_the_start(self, bound) -> None:
         _, step = await _steps()
-        log = await AsyncStepLog.store_for_step(step, "\ufeff2026-10-27T10:00:00Z hello\n")
+        log = await AsyncStepLog.store_for_step(
+            step, "\ufeff2026-10-27T10:00:00Z hello\n", attempt_created_at=ATTEMPT_TIME
+        )
         await log.store()
 
         stored = await AsyncStepLog.find_for_step(step.id or 0)
@@ -186,7 +198,7 @@ class TestTheTextIsOurs:
 
     async def test_an_empty_capture_is_zero_lines_not_one(self, bound) -> None:
         _, step = await _steps()
-        await AsyncStepLog.store_for_step(step, "")
+        await AsyncStepLog.store_for_step(step, "", attempt_created_at=ATTEMPT_TIME)
 
         stored = await AsyncStepLog.find_for_step(step.id or 0)
 

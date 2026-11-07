@@ -7,7 +7,14 @@ created empty, and the first insert into a month that has no partition fails wit
 ``.claude/plan/2026-11-01/partition-and-purge-plan.md``). So some code has to
 create them ahead of the writes, and this module is that code.
 
-Three rules from the measured behaviour of missing partitions, which are why
+**A partition is addressed by a month, and the month comes from the execution's
+trigger time** (``ghat_run_attempts.github_created_at``, carried on each log row
+as ``attempt_created_at``). Not from when the log arrived: a capture can be
+retried, backfilled weeks later, or never happen at all (GitHub drops the
+per-step files about an hour after the run ends), and the arrival time would file
+one run's logs under months that have nothing to do with the run.
+
+Four rules from the measured behaviour of missing partitions, which are why
 this module looks the way it does:
 
 * **the two log tables are always handled together** -- the capture path writes
@@ -18,7 +25,11 @@ this module looks the way it does:
   not, and a half-done month is not a state the database can be left in;
 * **dropping is by whole partition** -- ``DROP TABLE`` of a partition is a
   metadata operation (13.7ms measured against 262ms for the equivalent row
-  delete), which is the entire reason the tables are partitioned.
+  delete), which is the entire reason the tables are partitioned;
+* **the bounds are month-aligned instants with a named zone** -- the partition
+  column is a ``timestamptz``, and a date literal cast in the session's zone
+  would put a row created just after midnight UTC on the wrong side of the
+  boundary.
 
 Nothing here decides *when* to drop a month: that is a retention policy, and an
 operator's ``db partitions --drop-before 6m`` is the interface to it.
@@ -44,9 +55,9 @@ PARTITIONED_TABLES: tuple[str, ...] = ("ghat_job_logs", "ghat_step_logs")
 def month_start(bucket: date) -> date:
     """The first day of the month a bucket names.
 
-    A bucket is already a month start when it comes from :func:`bucket_of`; this
-    is here because a caller may hand over any day, and "the partition for a date"
-    must not silently become two different partitions for the same month.
+    A bucket is already a month start when it comes from :func:`month_start_of`;
+    this is here because a caller may hand over any day, and "the partition for a
+    date" must not silently become two different partitions for the same month.
     """
     return bucket.replace(day=1)
 
@@ -91,15 +102,13 @@ _shift_months = shift_months
 
 
 def bucket_of_completion(completed_at: datetime | None) -> date | None:
-    """The month a completion time belongs to -- the same function the models use.
+    """Deprecated alias of :func:`month_start_of`, kept for the CLI's surface.
 
-    Imported from the models rather than reimplemented: the partition and the row
-    must agree about which month a job finished in, and there is already exactly
-    one function that answers it.
+    The completion time is no longer what a log is filed under -- the execution's
+    trigger time is -- so this only remains where an operator's month-shaped
+    question ("drop the months before this date") is answered.
     """
-    from ..models.log import bucket_of
-
-    return bucket_of(completed_at)
+    return None if completed_at is None else month_start_of(completed_at)
 
 
 @dataclass(frozen=True)
@@ -172,19 +181,41 @@ async def existing_partitions(backend: Any, table: str) -> list[PartitionInfo]:
 def _bucket_from_bound(bound: Any) -> date | None:
     """The month a partition's bound starts at, or ``None`` when unreadable.
 
-    The bound reads ``FOR VALUES FROM ('2026-09-01') TO ('2026-10-01')``; the
-    first date inside it is the bucket. A partition whose bound the parser cannot
-    read keeps ``None`` -- the list still names it, and neither the size nor the
-    row figure is lost.
+    The bound reads ``FOR VALUES FROM ('2026-11-01 00:00:00+00') TO (...)`` -- a
+    month-aligned instant, because the partition column is a timestamp. The first
+    calendar date inside it is the bucket. A partition whose bound the parser
+    cannot read keeps ``None``: the list still names it, and neither the size nor
+    the row figure is lost.
     """
     text = str(bound or "")
     for token in text.replace("'", " ").replace("(", " ").split():
         try:
-            parsed = date.fromisoformat(token)
+            return date.fromisoformat(token[:10])
         except ValueError:
             continue
-        return parsed
     return None
+
+
+def month_start_of(moment: datetime) -> date:
+    """The month an instant belongs to, in UTC.
+
+    The one place that turns a timestamp into a partition month. A naive
+    timestamp is read as UTC, the same assumption the rest of this service makes
+    of timestamps it did not offset itself.
+    """
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc).date().replace(day=1)
+
+
+async def ensure_for(backend: Any, moment: datetime) -> tuple[str, ...]:
+    """Create both log tables' partitions for the month ``moment`` falls in.
+
+    What the write path calls: it holds a timestamp (the execution's trigger
+    time) and should not have to know that a partition is addressed by a month.
+    See :func:`month_start_of`.
+    """
+    return await ensure_months(backend, (month_start_of(moment),))
 
 
 async def ensure_month(backend: Any, bucket: date) -> tuple[str, ...]:
@@ -192,8 +223,11 @@ async def ensure_month(backend: Any, bucket: date) -> tuple[str, ...]:
 
     Idempotent and cheap when they are not: the creation is two ``CREATE TABLE
     IF NOT EXISTS``, and ``PARTITION OF`` carries the parent's indexes along.
-    Safe to call before every capture -- that is the only place the "future
-    month" failure can be prevented.
+
+    This is the month-addressed form, for the callers that think in months (the
+    schema init, the operator's ``--ensure``). The write path holds a timestamp
+    and uses :func:`ensure_for` -- the same guarantee, without it having to do
+    the month arithmetic itself.
     """
     return await ensure_months(backend, (bucket,))
 
@@ -298,12 +332,20 @@ def _create_partition_sql(table: str, bucket: date) -> tuple[str, ...]:
     ``PARTITION OF`` is what carries the parent's columns, constraints and
     indexes into the new partition -- which is why the monthly index upkeep is
     one statement rather than one per table per month.
+
+    The bounds are **month-aligned instants**, not dates: the partition column is
+    a ``timestamptz`` (the execution's trigger time), and PostgreSQL compares the
+    column against the bound as written. A date literal would be cast to midnight
+    in the session's zone and leave a row created at 00:30 UTC on the wrong side
+    of the boundary. The zone is named explicitly so the statement means the same
+    thing whichever session runs it.
     """
     end = next_month(bucket)
     return (
         f'CREATE TABLE IF NOT EXISTS "{partition_name(table, bucket)}" '
-        f"PARTITION OF \"{table}\" FOR VALUES FROM ('{bucket.isoformat()}') "
-        f"TO ('{end.isoformat()}')",
+        f'PARTITION OF "{table}" '
+        f"FOR VALUES FROM ('{bucket.isoformat()} 00:00:00+00') "
+        f"TO ('{end.isoformat()} 00:00:00+00')",
     )
 
 
@@ -313,6 +355,7 @@ __all__ = [
     "PartitionReport",
     "bucket_of_completion",
     "drop_before",
+    "ensure_for",
     "ensure_month",
     "ensure_months",
     "ensure_through",

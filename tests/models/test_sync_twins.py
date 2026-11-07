@@ -78,13 +78,19 @@ def test_a_whole_chain_round_trips_through_the_sync_twins(sync_postgres) -> None
         commit_sha="a" * 40,
     )
     run.save()
-    attempt = RunAttempt(
-        run_id=run.id or 0, attempt_number=1, status="completed", conclusion="failure"
-    )
-    attempt.save()
     from datetime import datetime, timezone
 
-    from rhosocial.github_actions_tracker.models import bucket_of
+    triggered_at = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+    attempt = RunAttempt(
+        run_id=run.id or 0,
+        attempt_number=1,
+        status="completed",
+        conclusion="failure",
+        # The trigger time the log rows are addressed by: a real attempt always
+        # has one, and it is what the store path copies.
+        github_created_at=triggered_at,
+    )
+    attempt.save()
 
     job = Job(
         attempt_id=attempt.id or 0,
@@ -92,12 +98,7 @@ def test_a_whole_chain_round_trips_through_the_sync_twins(sync_postgres) -> None
         name="build",
         status="completed",
         conclusion="failure",
-        # A job log can only exist once the job has finished: the bucket is the
-        # month it finished in, and a job with no completion time has none.
-        completed_at=datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc),
-        # The same derivation ``Job.upsert_from_remote`` applies; stated here
-        # because this row is built directly rather than from a payload.
-        log_bucket=bucket_of(datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)),
+        completed_at=triggered_at,
     )
     job.save()
     step = Step(
@@ -107,21 +108,21 @@ def test_a_whole_chain_round_trips_through_the_sync_twins(sync_postgres) -> None
         name="Run tests",
         status="completed",
         conclusion="failure",
-        # Copied from the job, exactly as ``Job.upsert_from_remote`` does when
-        # it stores the steps array.
-        log_bucket=job.log_bucket,
     )
     step.save()
-    StepLog.store_for_step(step, "boom\n")
-    JobLog.store_for_job(job, "set up\nboom\n")
+    # The execution'"'"'s trigger time is the address of a log row, and it is the
+    # attempt the caller already holds -- nothing is derived from a completion
+    # time, so there is no copy that can drift.
+    StepLog.store_for_step(step, "boom\n", attempt_created_at=attempt.github_created_at)
+    JobLog.store_for_job(job, "set up\nboom\n", attempt_created_at=attempt.github_created_at)
 
     stored_step = Step.find_one(Step.c.id == (step.id or 0))
     assert stored_step is not None
     assert stored_step.step_log().log_content == "boom\n"
-    # The addressed read: the step and the job both carry the month their log
-    # lives in, so the lookup names it rather than scanning every bucket.
-    assert StepLog.find_for_step(step.id or 0, step.log_bucket).lines() == ["boom"]
-    assert JobLog.find_for_job(job.id or 0, job.log_bucket).lines() == ["set up", "boom"]
+    # The addressed read: naming the trigger time prunes to one partition instead
+    # of appending every month the table has.
+    assert StepLog.find_for_step(step.id or 0, attempt.github_created_at).lines() == ["boom"]
+    assert JobLog.find_for_job(job.id or 0, attempt.github_created_at).lines() == ["set up", "boom"]
     assert Job.find_one(Job.c.id == (job.id or 0)).job_log().log_content.startswith("set up")
 
 

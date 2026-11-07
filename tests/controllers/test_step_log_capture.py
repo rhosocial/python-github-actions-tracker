@@ -593,13 +593,24 @@ class TestRunFailureGrouping:
 
     @staticmethod
     async def _write_failed_step_texts(text: str) -> None:
+        """Seed the rows a capture would have written.
+
+        The trigger time comes from the job'"'"'s own attempt, which is what the
+        real capture path passes -- the relation is one query and the value is
+        never derived from a completion time.
+        """
         from rhosocial.github_actions_tracker.models import AsyncStep, AsyncStepLog
 
         for job in await AsyncJob.query().all():
+            attempt = await job.attempt()
+            if attempt is None or attempt.github_created_at is None:
+                continue
             steps = await AsyncStep.query().where(AsyncStep.c.job_id == job.id).all()
             for step in steps:
                 if step.number == 2:
-                    await AsyncStepLog.store_for_step(step, text)
+                    await AsyncStepLog.store_for_step(
+                        step, text, attempt_created_at=attempt.github_created_at
+                    )
 
     async def test_two_jobs_with_the_same_text_are_one_group(self, bound) -> None:
         fake = _fake()
@@ -627,7 +638,10 @@ class TestRunFailureGrouping:
         assert job is not None
         steps = await AsyncStep.query().where(AsyncStep.c.job_id == job.id).all()
         failing = next(step for step in steps if step.number == 2)
-        await AsyncStepLog.store_for_step(failing, "another failure\n")
+        attempt = await job.attempt()
+        await AsyncStepLog.store_for_step(
+            failing, "another failure\n", attempt_created_at=attempt.github_created_at
+        )
 
         view = await service.get_run_failed_logs(REPO, RUN_ID)
 

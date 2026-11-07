@@ -329,66 +329,52 @@ def _months_before_parse(value: str) -> date:
     return shift_months(this_month, -int(text or "1"))
 
 
-async def cmd_backfill_buckets(args: argparse.Namespace) -> None:
-    """Give log rows written before the bucket column existed their address.
+async def cmd_backfill_log_times(args: argparse.Namespace) -> None:
+    """Give log rows written before the column existed their execution's time.
 
-    The bucket is derived, so the backfill is a plain recomputation: a job's
-    ``log_bucket`` comes from its own ``completed_at``, a step's from its job's,
-    and each log row's from whichever parent it hangs off. Nothing is guessed --
-    a parent with no completion time keeps ``NULL``, because an unfinished job
-    has no month and never will.
+    Renamed in behaviour, not only in name: the address of a log row is the
+    **trigger time of the execution it belongs to**
+    (``ghat_run_attempts.github_created_at``), not a month derived from when the
+    job happened to finish. That value is a copy of a column that never changes,
+    so this backfill is a plain join -- nothing is guessed, and a row whose
+    attempt has no GitHub creation time stays ``NULL`` rather than inventing one.
 
     Idempotent by construction: running it twice recomputes the same values, so
-    it is safe to leave in a cron and safe to interrupt. ``--dry-run`` reports
-    what it would touch without touching it.
-
-    This is the migration step that makes the addressed read paths in
-    :mod:`controllers.run` see old rows: until it runs, a job written before the
-    column carries no bucket and its log is read without one.
+    it is safe to interrupt. ``--dry-run`` reports what it would touch without
+    touching it.
     """
+
     backend = AsyncPostgresBackend(connection_config=get_connection_config())
     try:
         await backend.connect()
 
-        # Parents first: the steps and the log rows copy from them, so the
-        # values have to exist before anything derives from them.
-        #
-        # Each entry carries the count query beside the update, because a dry run
-        # cannot reuse the statement's text: ``UPDATE ... FROM`` moves the join
-        # into a clause a ``SELECT COUNT(*)`` has no place for, and a probe that
-        # dropped it would count the wrong rows -- or fail to parse.
+        # One statement per log table, each joining straight to the attempt: the
+        # job and the step are only the hop that gets there, and routing through
+        # them would mean filling intermediate columns that no longer exist.
         statements = [
             (
-                "ghat_jobs",
-                "UPDATE ghat_jobs SET log_bucket = date_trunc('month', completed_at AT TIME ZONE "
-                "'UTC')::date WHERE completed_at IS NOT NULL AND log_bucket IS DISTINCT FROM "
-                "date_trunc('month', completed_at AT TIME ZONE 'UTC')::date",
-                "SELECT COUNT(*) AS n FROM ghat_jobs WHERE completed_at IS NOT NULL AND log_bucket "
-                "IS DISTINCT FROM date_trunc('month', completed_at AT TIME ZONE 'UTC')::date",
-            ),
-            (
-                "ghat_steps",
-                "UPDATE ghat_steps s SET log_bucket = j.log_bucket FROM ghat_jobs j "
-                "WHERE s.job_id = j.id AND j.log_bucket IS NOT NULL AND s.log_bucket IS DISTINCT "
-                "FROM j.log_bucket",
-                "SELECT COUNT(*) AS n FROM ghat_steps s JOIN ghat_jobs j ON j.id = s.job_id "
-                "WHERE j.log_bucket IS NOT NULL AND s.log_bucket IS DISTINCT FROM j.log_bucket",
-            ),
-            (
                 "ghat_job_logs",
-                "UPDATE ghat_job_logs l SET bucket = j.log_bucket FROM ghat_jobs j "
-                "WHERE l.job_id = j.id AND j.log_bucket IS NOT NULL AND l.bucket IS DISTINCT FROM "
-                "j.log_bucket",
-                "SELECT COUNT(*) AS n FROM ghat_job_logs l JOIN ghat_jobs j ON j.id = l.job_id "
-                "WHERE j.log_bucket IS NOT NULL AND l.bucket IS DISTINCT FROM j.log_bucket",
+                "UPDATE ghat_job_logs l SET attempt_created_at = a.github_created_at "
+                "FROM ghat_jobs j JOIN ghat_run_attempts a ON a.id = j.attempt_id "
+                "WHERE l.job_id = j.id AND a.github_created_at IS NOT NULL "
+                "AND l.attempt_created_at IS NULL",
+                "SELECT COUNT(*) AS n FROM ghat_job_logs l "
+                "JOIN ghat_jobs j ON j.id = l.job_id "
+                "JOIN ghat_run_attempts a ON a.id = j.attempt_id "
+                "WHERE a.github_created_at IS NOT NULL AND l.attempt_created_at IS NULL",
             ),
             (
                 "ghat_step_logs",
-                "UPDATE ghat_step_logs l SET bucket = s.log_bucket FROM ghat_steps s "
-                "WHERE l.step_id = s.id AND s.log_bucket IS NOT NULL AND l.bucket IS DISTINCT FROM "
-                "s.log_bucket",
-                "SELECT COUNT(*) AS n FROM ghat_step_logs l JOIN ghat_steps s ON s.id = l.step_id "
-                "WHERE s.log_bucket IS NOT NULL AND l.bucket IS DISTINCT FROM s.log_bucket",
+                "UPDATE ghat_step_logs l SET attempt_created_at = a.github_created_at "
+                "FROM ghat_steps s JOIN ghat_jobs j ON j.id = s.job_id "
+                "JOIN ghat_run_attempts a ON a.id = j.attempt_id "
+                "WHERE l.step_id = s.id AND a.github_created_at IS NOT NULL "
+                "AND l.attempt_created_at IS NULL",
+                "SELECT COUNT(*) AS n FROM ghat_step_logs l "
+                "JOIN ghat_steps s ON s.id = l.step_id "
+                "JOIN ghat_jobs j ON j.id = s.job_id "
+                "JOIN ghat_run_attempts a ON a.id = j.attempt_id "
+                "WHERE a.github_created_at IS NOT NULL AND l.attempt_created_at IS NULL",
             ),
         ]
 
@@ -403,7 +389,7 @@ async def cmd_backfill_buckets(args: argparse.Namespace) -> None:
         for table, update_sql, _count in statements:
             result = await _run_statement(backend, update_sql, table)
             print(f"  {table}: {result.affected_rows} rows")
-        print("Buckets backfilled.")
+        print("attempt_created_at backfilled.")
     finally:
         await backend.disconnect()
 
@@ -683,10 +669,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     partitions_parser.add_argument("--json", action="store_true", help="Emit JSON instead of text")
 
-    # backfill-buckets: give rows written before the column their address
+    # backfill-log-times: give rows written before the column their execution's time
     backfill_parser = subparsers.add_parser(
-        "backfill-buckets",
-        help="Compute log buckets on rows stored before the column existed",
+        "backfill-log-times",
+        help="Copy the execution's trigger time onto log rows stored before the column",
     )
     backfill_parser.add_argument(
         "--dry-run", action="store_true", help="Report the rows each statement would change"
@@ -732,8 +718,8 @@ def main(argv: list[str] | None = None) -> None:
         _run(cmd_cleanup(args))
     elif args.command == "partitions":
         _run(cmd_partitions(args))
-    elif args.command == "backfill-buckets":
-        _run(cmd_backfill_buckets(args))
+    elif args.command == "backfill-log-times":
+        _run(cmd_backfill_log_times(args))
     elif args.command == "stats":
         _run(cmd_stats(args))
     elif args.command == "usage":

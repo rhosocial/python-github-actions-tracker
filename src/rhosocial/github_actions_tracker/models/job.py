@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from rhosocial.activerecord.backend.errors import IntegrityError
@@ -68,19 +68,6 @@ def _clean_str(value: Any, default: str = "") -> str:
     return text or default
 
 
-def _bucket_of(completed_at: datetime | None) -> date | None:
-    """The log bucket of a completion time -- :func:`.log.bucket_of`.
-
-    Imported through the module rather than at the top: ``log`` imports this
-    package's siblings under ``TYPE_CHECKING`` only, so the runtime import here
-    is the one direction that is actually a cycle-free path. Same function, same
-    answer, one definition.
-    """
-    from .log import bucket_of
-
-    return bucket_of(completed_at)
-
-
 class Job(DefaultTimestampMixin, ActiveRecord):
     """A job within a workflow run, synchronous twin."""
 
@@ -105,13 +92,6 @@ class Job(DefaultTimestampMixin, ActiveRecord):
     runner_name: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    #: The month this job's logs belong to -- ``bucket_of(completed_at)``, kept
-    #: on the parent so a read that holds only a step still knows where to look
-    #: without asking the job. Written by the same upsert that stores the
-    #: completion time, so the two can never disagree; ``None`` until the job
-    #: finishes (an unfinished job has no logs) and on rows written before the
-    #: column existed (see ``db backfill-buckets``).
-    log_bucket: date | None = None
 
     #: Owning attempt (pairs with :attr:`RunAttempt.jobs`).
     attempt: ClassVar[BelongsTo[RunAttempt]] = BelongsTo(
@@ -236,7 +216,6 @@ class Job(DefaultTimestampMixin, ActiveRecord):
                 runner_name=runner_name,
                 started_at=started_at,
                 completed_at=completed_at,
-                log_bucket=_bucket_of(completed_at),
             )
             try:
                 job.save()
@@ -261,17 +240,11 @@ class Job(DefaultTimestampMixin, ActiveRecord):
                 job.started_at = started_at
             if completed_at is not None:
                 job.completed_at = completed_at
-                # The bucket follows the completion time it is derived from, so
-                # a late completion event moves the job -- and, through it, any
-                # log already stored -- to the month it actually finished in.
-                job.log_bucket = _bucket_of(completed_at)
             if job.is_dirty:
                 job.save()
 
         for step_data in job_data.get("steps") or []:
-            # The step inherits the job's bucket: the month a log belongs to is
-            # the month its job finished, and the step never computes it itself.
-            Step(job_id=job.id or 0, log_bucket=job.log_bucket).upsert_from_remote(step_data)
+            Step(job_id=job.id or 0).upsert_from_remote(step_data)
         return job
 
 
@@ -301,8 +274,6 @@ class AsyncJob(DefaultTimestampMixin, AsyncActiveRecord):
     runner_name: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    #: The month this job's logs belong to -- see :attr:`Job.log_bucket`.
-    log_bucket: date | None = None
 
     #: Owning attempt (pairs with :attr:`AsyncRunAttempt.jobs`).
     attempt: ClassVar[AsyncBelongsTo[AsyncRunAttempt]] = AsyncBelongsTo(
@@ -412,7 +383,6 @@ class AsyncJob(DefaultTimestampMixin, AsyncActiveRecord):
                 runner_name=runner_name,
                 started_at=started_at,
                 completed_at=completed_at,
-                log_bucket=_bucket_of(completed_at),
             )
             try:
                 await job.save()
@@ -444,15 +414,9 @@ class AsyncJob(DefaultTimestampMixin, AsyncActiveRecord):
                 job.started_at = started_at
             if completed_at is not None:
                 job.completed_at = completed_at
-                # See :meth:`Job.upsert_from_remote`: the bucket is derived, not
-                # stored independently, so the two cannot drift.
-                job.log_bucket = _bucket_of(completed_at)
             if job.is_dirty:
                 await job.save()
 
         for step_data in job_data.get("steps") or []:
-            # See :meth:`Job.upsert_from_remote`: the step takes the job's bucket.
-            await AsyncStep(job_id=job.id or 0, log_bucket=job.log_bucket).upsert_from_remote(
-                step_data
-            )
+            await AsyncStep(job_id=job.id or 0).upsert_from_remote(step_data)
         return job

@@ -29,7 +29,7 @@ imports while still letting ``typing.get_type_hints`` resolve the annotations.
 from .attempt import AsyncRunAttempt, RunAttempt
 from .binding import AsyncRepositoryBinding, RepositoryBinding
 from .job import AsyncJob, Job
-from .log import AsyncJobLog, AsyncStepLog, JobLog, StepLog, bucket_of
+from .log import AsyncJobLog, AsyncStepLog, JobLog, StepLog
 from .pat_credential import AsyncPatCredential, PatCredential
 from .repository import AsyncRepository, Repository
 from .run import AsyncWorkflowRun, WorkflowRun
@@ -102,7 +102,6 @@ ASYNC_MODELS: tuple[type, ...] = tuple(
 
 
 __all__ = [
-    "bucket_of",
     "ASYNC_MODELS",
     # sync twins
     "PatCredential",

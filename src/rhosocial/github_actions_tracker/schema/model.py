@@ -154,16 +154,17 @@ class Table:
 class PartitionSpec:
     """A range partition over one column, by calendar month.
 
-    The single partition this schema needs: log rows land in the month their job
-    finished, and a month is then a unit that can be dropped in one metadata
-    operation instead of deleted row by row and vacuumed. ``column`` is the date
-    column the range is over.
+    The single partition this schema needs: log rows land in the month their
+    *execution was triggered*, and a month is then a unit that can be dropped in
+    one metadata operation instead of deleted row by row and vacuumed.
+    ``column`` is the timestamp column the range is over, and the month a row
+    belongs to is read off that timestamp.
 
     The renderer adds the partition column to every unique and primary key: a
     partitioned table requires the partition key to be part of each one, and the
-    uniqueness that survives is the same uniqueness it replaces (the bucket is a
-    function of the row's own parent, so ``(job_id, bucket)`` means what
-    ``(job_id)`` meant).
+    uniqueness that survives is the same uniqueness it replaces (the trigger time
+    is a function of the row's own parent, so ``(job_id, attempt_created_at)``
+    means what ``(job_id)`` meant).
     """
 
     column: str
@@ -174,7 +175,8 @@ def partition_name(table: str, bucket: date) -> str:
 
     A name derived from the table and the month rather than stored anywhere, so
     ``--ensure``, ``--list`` and the read path cannot disagree about which
-    partition a month lives in.
+    partition a month lives in. The bounds are month-aligned instants even when
+    the column is a timestamp: a partition is still *a month*.
     """
     return f"{table}_{bucket:%Y_%m}"
 
@@ -410,14 +412,6 @@ CORE_SCHEMA = Schema(
                 Column("runner_name", ColumnType.VARCHAR, length=100),
                 Column("started_at", ColumnType.TIMESTAMPTZ),
                 Column("completed_at", ColumnType.TIMESTAMPTZ),
-                #: The month this job's logs belong to -- ``bucket_of`` of its
-                #: own ``completed_at``, written by the upsert path. On the
-                #: parent rather than only on the log rows, so a read that holds
-                #: a step alone still knows which month to ask for. NULL until
-                #: the job finishes (an unfinished job has no log) and on rows
-                #: written before the column existed; ``db backfill-buckets``
-                #: repairs the latter.
-                Column("log_bucket", ColumnType.DATE),
                 _TIMESTAMP_CREATED,
                 _TIMESTAMP_UPDATED,
             ),
@@ -439,11 +433,6 @@ CORE_SCHEMA = Schema(
                 Column("number", ColumnType.INTEGER, nullable=False),
                 Column("started_at", ColumnType.TIMESTAMPTZ),
                 Column("completed_at", ColumnType.TIMESTAMPTZ),
-                #: The month this step's log belongs to -- copied from the job's
-                #: ``log_bucket``, so a read holding only the step can address
-                #: its log row without fetching the job back. NULL while the job
-                #: has not finished, and on rows written before the column.
-                Column("log_bucket", ColumnType.DATE),
                 _TIMESTAMP_CREATED,
                 _TIMESTAMP_UPDATED,
             ),
@@ -479,15 +468,24 @@ CORE_SCHEMA = Schema(
                 # When the archive was read. Steps of one run share a value,
                 # which is what makes "these came from one capture" visible.
                 Column("fetched_at", ColumnType.TIMESTAMPTZ),
-                #: The month this log belongs to -- its step's ``log_bucket``,
-                #: written by the capture path. Every read asks for it, which is
-                #: what will let a month be dropped instead of scanned.
+                #: When the execution this log belongs to was triggered --
+                #: ``ghat_run_attempts.github_created_at``, copied verbatim at
+                #: capture time. Every read asks for it: it is the address of the
+                #: row, and the partition it lives in.
                 #:
-                #: NOT NULL because the table is partitioned by it: a
-                #: partitioned table refuses a row whose partition key is null,
-                #: and the report is a ``CheckViolation`` naming the bucket
-                #: rather than the caller that forgot to fill it.
-                Column("bucket", ColumnType.DATE, nullable=False),
+                #: NOT NULL because the table is partitioned by it: a partitioned
+                #: table refuses a row whose partition key is null.
+                #:
+                #: Why the *run's* time and not the time the log arrived: a log
+                #: can only be captured after its run finished, but how long
+                #: after is not controllable -- GitHub keeps the per-step files
+                #: for about an hour, a capture can be retried, and a backfill
+                #: can arrive weeks later. Partitioning by arrival would file
+                #: one run's logs under months that have nothing to do with the
+                #: run, and a month's drop would take rows the run's own month
+                #: still owns. The trigger time is stable, it is known to every
+                #: query (a read starts from the run), and it never changes.
+                Column("attempt_created_at", ColumnType.TIMESTAMPTZ, nullable=False),
                 _TIMESTAMP_CREATED,
                 _TIMESTAMP_UPDATED,
             ),
@@ -495,8 +493,8 @@ CORE_SCHEMA = Schema(
             # The lookup is always (step, month): the pair is the address, and an
             # index on ``step_id`` alone cannot serve a query that also names the
             # bucket -- it would filter the bucket after finding the row.
-            indexes=(Index("idx_step_logs_step", ("step_id", "bucket")),),
-            partition=PartitionSpec(column="bucket"),
+            indexes=(Index("idx_step_logs_step", ("step_id", "attempt_created_at")),),
+            partition=PartitionSpec(column="attempt_created_at"),
         ),
         Table(
             # One log document per *job* -- GitHub's own bulk export packages
@@ -528,17 +526,19 @@ CORE_SCHEMA = Schema(
                 # When GitHub last handed us this text, so a caller can tell a
                 # fresh log from one fetched before a re-run superseded it.
                 Column("fetched_at", ColumnType.TIMESTAMPTZ),
-                #: The month this log belongs to -- ``bucket_of`` of its job's
-                #: ``completed_at``, written by the store path. NOT NULL because
-                #: the table is partitioned by it; see ``ghat_step_logs.bucket``.
-                Column("bucket", ColumnType.DATE, nullable=False),
+                #: The trigger time of the execution this log belongs to --
+                #: ``ghat_run_attempts.github_created_at``, written by the store
+                #: path. NOT NULL because the table is partitioned by it; see
+                #: ``ghat_step_logs.attempt_created_at`` for why the run's time
+                #: and not the arrival's.
+                Column("attempt_created_at", ColumnType.TIMESTAMPTZ, nullable=False),
                 _TIMESTAMP_CREATED,
                 _TIMESTAMP_UPDATED,
             ),
             foreign_keys=(ForeignKey("job_id", "ghat_jobs", on_delete=OnDelete.CASCADE),),
             indexes=(
                 # (job, month) is the address; see ``ghat_step_logs``.
-                Index("idx_job_logs_job", ("job_id", "bucket")),
+                Index("idx_job_logs_job", ("job_id", "attempt_created_at")),
                 # The accelerator for "which job printed this": a trigram index
                 # over the merged document. **Declared here and created by
                 # ``schema.ensure_accelerator_indexes``**: the expression system
@@ -556,7 +556,7 @@ CORE_SCHEMA = Schema(
                 # discloses.
                 Index("idx_job_logs_trgm", ("log_content",), method="gin", opclass="gin_trgm_ops"),
             ),
-            partition=PartitionSpec(column="bucket"),
+            partition=PartitionSpec(column="attempt_created_at"),
         ),
         Table(
             # One row per webhook delivery that reached the receiver. Transport

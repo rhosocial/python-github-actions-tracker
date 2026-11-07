@@ -191,15 +191,17 @@ def _statement_for(table_name: str) -> str:
     raise AssertionError(f"{table_name} is not rendered")
 
 
-def test_the_log_tables_are_partitioned_by_bucket() -> None:
+def test_the_log_tables_are_partitioned_by_their_execution_time() -> None:
     """The two log tables render as partitioned parents, by month.
 
     ``PARTITION BY RANGE`` is not decoration: without it a month cannot be
-    dropped as a unit, and the whole point of the bucket column is that it
-    becomes one.
+    dropped as a unit, and the whole point of the trigger-time column is that it
+    becomes one. The key is the raw timestamp -- a ``date_trunc`` expression is
+    not ``IMMUTABLE`` (the server refuses it), and a stored month would be a copy
+    that can disagree with the value it was derived from.
     """
     for name in ("ghat_step_logs", "ghat_job_logs"):
-        assert _statement_for(name).endswith('PARTITION BY RANGE ("bucket")'), name
+        assert _statement_for(name).endswith('PARTITION BY RANGE ("attempt_created_at")'), name
 
 
 def test_no_other_table_is_partitioned() -> None:
@@ -214,21 +216,24 @@ def test_a_partitioned_table_carries_the_key_in_its_uniques() -> None:
     """PostgreSQL requires the partition column in every unique key.
 
     What must survive is the 1:1 rule: ``UNIQUE (step_id)`` became
-    ``UNIQUE (step_id, bucket)``, and the bucket is a function of the row's own
-    parent -- so two rows that would have collided still collide.
+    ``UNIQUE (step_id, attempt_created_at)``, and that timestamp is a function of
+    the row's own parent -- so two rows that would have collided still collide.
     """
     step_logs = _statement_for("ghat_step_logs")
-    assert 'UNIQUE ("step_id", "bucket")' in step_logs
+    assert 'UNIQUE ("step_id", "attempt_created_at")' in step_logs
     # The single-column form is what PostgreSQL rejects on a partitioned table.
     assert 'UNIQUE ("step_id")' not in step_logs
 
     job_logs = _statement_for("ghat_job_logs")
-    assert 'UNIQUE ("job_id", "bucket")' in job_logs
+    assert 'UNIQUE ("job_id", "attempt_created_at")' in job_logs
 
 
-def test_the_bucket_column_renders_as_a_date_on_both_log_tables() -> None:
+def test_the_partition_column_renders_as_a_timestamp_on_both_log_tables() -> None:
+    """A timestamp, not a date: the month is read off it, and the value is
+    copied from ``ghat_run_attempts.github_created_at`` verbatim -- casting it to
+    a date would lose the instant and make the copy lossy."""
     for name in ("ghat_step_logs", "ghat_job_logs"):
-        assert re.search(r'"bucket" DATE', _statement_for(name)), name
+        assert '"attempt_created_at" TIMESTAMP WITH TIME ZONE' in _statement_for(name), name
 
 
 def test_drop_order_covers_every_table_and_legacy_name() -> None:

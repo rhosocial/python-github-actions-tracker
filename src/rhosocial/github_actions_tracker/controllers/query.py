@@ -589,7 +589,8 @@ class QueryController:
                     type(exc).__name__,
                     exc,
                 )
-        sizes = await self._store.step_log_sizes(steps)
+        attempt = await self._store.latest_attempt(run)
+        sizes = await self._store.step_log_sizes(steps, attempt)
         record = _to_job_record(job, run, steps, log_sizes=sizes)
         if self._logs is not None:
             record.capture = await self._logs.status(job)
@@ -675,7 +676,11 @@ class QueryController:
             # the one that exists, and the note says it is the wider one.
             scope_note = NO_FAILED_STEP_LOGS
 
-        content = await self._store.log(job)
+        run = await self._store.run_of(job)
+        if run is None:
+            raise RunNotFoundError(f"Run of job {job_id} not found")
+        attempt = await self._store.latest_attempt(run)
+        content = await self._store.log(job, attempt)
         if content is None or not job.is_finished:
             try:
                 content = await self._readers.get_job_logs(repository, job_id)
@@ -686,7 +691,7 @@ class QueryController:
                 # turn an answer into an error.
                 logger.warning("Could not refresh the log of job %s: %s", job_id, exc)
             else:
-                await self._store.store_log(job, content)
+                await self._store.store_log(job, content, attempt)
 
         return JobLogsView(
             job_id=job_id,
@@ -722,6 +727,7 @@ class QueryController:
         if run is None:
             raise RunNotFoundError(f"Run {run_id} not found")
         await self._require_scope(run, repo)
+        attempt = await self._store.latest_attempt(run)
 
         jobs = await self._store.jobs(run)
         if not jobs or run.latest_status != "completed":
@@ -749,7 +755,7 @@ class QueryController:
                 # groups cannot account for reads like lost data.
                 view.jobs_without_failed_steps.append((job.github_job_id, job.name))
                 continue
-            texts = await self._store.step_log_texts(failed_steps)
+            texts = await self._store.step_log_texts(failed_steps, attempt)
             for step in failed_steps:
                 reference = FailedStepRef(
                     job_id=job.github_job_id,
@@ -820,6 +826,7 @@ class QueryController:
         if run is None:
             raise RunNotFoundError(f"Run of job {job.id} not found")
         await self._require_scope(run, repo)
+        attempt = await self._store.latest_attempt(run)
 
         steps = await self._store.steps(job)
         wanted: set[int] | None = None
@@ -839,7 +846,7 @@ class QueryController:
             # read path is the one place a retry is affordable -- a delivery
             # must answer quickly.
             report = await self._logs.ensure(repo, run, job=job, want=wanted, retry=retry)
-        texts = await self._store.step_log_texts(steps)
+        texts = await self._store.step_log_texts(steps, attempt)
 
         missing = [item.number for item in steps if item.number not in texts]
         chosen = [item for item in steps if item.number in texts]
@@ -1150,9 +1157,19 @@ class QueryController:
         if with_jobs:
             # One query for every step of every job on the page: the summary has
             # to say "this step's log is here", and the answer is one column.
-            sizes = await self._store.step_log_sizes(
-                [step for pairs in jobs.values() for _job, steps in pairs for step in steps]
-            )
+            # A page can hold runs from several executions, and a log row lives
+            # in the partition of its own execution'"'"'s trigger time -- so the sizes
+            # are grouped by attempt rather than read with one of them.
+            by_attempt: dict[AsyncRunAttempt, list[AsyncStep]] = {}
+            for run in runs:
+                latest = attempts.get(run.id or 0)
+                if latest is None:
+                    continue
+                for _job, steps in jobs.get(run.id or 0, []):
+                    by_attempt.setdefault(latest, []).extend(steps)
+            sizes = {}
+            for attempt, its_steps in by_attempt.items():
+                sizes.update(await self._store.step_log_sizes(its_steps, attempt))
             for record, run in zip(records, runs, strict=True):
                 record.jobs = [
                     _to_job_record(job, run, steps, log_sizes=sizes)

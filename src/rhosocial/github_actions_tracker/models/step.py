@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from rhosocial.activerecord.backend.errors import IntegrityError
@@ -80,13 +80,6 @@ class Step(DefaultTimestampMixin, ActiveRecord):
     number: int = 0
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    #: The month this step's log belongs to -- the **job's** ``log_bucket``,
-    #: handed to the step by :meth:`Job.upsert_from_remote` when it stores the
-    #: steps array. It is carried here so a read that holds only a step (a
-    #: ``get_job_log(step=N)`` that read the job earlier in the same request) can
-    #: address the row without going back for the job. ``None`` while the job has
-    #: not finished, and on rows written before the column existed.
-    log_bucket: date | None = None
 
     #: Owning job (pairs with :attr:`Job.steps`).
     job: ClassVar[BelongsTo[Job]] = BelongsTo(foreign_key="job_id", inverse_of="steps")
@@ -161,12 +154,6 @@ class Step(DefaultTimestampMixin, ActiveRecord):
                 existing.started_at = started_at
             if completed_at is not None:
                 existing.completed_at = completed_at
-            # A payload can describe the steps while the job is still running,
-            # so the step row can exist before its job has a month. Fill it when
-            # the job's completion supplies one; never overwrite -- the value
-            # only ever moves from "unknown" to "known".
-            if existing.log_bucket is None and self.log_bucket is not None:
-                existing.log_bucket = self.log_bucket
             if existing.is_dirty:
                 existing.save()
             return existing
@@ -180,7 +167,6 @@ class Step(DefaultTimestampMixin, ActiveRecord):
         record.conclusion = conclusion
         record.started_at = started_at
         record.completed_at = completed_at
-        record.log_bucket = self.log_bucket
         try:
             record.save()
         except IntegrityError:
@@ -221,8 +207,6 @@ class AsyncStep(DefaultTimestampMixin, AsyncActiveRecord):
     number: int = 0
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    #: The month this step's log belongs to -- see :attr:`Step.log_bucket`.
-    log_bucket: date | None = None
 
     #: Owning job (pairs with :attr:`AsyncJob.steps`).
     job: ClassVar[AsyncBelongsTo[AsyncJob]] = AsyncBelongsTo(
@@ -285,8 +269,6 @@ class AsyncStep(DefaultTimestampMixin, AsyncActiveRecord):
                 existing.completed_at = completed_at
             # See :meth:`Step.upsert_from_remote`: the bucket only ever moves
             # from "unknown" to "known", never the other way.
-            if existing.log_bucket is None and self.log_bucket is not None:
-                existing.log_bucket = self.log_bucket
             if existing.is_dirty:
                 await existing.save()
             return existing
@@ -300,7 +282,6 @@ class AsyncStep(DefaultTimestampMixin, AsyncActiveRecord):
         record.conclusion = conclusion
         record.started_at = started_at
         record.completed_at = completed_at
-        record.log_bucket = self.log_bucket
         try:
             await record.save()
         except IntegrityError:

@@ -29,7 +29,7 @@ from ..models import (
 )
 from ..models.attempt import AsyncRunAttempt
 from ..models.errors import GhatError  # noqa: F401 - re-exported for callers
-from ..models.log import AsyncJobLog, AsyncStepLog, bucket_of
+from ..models.log import AsyncJobLog, AsyncStepLog
 from ..models.states import FAILED_CONCLUSIONS
 from ..observability import RUN_INGEST_TOTAL
 from ..services.github.protocols import RunReader
@@ -46,6 +46,31 @@ __all__ = [
 _PASSING_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
 
 logger = logging.getLogger(__name__)
+
+
+async def _ensure_partition(attempt: AsyncRunAttempt) -> None:
+    """Create the month's partitions before a write lands in them.
+
+    The attempt is the authority for the month a log belongs to, so this is the
+    only place that knows both. Failure is logged, not raised: a partition that
+    could not be created leaves the row unwritten, which the ledger records, and
+    the next read repairs -- raising here would turn one missing month into a
+    failed capture for the whole run.
+    """
+    if attempt.github_created_at is None:
+        return
+    from ..schema.partitions import ensure_for
+
+    try:
+        await ensure_for(AsyncStepLog.backend(), attempt.github_created_at)
+    except Exception as exc:  # noqa: BLE001 - a lost race is not fatal
+        logger.debug(
+            "could not ensure the %s partition before writing attempt %s: %s",
+            attempt.github_created_at,
+            attempt.id,
+            exc,
+        )
+
 
 #: How many failing jobs one run reports in a list. More than a handful means
 #: the answer is "almost everything failed", and the names stop adding signal.
@@ -791,38 +816,22 @@ class RunData:
         """
         return await run.jobs_of_attempt()
 
-    async def steps(self, job: AsyncJob) -> list[AsyncStep]:
-        """A job's steps, in step order.
+    async def steps_of(self, job: AsyncJob) -> list[AsyncStep]:
+        """A job'"'"'s steps, in step order.
 
         A direct query rather than the relation: the relation can answer from a
         load it already made on this instance, and a caller that has just
         re-synced the job (the healing paths do) would then be handed the rows
         from before the write.
-
-        The bucket is filled from the job when a step is still missing one. A
-        step row is written when the job's first event arrives -- while the job
-        is still running, so it has no month yet -- and the month is filled in
-        when the job finishes. A step object from that earlier moment can still
-        say ``None`` after the row itself was healed, and the step-log write
-        needs the bucket because it is half of that row's key: one stale copy
-        there aborts the whole capture, which is how a run's step logs were lost
-        while the archive was still warm. The job is the authority for the month
-        and it is right here, so the value is derived rather than trusted.
         """
         if job.id is None:
             return []
-        steps = await (
+        return await (
             AsyncStep.query()
             .where(AsyncStep.c.job_id == job.id)
             .order_by((AsyncStep.c.number, "ASC"))
             .all()
         )
-        if job.log_bucket is not None:
-            for step in steps:
-                if step.log_bucket is None:
-                    step.log_bucket = job.log_bucket
-                    await step.save()
-        return steps
 
     async def step_count(self, job_ids: Sequence[int]) -> int:
         """How many steps are stored under these jobs."""
@@ -830,80 +839,56 @@ class RunData:
             return 0
         return await AsyncStep.query().where(AsyncStep.c.job_id.in_(list(job_ids))).count()
 
-    async def log(self, job: AsyncJob) -> str | None:
-        """A job's stored log, or ``None`` when it was never fetched or was purged.
+    async def log(self, job: AsyncJob, attempt: AsyncRunAttempt) -> str | None:
+        """A job'"'"'s stored log, or ``None`` when it was never fetched or was purged.
 
-        The lookup carries the job's own bucket, so it is an addressed read
-        rather than a scan: the row is where the job says its month is. A job
-        written before the bucket column existed has none, and the lookup then
-        searches every bucket -- old data stays readable until
-        ``db backfill-buckets`` gives it an address.
+        The lookup carries the execution'"'"'s trigger time, so it is an addressed read
+        inside one partition rather than a scan across all of them. The attempt is
+        the authority for that time and the caller already holds it (a read starts
+        from the run), so it is passed rather than re-derived.
         """
-        if job.id is None:
+        if job.id is None or attempt.github_created_at is None:
             return None
-        stored = await AsyncJobLog.find_for_job(job.id, job.log_bucket)
+        stored = await AsyncJobLog.find_for_job(job.id, attempt.github_created_at)
         return None if stored is None else stored.log_content
 
-    async def store_log(self, job: AsyncJob, content: str) -> None:
-        """Store a job's whole log as one row, replacing any log already there.
+    async def store_log(self, job: AsyncJob, content: str, attempt: AsyncRunAttempt) -> None:
+        """Store a job'"'"'s whole log, filed under the month its execution was triggered.
 
-        The model derives the month from the job it is given, so the write and
-        the read path cannot disagree about which month this text belongs to.
-        That month's partition is ensured first, for the same reason
-        :meth:`store_step_log` does: an insert into a partitioned table with no
-        partition for the row's month fails with an ``IntegrityError`` that no
-        read path reports.
+        The trigger time comes from the attempt, which is both the authority for it
+        and the row a read already holds -- so the write and the read paths cannot
+        disagree about which month this text belongs to. That month'"'"'s partition is
+        ensured first, for the same reason :meth:`store_step_log` does.
         """
-        if job.id is None:
+        if job.id is None or attempt.github_created_at is None:
             return
-        bucket = bucket_of(job.completed_at)
-        if bucket is not None:
-            from ..schema.partitions import ensure_month
-
-            try:
-                await ensure_month(AsyncJobLog.backend(), bucket)
-            except Exception as exc:  # noqa: BLE001 - a lost race is not fatal
-                logger.debug(
-                    "could not ensure the %s partition before writing job %s: %s",
-                    bucket,
-                    job.id,
-                    exc,
-                )
-        await AsyncJobLog.store_for_job(job, content)
+        await _ensure_partition(attempt, job.id)
+        await AsyncJobLog.store_for_job(job, content, attempt_created_at=attempt.github_created_at)
 
     # ---- step logs -----------------------------------------------------------
 
-    async def step_log_texts(self, steps: Sequence[AsyncStep]) -> dict[int, str]:
+    async def step_log_texts(
+        self, steps: Sequence[AsyncStep], attempt: AsyncRunAttempt
+    ) -> dict[int, str]:
         """The captured text of these steps, keyed by step number.
 
         One query for the batch: a job has ten-ish steps and a read that asked
         for them should not pay per row. Steps without a row are absent from the
         mapping, which is the honest shape -- see :class:`RunLogCapture`.
 
-        Bucketed steps are addressed in one query; a step that carries no bucket
-        (written before the column existed, or its job has not finished) is read
-        without one rather than not read at all.
+        The execution'"'"'s trigger time addresses the partition, so this is one
+        addressed query rather than a scan over every month the table has.
         """
-        if not steps:
+        if not steps or attempt.github_created_at is None:
             return {}
-        bucketed = [step for step in steps if step.log_bucket is not None]
-        plain = [step for step in steps if step.log_bucket is None]
-
-        rows: list[AsyncStepLog] = []
-        if bucketed:
-            ids = [step.id for step in bucketed if step.id is not None]
-            if ids:
-                buckets = sorted({step.log_bucket for step in bucketed})
-                rows.extend(
-                    await AsyncStepLog.query()
-                    .where((AsyncStepLog.c.step_id.in_(ids)) & (AsyncStepLog.c.bucket.in_(buckets)))
-                    .all()
-                )
-        if plain:
-            ids = [step.id for step in plain if step.id is not None]
-            if ids:
-                rows.extend(await AsyncStepLog.query().where(AsyncStepLog.c.step_id.in_(ids)).all())
-
+        ids = [step.id for step in steps if step.id is not None]
+        if not ids:
+            return {}
+        rows = (
+            await AsyncStepLog.in_attempt(attempt.github_created_at)
+            .where(AsyncStepLog.c.step_id.in_(ids))
+            .all()
+        )
         by_step_id = {row.step_id: row.log_content for row in rows}
         return {
             step.number: by_step_id[step.id]
@@ -911,101 +896,68 @@ class RunData:
             if step.id is not None and step.id in by_step_id
         }
 
-    async def step_log_sizes(self, steps: Sequence[AsyncStep]) -> dict[int, int]:
+    async def step_log_sizes(
+        self, steps: Sequence[AsyncStep], attempt: AsyncRunAttempt
+    ) -> dict[int, int]:
         """Line count per step id, for the steps that have a captured log.
 
         One query for a whole job or run: a summary that says "this step has a
-        log" must not ask the database once per step. Steps are given rather
-        than ids because the bucket lives on the step.
+        log" must not ask the database once per step. The execution'"'"'s trigger
+        time addresses the partition, so the counts come from one partition
+        rather than from every month the table has.
         """
-        if not steps:
+        if not steps or attempt.github_created_at is None:
             return {}
-        bucketed = [step for step in steps if step.log_bucket is not None]
-        plain = [step for step in steps if step.log_bucket is None]
-
-        rows: list[AsyncStepLog] = []
-        if bucketed:
-            ids = [step.id for step in bucketed if step.id is not None]
-            if ids:
-                buckets = sorted({step.log_bucket for step in bucketed})
-                rows.extend(
-                    await AsyncStepLog.query()
-                    .where((AsyncStepLog.c.step_id.in_(ids)) & (AsyncStepLog.c.bucket.in_(buckets)))
-                    .all()
-                )
-        if plain:
-            ids = [step.id for step in plain if step.id is not None]
-            if ids:
-                rows.extend(await AsyncStepLog.query().where(AsyncStepLog.c.step_id.in_(ids)).all())
+        ids = [step.id for step in steps if step.id is not None]
+        if not ids:
+            return {}
+        rows = (
+            await AsyncStepLog.in_attempt(attempt.github_created_at)
+            .where(AsyncStepLog.c.step_id.in_(ids))
+            .all()
+        )
         return {row.step_id: row.line_count for row in rows}
 
-    async def step_log_count(self, steps: Sequence[AsyncStep]) -> int:
+    async def step_log_count(self, steps: Sequence[AsyncStep], attempt: AsyncRunAttempt) -> int:
         """How many of these steps already have a captured log."""
-        if not steps:
+        if not steps or attempt.github_created_at is None:
             return 0
-        bucketed = [step for step in steps if step.log_bucket is not None]
-        plain = [step for step in steps if step.log_bucket is None]
+        ids = [step.id for step in steps if step.id is not None]
+        if not ids:
+            return 0
+        return await (
+            AsyncStepLog.in_attempt(attempt.github_created_at)
+            .where(AsyncStepLog.c.step_id.in_(ids))
+            .count()
+        )
 
-        total = 0
-        for group in (bucketed, plain):
-            ids = [step.id for step in group if step.id is not None]
-            if not ids:
-                continue
-            if group is bucketed:
-                buckets = sorted({step.log_bucket for step in group})
-                total += await (
-                    AsyncStepLog.query()
-                    .where((AsyncStepLog.c.step_id.in_(ids)) & (AsyncStepLog.c.bucket.in_(buckets)))
-                    .count()
-                )
-            else:
-                total += await AsyncStepLog.query().where(AsyncStepLog.c.step_id.in_(ids)).count()
-        return total
+    async def store_step_log(self, step: AsyncStep, content: str, attempt: AsyncRunAttempt) -> None:
+        """Store one step'"'"'s text, filed under the month its execution was triggered.
 
-    async def store_step_log(self, step: AsyncStep, content: str) -> None:
-        """Store one step's text, replacing any capture already there.
+        The attempt'"'"'s trigger time is where the row lands, and the caller that
+        captures holds the attempt already -- every read starts from the run --
+        so there is nothing to derive and nothing left to heal. It used to be
+        copied step-by-step from the job ("log_bucket") and re-read whenever a
+        stale object still said ``None``, which cost a whole run'"'"'s step logs
+        whenever the capture wrote from an out-of-date copy.
 
-        The step carries its month (copied from the job when the job stored its
-        steps), so the row lands where the read path will ask for it. When it
-        does not, the row is re-read rather than the object trusted: a step row
-        is written while its job is still running and healed when the job
-        finishes, and an object from the earlier moment can still say ``None``
-        after the row was healed. The bucket is half of the log row's key, so
-        that state aborts the write -- and the capture writes a whole run in one
-        pass, which is how one stale copy used to cost every step log of a run.
-
-        The partition for that month is created first. ``ensure_month`` says
-        "safe to call before every capture" and this is that call: a partitioned
-        table with no partition answers an insert with ``no partition of
-        relation ... found for row``, which surfaces as an ``IntegrityError`` in
-        the ledger's "capture failed" and loses the whole month's step logs --
-        for a reason no read path reports.
+        The partition is ensured first: a partitioned table answers an insert into
+        a month it does not have with ``no partition of relation ... found for
+        row``, which surfaces as an ``IntegrityError`` in the ledger'"'"'s "capture
+        failed" and loses the month'"'"'s step logs -- for a reason no read path
+        reports.
         """
-        if step.id is None:
+        if step.id is None or attempt.github_created_at is None:
             return
-        if step.log_bucket is None:
-            fresh = await AsyncStep.find_one(AsyncStep.c.id == step.id)
-            if fresh is not None and fresh.log_bucket is not None:
-                step.log_bucket = fresh.log_bucket
-        if step.log_bucket is not None:
-            from ..schema.partitions import ensure_month
-
-            try:
-                await ensure_month(AsyncStepLog.backend(), step.log_bucket)
-            except Exception as exc:  # noqa: BLE001 - a lost race is not fatal
-                logger.debug(
-                    "could not ensure the %s partition before writing step %s: %s",
-                    step.log_bucket,
-                    step.id,
-                    exc,
-                )
+        await _ensure_partition(attempt)
         try:
-            await AsyncStepLog.store_for_step(step, content)
+            await AsyncStepLog.store_for_step(
+                step, content, attempt_created_at=attempt.github_created_at
+            )
         except ValueError as exc:
-            # The ORM's message names the field, not the row. A capture that
-            # writes a whole run needs the row, or the ledger's "capture
+            # The ORM'"'"'s message names the field, not the row. A capture that
+            # writes a whole run needs the row, or the ledger'"'"'s "capture
             # failed" is all an operator ever learns.
             raise ValueError(
-                f"step {step.id} (job {step.job_id}, number {step.number}, "
-                f"bucket {step.log_bucket!r}): {exc}"
+                f"step {step.id} (job {step.job_id}, number {step.number}): {exc}"
             ) from exc

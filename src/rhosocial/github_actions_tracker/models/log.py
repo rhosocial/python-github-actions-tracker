@@ -19,19 +19,26 @@ or job untouched and needs no UPDATE, while deleting the parent still takes its
 log with it. A log can therefore be purged on its own -- by age, by repository,
 by "nobody will ever read this again" -- without touching a single parent row.
 
-**Every row carries the bucket it belongs to** -- the first day of the UTC month
-its job finished, from :func:`bucket_of`. The write path computes it once and the
-read path asks for it, so the two can never disagree about which month a log is
-from; the tables are partitioned by it, so each month is a unit that can be
-dropped in one metadata operation.
+**Every row carries the trigger time of the execution it belongs to** --
+``ghat_run_attempts.github_created_at``, copied verbatim at capture time and
+never updated. The write path computes it once and the read path asks for it, so
+the two can never disagree about which month a log is from; the tables are
+partitioned by it, so each month is a unit that can be dropped in one metadata
+operation.
 
-**The key is ``(id, bucket)``** because a partitioned table requires every key to
-contain the partition column. That split is declared rather than assumed: the
-surrogate carries an identity attribute (the server's to give, so the ORM leaves
-it out of the INSERT and reads it back through RETURNING), while the bucket is
-the caller's and stays in the column list. ``store()`` fills the bucket from the
-parent when it was left out -- the derivation is business logic; which columns a
-key needs is the model's.
+Why the *run's* time and not the log's arrival: a log can only be captured after
+its run finished, but how long after is not controllable -- GitHub keeps the
+per-step files for about an hour, a capture can be retried, and a backfill can
+arrive weeks later. Filing by arrival would put one run's logs under months that
+have nothing to do with the run, and a month's drop would take rows the run's own
+month still owns. The trigger time is stable, every query can supply it (a read
+starts from the run), and it never changes.
+
+**The key is ``(id, attempt_created_at)``** because a partitioned table requires
+every key to contain the partition column. That split is declared rather than
+assumed: the surrogate carries an identity attribute (the server's to give, so
+the ORM leaves it out of the INSERT and reads it back through RETURNING), while
+the trigger time is the caller's and stays in the column list.
 
 **A step log is not guaranteed to exist.** The archive loses its per-step files
 about an hour after the run completes, so a step logged later than that has no
@@ -54,8 +61,8 @@ models.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timezone
-from typing import TYPE_CHECKING, Annotated, Any, ClassVar
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Annotated, ClassVar
 
 from rhosocial.activerecord.base.ddl import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
@@ -81,50 +88,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def bucket_of(completed_at: datetime | None) -> date | None:
-    """The log bucket a job's text belongs to: the UTC month it finished in.
+def _as_utc(moment: datetime) -> datetime:
+    """A timestamp read as UTC when it carries no zone of its own.
 
-    The one function that decides it, for both the write path (which stores it)
-    and the read path (which looks it up). Because it is pure, the two cannot
-    drift, and because it lives in one place, changing the granularity is a
-    change to one function rather than to every call site.
-
-    Why ``completed_at`` and not the time of storage: a log row can only exist
-    after its job finished, the value never changes afterwards, and it is what
-    "how old is this log" means -- the same clock ``db cleanup --logs-before``
-    reads. A refill of an old run would otherwise file it under *this* month and
-    make an untouched log look new.
-
-    A ``None`` completion time has no bucket: an unfinished job has no log and
-    never will. A naive timestamp is read as UTC, the same assumption the rest of
-    this service makes of timestamps it did not offset itself.
+    The same assumption the rest of this service makes of timestamps it did not
+    offset itself. Used on the way in and on the way out, so a stored value and
+    a queried one compare equal.
     """
-    if completed_at is None:
-        return None
-    moment = (
-        completed_at
-        if completed_at.tzinfo is not None
-        else completed_at.replace(tzinfo=timezone.utc)
-    )
-    return moment.astimezone(timezone.utc).date().replace(day=1)
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=timezone.utc)
 
 
 class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     """The whole log text of one job, synchronous twin."""
 
     __table_name__ = "ghat_job_logs"
-    #: The table's key is the surrogate *and* the bucket, because a partitioned
-    #: table requires every key to contain the partition column. Only the
-    #: surrogate is the server's (:attr:`LogId`); the bucket is the caller's, and
-    #: the ORM reads that split off the column attributes rather than a second
+    #: The table's key is the surrogate *and* the partition column, because a
+    #: partitioned table requires every key to contain it. Only the surrogate is
+    #: the server's (:attr:`LogId`); the trigger time is the caller's, and the ORM
+    #: reads that split off the column attributes rather than a second
     #: declaration.
-    __primary_key__ = ("id", "bucket")
+    __primary_key__ = ("id", "attempt_created_at")
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
     #: Server-generated. Left out of the INSERT; read back through RETURNING.
     id: LogId = None
-    #: Owning job. UNIQUE, so this is one-to-one: a job has at most one log row.
+    #: Owning job. UNIQUE with the partition column, so this is one-to-one: a job
+    #: has at most one log row.
     job_id: int = 0
     log_content: str = ""
     #: Lines in :attr:`log_content`, counted at write time. Reading the text to
@@ -132,10 +122,11 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     line_count: int = 0
     #: When GitHub last served this text.
     fetched_at: datetime | None = None
-    #: The month this log belongs to -- ``bucket_of(job.completed_at)``, written
-    #: by the store path. Every read asks for it: it is the address of the row,
-    #: and the partition it lives in.
-    bucket: date | None = None
+    #: When the execution this log belongs to was triggered -- the attempt's
+    #: ``github_created_at``. It is the row's address, the partition it lives in,
+    #: and half of its key. Written once at capture time and never updated: the
+    #: partition a row belongs to is not a fact that can change under it.
+    attempt_created_at: datetime | None = None
 
     #: Owning job (pairs with :attr:`Job.job_log`).
     job: ClassVar[BelongsTo[Job]] = BelongsTo(foreign_key="job_id", inverse_of="job_log")
@@ -143,50 +134,63 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     # ---- query domain -------------------------------------------------------
 
     @classmethod
-    def find_for_job(cls, job_id: int, bucket: date | None = None) -> JobLog | None:
+    def in_attempt(cls, attempt_created_at: datetime) -> ActiveQuery:
+        """The log rows of one execution: the partition, as a query builder.
+
+        A builder rather than a result so the caller can add the parent key (and
+        its own ordering) before ``all()``. The partition a row lives in is a
+        *range*, so naming the instant prunes to one partition instead of
+        appending all of them -- which is the difference between a lookup and a
+        scan.
+        """
+        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+
+    @classmethod
+    def find_for_job(cls, job_id: int, attempt_created_at: datetime | None = None) -> JobLog | None:
         """Return the stored log of a job, or ``None`` when it has none.
 
         ``None`` is a real answer -- the log was never fetched, or it was purged
         -- and callers that fetch-or-store depend on telling it apart from an
         empty log.
 
-        The bucket narrows the search when the caller knows it (every read path
-        does: it has the job row). Omitted, the search is over all buckets, which
-        is what a caller holding a pre-bucket database needs -- a job written
-        before the column existed carries ``None``, and refusing to answer about
-        it would turn old data into an error.
+        The trigger time narrows the search when the caller knows it (every read
+        path does: it starts from the run). Omitted, the search is over every
+        partition, which is the shape a caller holding a database written before
+        the column existed needs.
         """
         query = cls.c.job_id == job_id
-        if bucket is not None:
-            query = query & (cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return cls.find_one(query)
 
     @classmethod
-    def for_job(cls, job_id: int, bucket: date | None = None) -> ActiveQuery:
+    def for_job(cls, job_id: int, attempt_created_at: datetime | None = None) -> ActiveQuery:
         """Query builder over the log rows of one job.
 
         A builder, not a result, so a caller can add its own ordering before
         ``all()``. At most one row can match -- the column is UNIQUE.
         """
         builder = cls.query().where(cls.c.job_id == job_id)
-        if bucket is not None:
-            builder = builder.where(cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return builder
 
     # ---- behavior -------------------------------------------------------------
 
     @classmethod
-    def store_for_job(cls, job: Job, content: str) -> JobLog:
-        """Store a job's log, filed under the month its job finished.
+    def store_for_job(cls, job: Job, content: str, *, attempt_created_at: datetime) -> JobLog:
+        """Store a job's log, filed under the month its execution was triggered.
 
         The one-to-one between a job and its log belongs to this model, and so
-        does the question "which month does that make it" -- a caller holding
-        the job should not have to derive it.
+        does the question "which month does that make it" -- a caller holding the
+        job should not have to derive it. The trigger time is **required**: the
+        partition a row lands in is half of its key, so a call that omits it is a
+        call that could not find the row again.
         """
         row = cls(
             job_id=job.id or 0,
             log_content=content,
-            bucket=bucket_of(job.completed_at),
+            attempt_created_at=_as_utc(attempt_created_at),
         )
         row.store()
         return row
@@ -194,11 +198,17 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     def store(self) -> None:
         """Persist this log, replacing any log already stored for the job.
 
-        The bucket must be part of the row's address, and it is: the key is
-        ``(id, bucket)``, so a log without one is a row that could not be found
-        again. Callers that hold the parent use :meth:`store_for_job`.
+        The trigger time is part of the row's address, and it is: the key is
+        ``(id, attempt_created_at)``, so a log without one is a row that could
+        not be found again. Callers that hold the parent use
+        :meth:`store_for_job`.
+
+        Only the *content* moves on a re-capture. The partition key is never
+        rewritten -- an attempt's trigger time does not change, and a row that
+        moved partitions would leave the old one holding a row the new month also
+        claims.
         """
-        existing = JobLog.find_for_job(self.job_id, self.bucket)
+        existing = JobLog.find_for_job(self.job_id, self.attempt_created_at)
         if existing is None:
             self.id = None
             self.line_count = _count_lines(self.log_content)
@@ -219,8 +229,8 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     """The whole log text of one job, asynchronous twin."""
 
     __table_name__ = "ghat_job_logs"
-    #: ``(id, bucket)`` -- see :attr:`JobLog.__primary_key__`.
-    __primary_key__ = ("id", "bucket")
+    #: ``(id, attempt_created_at)`` -- see :attr:`JobLog.__primary_key__`.
+    __primary_key__ = ("id", "attempt_created_at")
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
@@ -230,8 +240,9 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     log_content: str = ""
     line_count: int = 0
     fetched_at: datetime | None = None
-    #: The month this log belongs to -- see :attr:`JobLog.bucket`.
-    bucket: date | None = None
+    #: The trigger time of the execution this log belongs to -- see
+    #: :attr:`JobLog.attempt_created_at`.
+    attempt_created_at: datetime | None = None
 
     #: Owning job (pairs with :attr:`AsyncJob.job_log`).
     job: ClassVar[AsyncBelongsTo[AsyncJob]] = AsyncBelongsTo(
@@ -241,19 +252,26 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     # ---- query domain -------------------------------------------------------
 
     @classmethod
-    async def find_for_job(cls, job_id: int, bucket: date | None = None) -> AsyncJobLog | None:
+    def in_attempt(cls, attempt_created_at: datetime) -> AsyncActiveQuery:
+        """The log rows of one execution: the partition, as a query builder."""
+        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+
+    @classmethod
+    async def find_for_job(
+        cls, job_id: int, attempt_created_at: datetime | None = None
+    ) -> AsyncJobLog | None:
         """Return the stored log of a job, or ``None`` when it has none."""
         query = cls.c.job_id == job_id
-        if bucket is not None:
-            query = query & (cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return await cls.find_one(query)
 
     @classmethod
-    def for_job(cls, job_id: int, bucket: date | None = None) -> AsyncActiveQuery:
+    def for_job(cls, job_id: int, attempt_created_at: datetime | None = None) -> AsyncActiveQuery:
         """Query builder over the log rows of one job (at most one matches)."""
         builder = cls.query().where(cls.c.job_id == job_id)
-        if bucket is not None:
-            builder = builder.where(cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return builder
 
     # ---- behavior -------------------------------------------------------------
@@ -261,11 +279,11 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     async def store(self) -> None:
         """Persist this log, replacing any log already stored for the job.
 
-        The bucket is part of the row's key, so it belongs on the instance --
-        see :meth:`JobLog.store`. Callers holding the job use
+        The trigger time is part of the row's key, so it belongs on the instance
+        -- see :meth:`JobLog.store`. Callers holding the job use
         :meth:`store_for_job`.
         """
-        existing = await AsyncJobLog.find_for_job(self.job_id, self.bucket)
+        existing = await AsyncJobLog.find_for_job(self.job_id, self.attempt_created_at)
         if existing is None:
             self.id = None
             self.line_count = _count_lines(self.log_content)
@@ -278,12 +296,14 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         await existing.save()
 
     @classmethod
-    async def store_for_job(cls, job: AsyncJob, content: str) -> AsyncJobLog:
+    async def store_for_job(
+        cls, job: AsyncJob, content: str, *, attempt_created_at: datetime
+    ) -> AsyncJobLog:
         """The async twin of :meth:`JobLog.store_for_job`."""
         row = cls(
             job_id=job.id or 0,
             log_content=content,
-            bucket=bucket_of(job.completed_at),
+            attempt_created_at=_as_utc(attempt_created_at),
         )
         await row.store()
         return row
@@ -302,15 +322,16 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     """
 
     __table_name__ = "ghat_step_logs"
-    #: ``(id, bucket)`` -- a partitioned table's key contains the partition
-    #: column; see :attr:`JobLog.__primary_key__`.
-    __primary_key__ = ("id", "bucket")
+    #: ``(id, attempt_created_at)`` -- a partitioned table's key contains the
+    #: partition column; see :attr:`JobLog.__primary_key__`.
+    __primary_key__ = ("id", "attempt_created_at")
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
     #: Server-generated; see :attr:`JobLog.id`.
     id: LogId = None
-    #: Owning step. UNIQUE, so this is one-to-one: a step has at most one log.
+    #: Owning step. UNIQUE with the partition column, so this is one-to-one: a
+    #: step has at most one log.
     step_id: int = 0
     log_content: str = ""
     #: Lines in :attr:`log_content`, counted at write time. Reading the text to
@@ -319,9 +340,9 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     #: When GitHub last served this file. Steps of one run are captured in one
     #: request, so equal values across a run mean "one archive read".
     fetched_at: datetime | None = None
-    #: The month this log belongs to -- copied from its job's ``log_bucket`` at
-    #: capture time. See :attr:`JobLog.bucket`.
-    bucket: date | None = None
+    #: The trigger time of the execution this log belongs to -- the attempt's
+    #: ``github_created_at``. See :attr:`JobLog.attempt_created_at`.
+    attempt_created_at: datetime | None = None
 
     #: Owning step (pairs with :attr:`Step.step_log`).
     step: ClassVar[BelongsTo[Step]] = BelongsTo(foreign_key="step_id", inverse_of="step_log")
@@ -329,55 +350,72 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     # ---- query domain -------------------------------------------------------
 
     @classmethod
-    def find_for_step(cls, step_id: int, bucket: date | None = None) -> StepLog | None:
+    def in_attempt(cls, attempt_created_at: datetime) -> ActiveQuery:
+        """The log rows of one execution: the partition, as a query builder."""
+        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+
+    @classmethod
+    def find_for_step(
+        cls, step_id: int, attempt_created_at: datetime | None = None
+    ) -> StepLog | None:
         """Return the stored log of a step, or ``None`` when it has none.
 
         ``None`` is a real answer and the common one for older runs: the file
         existed for about an hour and is gone now. Callers that need text fall
         back to the job log rather than retrying.
 
-        The bucket is the step's own ``log_bucket``, copied from its job at
-        capture time. Omitted, the search is over all buckets -- the shape a
-        caller holding a pre-bucket database needs.
+        The trigger time is what the capture stored. Omitted, the search is over
+        every partition -- the shape a caller holding a database written before
+        the column existed needs.
         """
         query = cls.c.step_id == step_id
-        if bucket is not None:
-            query = query & (cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return cls.find_one(query)
 
     @classmethod
-    def for_step(cls, step_id: int, bucket: date | None = None) -> ActiveQuery:
+    def for_step(cls, step_id: int, attempt_created_at: datetime | None = None) -> ActiveQuery:
         """Query builder over the log rows of one step (at most one matches)."""
         builder = cls.query().where(cls.c.step_id == step_id)
-        if bucket is not None:
-            builder = builder.where(cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return builder
 
     @classmethod
-    def stored_count_for_steps(cls, step_ids: list[int]) -> int:
+    def stored_count_for_steps(
+        cls, step_ids: list[int], attempt_created_at: datetime | None = None
+    ) -> int:
         """How many of ``step_ids`` already have a log row.
 
         One query, used by the capture path to answer "did this run's logs land
-        at all", without reading a single document.
+        at all", without reading a single document. The trigger time, when the
+        caller has it, prunes to that execution's partition rather than counting
+        over all of them.
         """
         if not step_ids:
             return 0
-        return cls.query().where(cls.c.step_id.in_(step_ids)).count()
+        builder = cls.query().where(cls.c.step_id.in_(step_ids))
+        if attempt_created_at is not None:
+            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+        return builder.count()
 
     # ---- behavior -------------------------------------------------------------
 
     @classmethod
-    def store_for_step(cls, step: Step, content: str) -> StepLog:
-        """Store a step's log, filed under the month its job finished.
+    def store_for_step(cls, step: Step, content: str, *, attempt_created_at: datetime) -> StepLog:
+        """Store a step's log, filed under the month its execution was triggered.
 
-        The month is the step's own ``log_bucket`` -- copied from the job when
-        the job stored its steps -- so a caller holding only the step never has
-        to go back for the job.
+        The trigger time is **required**: it is the row's address, its partition,
+        and half of its key. A caller holding only the step used to read it off
+        ``step.log_bucket`` -- a value the job handed down and that had to be
+        healed when the job finished later; the attempt's own creation time is
+        what it always was a copy of, and asking for it here means there is
+        nothing left to heal.
         """
         row = cls(
             step_id=step.id or 0,
             log_content=content,
-            bucket=step.log_bucket,
+            attempt_created_at=_as_utc(attempt_created_at),
         )
         row.store()
         return row
@@ -385,10 +423,10 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
     def store(self) -> None:
         """Persist this log, replacing any log already stored for the step.
 
-        The bucket is part of the row's key; see :meth:`JobLog.store`. Callers
-        holding the step use :meth:`store_for_step`.
+        The trigger time is part of the row's key; see :meth:`JobLog.store`.
+        Callers holding the step use :meth:`store_for_step`.
         """
-        existing = StepLog.find_for_step(self.step_id, self.bucket)
+        existing = StepLog.find_for_step(self.step_id, self.attempt_created_at)
         if existing is None:
             self.id = None
             self.line_count = _count_lines(self.log_content)
@@ -409,8 +447,8 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     """What one step printed, asynchronous twin."""
 
     __table_name__ = "ghat_step_logs"
-    #: ``(id, bucket)`` -- see :attr:`JobLog.__primary_key__`.
-    __primary_key__ = ("id", "bucket")
+    #: ``(id, attempt_created_at)`` -- see :attr:`JobLog.__primary_key__`.
+    __primary_key__ = ("id", "attempt_created_at")
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
@@ -420,8 +458,9 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     log_content: str = ""
     line_count: int = 0
     fetched_at: datetime | None = None
-    #: The month this log belongs to -- see :attr:`StepLog.bucket`.
-    bucket: date | None = None
+    #: The trigger time of the execution this log belongs to -- see
+    #: :attr:`StepLog.attempt_created_at`.
+    attempt_created_at: datetime | None = None
 
     #: Owning step (pairs with :attr:`AsyncStep.step_log`).
     step: ClassVar[AsyncBelongsTo[AsyncStep]] = AsyncBelongsTo(
@@ -431,37 +470,51 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     # ---- query domain -------------------------------------------------------
 
     @classmethod
-    async def find_for_step(cls, step_id: int, bucket: date | None = None) -> AsyncStepLog | None:
+    def in_attempt(cls, attempt_created_at: datetime) -> AsyncActiveQuery:
+        """The log rows of one execution: the partition, as a query builder."""
+        return cls.query().where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+
+    @classmethod
+    async def find_for_step(
+        cls, step_id: int, attempt_created_at: datetime | None = None
+    ) -> AsyncStepLog | None:
         """Return the stored log of a step, or ``None`` when it has none."""
         query = cls.c.step_id == step_id
-        if bucket is not None:
-            query = query & (cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            query = query & (cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return await cls.find_one(query)
 
     @classmethod
-    def for_step(cls, step_id: int, bucket: date | None = None) -> AsyncActiveQuery:
+    def for_step(cls, step_id: int, attempt_created_at: datetime | None = None) -> AsyncActiveQuery:
         """Query builder over the log rows of one step (at most one matches)."""
         builder = cls.query().where(cls.c.step_id == step_id)
-        if bucket is not None:
-            builder = builder.where(cls.c.bucket == bucket)
+        if attempt_created_at is not None:
+            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
         return builder
 
     @classmethod
-    async def stored_count_for_steps(cls, step_ids: list[int]) -> int:
+    async def stored_count_for_steps(
+        cls, step_ids: list[int], attempt_created_at: datetime | None = None
+    ) -> int:
         """How many of ``step_ids`` already have a log row (one query)."""
         if not step_ids:
             return 0
-        return await cls.query().where(cls.c.step_id.in_(step_ids)).count()
+        builder = cls.query().where(cls.c.step_id.in_(step_ids))
+        if attempt_created_at is not None:
+            builder = builder.where(cls.c.attempt_created_at == _as_utc(attempt_created_at))
+        return await builder.count()
 
     # ---- behavior -------------------------------------------------------------
 
     @classmethod
-    async def store_for_step(cls, step: AsyncStep, content: str) -> AsyncStepLog:
+    async def store_for_step(
+        cls, step: AsyncStep, content: str, *, attempt_created_at: datetime
+    ) -> AsyncStepLog:
         """The async twin of :meth:`StepLog.store_for_step`."""
         row = cls(
             step_id=step.id or 0,
             log_content=content,
-            bucket=step.log_bucket,
+            attempt_created_at=_as_utc(attempt_created_at),
         )
         await row.store()
         return row
@@ -469,10 +522,10 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
     async def store(self) -> None:
         """Persist this log, replacing any log already stored for the step.
 
-        The bucket is part of the row's key; see :meth:`JobLog.store`. Callers
-        holding the step use :meth:`store_for_step`.
+        The trigger time is part of the row's key; see :meth:`JobLog.store`.
+        Callers holding the step use :meth:`store_for_step`.
         """
-        existing = await AsyncStepLog.find_for_step(self.step_id, self.bucket)
+        existing = await AsyncStepLog.find_for_step(self.step_id, self.attempt_created_at)
         if existing is None:
             self.id = None
             self.line_count = _count_lines(self.log_content)
@@ -490,47 +543,6 @@ class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
 
 
 # ---- shared internals -----------------------------------------------------
-
-
-def _require_bucket(log: Any) -> None:
-    """Fill a log's bucket from its parent when the caller left it out.
-
-    The bucket is derived, never independently chosen: a caller that knows a job
-    id and some text should not also have to know which month the job finished
-    in. A parent with no month at all -- a job that has not completed -- leaves
-    it ``None``, and **the write path refuses there**: the bucket is half of this
-    table's primary key, so a row without it could not be addressed afterwards.
-    That check belongs to the model's key machinery, which names the missing
-    field, rather than to a business rule restated here.
-    """
-    if log.bucket is not None:
-        return
-    from .step import Step
-
-    if isinstance(log, StepLog):
-        stored = Step.find_one(Step.c.id == log.step_id)
-        log.bucket = stored.log_bucket if stored is not None else None
-        return
-    from .job import Job
-
-    stored = Job.find_one(Job.c.id == log.job_id)
-    log.bucket = bucket_of(stored.completed_at) if stored is not None else None
-
-
-async def _require_bucket_async(log: Any) -> None:
-    """The async twin of :func:`_require_bucket`."""
-    if log.bucket is not None:
-        return
-    from .step import AsyncStep
-
-    if isinstance(log, AsyncStepLog):
-        stored = await AsyncStep.find_one(AsyncStep.c.id == log.step_id)
-        log.bucket = stored.log_bucket if stored is not None else None
-        return
-    from .job import AsyncJob
-
-    stored = await AsyncJob.find_one(AsyncJob.c.id == log.job_id)
-    log.bucket = bucket_of(stored.completed_at) if stored is not None else None
 
 
 def _count_lines(content: str) -> int:
@@ -556,4 +568,4 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-__all__ = ["AsyncJobLog", "AsyncStepLog", "JobLog", "StepLog", "bucket_of"]
+__all__ = ["AsyncJobLog", "AsyncStepLog", "JobLog", "StepLog"]

@@ -758,7 +758,10 @@ class WebhookController:
             if repo is None:
                 return
             content = await self._readers.get_job_logs(repo.full_name, job.github_job_id)
-            await self._store.store_log(job, content)
+            # The attempt is the authority for the month the row lands in, and
+            # the delivery already resolved the run -- one lookup, no derivation.
+            attempt = await self._store.latest_attempt(run)
+            await self._store.store_log(job, content, attempt)
             logger.info(
                 "Stored %d byte(s) of logs for job %s of '%s'",
                 len(content),

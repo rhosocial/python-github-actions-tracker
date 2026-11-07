@@ -94,8 +94,16 @@ class TestThePair:
 
 class TestTheBounds:
     def test_the_bound_reads_as_the_month_it_starts(self) -> None:
-        """``FOR VALUES FROM ('2026-09-01') TO ('2026-10-01')`` is the September
-        partition: the first date inside the bound is the bucket."""
+        """A bound is a month-aligned **instant** now, because the partition
+        column is the execution's trigger time -- ``2026-09-01 00:00:00+00`` is
+        the September partition, and the month is the first date inside it."""
+        assert _bucket_from_bound(
+            "FOR VALUES FROM ('2026-09-01 00:00:00+00') TO ('2026-10-01 00:00:00+00')"
+        ) == date(2026, 9, 1)
+
+    def test_a_legacy_date_bound_still_reads_the_same_way(self) -> None:
+        """Rows written before the column changed keep their partitions listed:
+        a date-only bound names the same month."""
         assert _bucket_from_bound("FOR VALUES FROM ('2026-09-01') TO ('2026-10-01')") == date(
             2026, 9, 1
         )

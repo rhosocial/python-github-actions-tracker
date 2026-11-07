@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ..config import LogSettings
 from ..core.exceptions import GhatError
@@ -45,6 +45,22 @@ if TYPE_CHECKING:  # the rows these flows return; only the annotations name them
     from ..models import AsyncJob, AsyncRepository, AsyncStep, AsyncWorkflowRun
 
 logger = logging.getLogger(__name__)
+
+
+async def _attempt_of(job: Any) -> Any:
+    """The execution a job belongs to, or ``None`` when it cannot be named.
+
+    The job'"'"'s own ``attempt`` relation is the authority for the month a log row
+    lands in, and it is one query -- the alternative was a month copied onto
+    every step, which had to be healed whenever the job finished after the step
+    row was written.
+    """
+    try:
+        return await job.attempt()
+    except Exception as exc:  # noqa: BLE001 - a missing attempt is not a crash
+        logger.debug("could not resolve the attempt of job %s: %s", job.id, exc)
+        return None
+
 
 #: Why a capture stored nothing. Stable strings: adapters publish them.
 SKIP_DISABLED = "capture_disabled"
@@ -127,6 +143,13 @@ class RunLogCapture:
             report.skipped_reason = SKIP_DISABLED
             return report
 
+        # The execution this capture belongs to, resolved first: the month a log
+        # row lands in is the attempt'"'"'s trigger time, so every branch below needs
+        # it and one lookup serves both answers.
+        attempt = await self._store.latest_attempt(run)
+        if attempt is None or attempt.github_created_at is None:
+            report.skipped_reason = SKIP_RUNNING
+            return report
         if job is not None:
             if not job.is_finished or job.completed_at is None:
                 report.skipped_reason = SKIP_JOB_RUNNING
@@ -136,8 +159,7 @@ class RunLogCapture:
                 return report
             jobs: list[AsyncJob] = [job]
         else:
-            attempt = await self._store.latest_attempt(run)
-            finished = attempt.completed_at if attempt is not None else None
+            finished = attempt.completed_at
             if attempt is None or attempt.status != "completed" or finished is None:
                 # Still running: the archive would be partial, and a partial
                 # write would make "no step file" and "not finished yet"
@@ -160,7 +182,7 @@ class RunLogCapture:
             steps = await self._store.steps(item)
             if not steps:
                 continue
-            texts = await self._store.step_log_texts(steps)
+            texts = await self._store.step_log_texts(steps, await _attempt_of(job))
             captured.update(texts)
             steps_by_job.append((item, {step.number: step for step in steps}))
             # What the job metadata says must have a file: a step that started
@@ -222,7 +244,7 @@ class RunLogCapture:
                     payload = files.get(number)
                     if payload is None:
                         continue
-                    await self._store.store_step_log(step, payload.content)
+                    await self._store.store_step_log(step, payload.content, attempt)
                     captured.add(number)
                     report.steps_stored += 1
 
@@ -278,7 +300,7 @@ class RunLogCapture:
             for step in steps
             if step.started_at is not None and (step.conclusion or "") != "skipped"
         ]
-        sizes = await self._store.step_log_sizes(expected)
+        sizes = await self._store.step_log_sizes(expected, await _attempt_of(job))
         captured = sum(1 for step in expected if (step.id or 0) in sizes)
         if not expected:
             state = "none"
@@ -318,7 +340,7 @@ class RunLogCapture:
         different answers, and only the first one is a row.
         """
         steps = await self._store.steps(job)
-        texts = await self._store.step_log_texts(steps)
+        texts = await self._store.step_log_texts(steps, await _attempt_of(job))
         sections: list[StepSection] = []
         for step in steps:
             content = texts.get(step.number)
@@ -340,7 +362,7 @@ class RunLogCapture:
         steps = await self._store.steps(job)
         if not steps:
             return False
-        return await self._store.step_log_count(steps) >= len(steps)
+        return await self._store.step_log_count(steps, await _attempt_of(job)) >= len(steps)
 
 
 def _past_deadline(finished: datetime, window_minutes: int) -> bool:
