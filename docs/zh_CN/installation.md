@@ -227,7 +227,9 @@ docker run -d --name tracker-web --restart unless-stopped \
 | `GHAT_WEBHOOK_PORT_HOST` | `18080` | 宿主发布的 webhook 端口（容器内固定 18080） |
 | `GHAT_MCP_PORT_HOST` | `8001` | 宿主发布的 MCP 端口（容器内固定 8001） |
 | `GHAT_OAUTH_ISSUER` | 空 | **预留**：OAuth 模式下的 issuer；当前不可用，见下方说明 |
-| `GHAT_RESOURCE_URL` | 空 | **预留**：OAuth 模式下本服务的 resource 标识；当前不可用 |
+| `GHAT_RESOURCE_URL` | 空 | 本服务对外发布的完整 URL，如 `https://tracker-mcp.example.com:8001/mcp`。**公网部署 MCP 时必须设置**：它既是 OAuth 模式下的 resource 标识，也是推导 Host 白名单（防 DNS rebinding）的唯一依据；不设置则只有 loopback 的 Host 能通过，公网请求会得到 `421 Invalid Host header` |
+| `GHAT_MCP_ALLOWED_HOSTS` | 空 | 额外允许的 `Host`（逗号分隔，支持 `example.com:*` 通配端口）。默认由 `GHAT_RESOURCE_URL` 推导并附带 loopback |
+| `GHAT_MCP_ALLOWED_ORIGINS` | 空 | 额外允许的 `Origin`（逗号分隔）。默认由 `GHAT_RESOURCE_URL` 推导；只在请求带 `Origin` 头时校验 |
 
 #### 凭据方式：当前只有静态 Bearer
 

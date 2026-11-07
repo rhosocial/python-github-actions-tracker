@@ -20,6 +20,7 @@ import json
 import logging
 import os
 from typing import Any
+from urllib.parse import urlsplit
 
 from mcp.server import MCPServer
 
@@ -141,6 +142,51 @@ class _UnboundContainer:
         return getattr(self._container, name)
 
 
+def _csv_env(name: str) -> list[str]:
+    """A comma-separated environment variable, as a list without empties."""
+    return [item.strip() for item in os.getenv(name, "").split(",") if item.strip()]
+
+
+def _transport_security(resource: str) -> Any | None:
+    """Let a public MCP deployment be reached by its own name.
+
+    The SDK refuses any ``Host`` outside its allowlist as a DNS-rebinding
+    attempt, and that allowlist is loopback unless someone fills it. Behind a
+    public hostname every request would then be answered ``421 Invalid Host
+    header`` -- a deployment that looks broken from the client's side with no
+    server-side log line naming the cause.
+
+    The allowlist is derived from the resource this app is published as
+    (``GHAT_RESOURCE_URL``), which is the one value a public deployment already
+    has to get right; ``GHAT_MCP_ALLOWED_HOSTS`` / ``GHAT_MCP_ALLOWED_ORIGINS``
+    override it for unusual shapes. Loopback entries are always kept, because a
+    local probe is the first thing anyone runs after a deploy.
+
+    Returns ``None`` when nothing names a public host, which leaves the
+    library's own loopback default in place instead of narrowing it.
+    """
+    hosts = _csv_env("GHAT_MCP_ALLOWED_HOSTS")
+    origins = _csv_env("GHAT_MCP_ALLOWED_ORIGINS")
+    if resource and not hosts:
+        parts = urlsplit(resource)
+        if parts.hostname:
+            # A wildcard port, because the resource's port is where the TLS
+            # listener happens to be published today and the Host header is
+            # what a rebinding attacker cannot forge past this list.
+            hosts = [f"{parts.hostname}:*"]
+            if not origins:
+                origins = [f"{parts.scheme}://{parts.netloc}"]
+    if not hosts:
+        return None
+    hosts = [*hosts, "localhost:*", "127.0.0.1:*", "[::1]:*"]
+    from mcp.server.transport_security import TransportSecuritySettings
+
+    return TransportSecuritySettings(
+        allowed_hosts=list(dict.fromkeys(hosts)),
+        allowed_origins=list(dict.fromkeys(origins)),
+    )
+
+
 def create_mcp_app(
     verifier: Any | None = None,
     resource_url: str | None = None,
@@ -192,7 +238,12 @@ def create_mcp_app(
         auth = auth_settings(issuer, resource)
         server = create_mcp_server(auth=auth, token_verifier=verifier, container=services)
         return _serving(
-            build_mcp_app(server, config=config, verifier=verifier),
+            build_mcp_app(
+                server,
+                config=config,
+                verifier=verifier,
+                transport_security=_transport_security(resource),
+            ),
             services,
         )
 
@@ -218,6 +269,7 @@ def create_mcp_app(
                 config=config,
                 verifier=source,
                 resolve_projection=False,
+                transport_security=_transport_security(resource),
             ),
             services,
         )
