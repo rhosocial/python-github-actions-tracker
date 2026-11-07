@@ -496,6 +496,21 @@ class WebhookController:
             logger.debug("Ignoring workflow_run %s: repository is not subscribed", github_run_id)
             return False
 
+        # ``workflow_run`` deliveries carry the workflow object as a sibling of
+        # ``workflow_run``. It is the **current** definition (id, name, path,
+        # state), and ``state`` exists nowhere else in the payload -- so taking it
+        # here is what keeps "active" from being the only thing we ever say about
+        # a workflow that was disabled or deleted. ``workflow_job`` has no such
+        # key; that path reads the run from GitHub instead.
+        workflow_data = payload.get("workflow")
+        if isinstance(workflow_data, Mapping):
+            merged = dict(run_data)
+            for key in ("name", "path", "state"):
+                value = _clean_str(workflow_data.get(key))
+                if value:
+                    merged[key] = value
+            run_data = merged
+
         action = _clean_str(payload.get("action"), "unknown")
         run = await self._store.run(github_run_id)
         if run is None:

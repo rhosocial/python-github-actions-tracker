@@ -45,6 +45,7 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
+from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 
 if TYPE_CHECKING:
@@ -303,7 +304,7 @@ def _job_span_seconds(dialect: Any, model_name: str, *, ran_only: bool) -> Any:
     return Subquery(dialect, (span, matching.to_sql()[1]))
 
 
-class RunAttempt(_AttemptTimingFields, DefaultTimestampMixin, ActiveRecord):
+class RunAttempt(FindOrCreateMixin, _AttemptTimingFields, DefaultTimestampMixin, ActiveRecord):
     """One execution of a workflow run, synchronous twin."""
 
     __table_name__ = "ghat_run_attempts"
@@ -395,20 +396,20 @@ class RunAttempt(_AttemptTimingFields, DefaultTimestampMixin, ActiveRecord):
         the row rather than assuming it. A minimal row is created and the fuller
         one overwrites it later, via :meth:`upsert_from_remote`.
         """
-        record = cls.find_attempt(run.id or 0, attempt_number)
-        if record is not None:
-            return record
-        record = cls(
+        # One operation rather than "read, then insert": the read and the insert
+        # can interleave with another delivery of the same run, and the loser of
+        # that race must end up with the winner's row, not an exception.
+        record, created = cls.find_one_or_create(
+            defaults={"status": "queued"},
             run_id=run.id or 0,
             attempt_number=attempt_number,
-            status="queued",
         )
-        record.save()
-        logger.debug(
-            "Created run %s attempt %s from a fragment",
-            run.github_run_id,
-            attempt_number,
-        )
+        if created:
+            logger.debug(
+                "Created run %s attempt %s from a fragment",
+                run.github_run_id,
+                attempt_number,
+            )
         return record
 
     @classmethod
@@ -446,7 +447,9 @@ class RunAttempt(_AttemptTimingFields, DefaultTimestampMixin, ActiveRecord):
         return record
 
 
-class AsyncRunAttempt(_AsyncAttemptTimingFields, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncRunAttempt(
+    AsyncFindOrCreateMixin, _AsyncAttemptTimingFields, DefaultTimestampMixin, AsyncActiveRecord
+):
     """One execution of a workflow run, asynchronous twin."""
 
     __table_name__ = "ghat_run_attempts"
@@ -525,20 +528,17 @@ class AsyncRunAttempt(_AsyncAttemptTimingFields, DefaultTimestampMixin, AsyncAct
 
         See :meth:`RunAttempt.ensure`; the async twin, same behaviour.
         """
-        record = await cls.find_attempt(run.id or 0, attempt_number)
-        if record is not None:
-            return record
-        record = cls(
+        record, created = await cls.find_one_or_create(
+            defaults={"status": "queued"},
             run_id=run.id or 0,
             attempt_number=attempt_number,
-            status="queued",
         )
-        await record.save()
-        logger.debug(
-            "Created run %s attempt %s from a fragment",
-            run.github_run_id,
-            attempt_number,
-        )
+        if created:
+            logger.debug(
+                "Created run %s attempt %s from a fragment",
+                run.github_run_id,
+                attempt_number,
+            )
         return record
 
     @classmethod

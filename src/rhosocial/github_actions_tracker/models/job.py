@@ -39,6 +39,7 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasOne
 from rhosocial.activerecord.relation.descriptors import BelongsTo, HasOne
 
+from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 
 if TYPE_CHECKING:
@@ -68,7 +69,7 @@ def _clean_str(value: Any, default: str = "") -> str:
     return text or default
 
 
-class Job(DefaultTimestampMixin, ActiveRecord):
+class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
     """A job within a workflow run, synchronous twin."""
 
     __table_name__ = "ghat_jobs"
@@ -248,7 +249,7 @@ class Job(DefaultTimestampMixin, ActiveRecord):
         return job
 
 
-class AsyncJob(DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncJob(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
     """A job within a workflow run, asynchronous twin.
 
     Behavior-identical to :class:`Job`; every method performs the same

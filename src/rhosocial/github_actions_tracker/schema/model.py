@@ -348,7 +348,9 @@ CORE_SCHEMA = Schema(
                 _TIMESTAMP_CREATED,
                 _TIMESTAMP_UPDATED,
             ),
-            foreign_keys=(ForeignKey("workflow_id", "ghat_workflows", on_delete=OnDelete.CASCADE),),
+            foreign_keys=(
+                ForeignKey("workflow_id", "ghat_workflows", on_delete=OnDelete.RESTRICT),
+            ),
             unique_constraints=(UniqueConstraint(("workflow_id", "github_run_id")),),
             indexes=(
                 Index("idx_runs_workflow", ("workflow_id",)),

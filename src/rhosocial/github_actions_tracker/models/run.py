@@ -51,6 +51,7 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
+from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 
 if TYPE_CHECKING:
@@ -273,7 +274,7 @@ class _AsyncRunStateFields:
     )
 
 
-class WorkflowRun(_RunStateFields, DefaultTimestampMixin, ActiveRecord):
+class WorkflowRun(FindOrCreateMixin, _RunStateFields, DefaultTimestampMixin, ActiveRecord):
     """A single workflow run, synchronous twin."""
 
     __table_name__ = "ghat_workflow_runs"
@@ -548,12 +549,15 @@ class WorkflowRun(_RunStateFields, DefaultTimestampMixin, ActiveRecord):
         """
         from .workflow import Workflow
 
+        # No ``state``: a run payload describes the execution, not the workflow's
+        # health. Creating a row here says "this workflow exists"; ``state`` stays
+        # ``unknown`` until a workflow payload or the list endpoint tells us, so
+        # adopting an old run cannot resurrect a workflow that was deleted.
         workflow = Workflow(
             repository_id=repo.id or 0,
             workflow_id=_as_int(remote.get("workflow_id")) or 0,
             name=_clean_str(remote.get("name")),
             path=_clean_str(remote.get("path")),
-            state="active",
         )
         workflow = workflow.upsert_from_remote(remote)
 
@@ -735,7 +739,9 @@ class WorkflowRun(_RunStateFields, DefaultTimestampMixin, ActiveRecord):
         return cls.find_one(cls.c.github_run_id == self.github_run_id)
 
 
-class AsyncWorkflowRun(_AsyncRunStateFields, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncWorkflowRun(
+    AsyncFindOrCreateMixin, _AsyncRunStateFields, DefaultTimestampMixin, AsyncActiveRecord
+):
     """A single workflow run, asynchronous twin.
 
     Behavior-identical to :class:`WorkflowRun`; every method performs the
@@ -974,12 +980,15 @@ class AsyncWorkflowRun(_AsyncRunStateFields, DefaultTimestampMixin, AsyncActiveR
         """
         from .workflow import AsyncWorkflow
 
+        # No ``state``: a run payload describes the execution, not the workflow's
+        # health. Creating a row here says "this workflow exists"; ``state`` stays
+        # ``unknown`` until a workflow payload or the list endpoint tells us, so
+        # adopting an old run cannot resurrect a workflow that was deleted.
         workflow = AsyncWorkflow(
             repository_id=repo.id or 0,
             workflow_id=_as_int(remote.get("workflow_id")) or 0,
             name=_clean_str(remote.get("name")),
             path=_clean_str(remote.get("path")),
-            state="active",
         )
         workflow = await workflow.upsert_from_remote(remote)
 

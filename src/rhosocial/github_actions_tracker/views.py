@@ -198,6 +198,10 @@ class RunRecord:
     #: sha, a branch and an event.
     workflow_name: str = ""
     workflow_path: str = ""
+    #: GitHub's state for that workflow: ``active``, ``disabled_*``, ``deleted``,
+    #: or ``unknown`` when the row was created from a run payload. A workflow we
+    #: have no row for at all reports ``missing``.
+    workflow_state: str = ""
     #: Cached pull request attribution (``None`` = unknown, e.g. fork PRs).
     pr_number: int | None = None
     #: Target branch of that pull request, when the run has one.

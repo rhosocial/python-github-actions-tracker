@@ -492,18 +492,22 @@ class RunData:
         )
         return [row.id for row in rows if row.id is not None]
 
-    async def workflows_by_id(self, workflow_ids: Sequence[int]) -> dict[int, tuple[str, str]]:
-        """The ``(name, path)`` of each workflow id, one query for the batch.
+    async def workflows_by_id(self, workflow_ids: Sequence[int]) -> dict[int, tuple[str, str, str]]:
+        """The ``(name, path, state)`` of each workflow id, one query for the batch.
 
-        A run carries only ``workflow_id``; the name and path live on the
-        workflow row. Resolving them per run would put a query behind every
-        summary line, which is exactly the cost a list cannot afford.
+        A run carries only ``workflow_id``; the rest lives on the workflow row.
+        Resolving them per run would put a query behind every summary line, which
+        is exactly the cost a list cannot afford.
+
+        ``state`` travels with the pair because it is the only honest way to say
+        "the workflow is gone": the row stays (a tombstone), and a caller that
+        prints a name must be able to print what GitHub last said about it.
         """
         ids = [workflow_id for workflow_id in workflow_ids if workflow_id]
         if not ids:
             return {}
         rows = await AsyncWorkflow.find_all(AsyncWorkflow.c.id.in_(ids))
-        return {row.id or 0: (row.name, row.path) for row in rows if row.id is not None}
+        return {row.id or 0: (row.name, row.path, row.state) for row in rows if row.id is not None}
 
     async def remember_workflow_id(self, workflow: AsyncWorkflow, github_workflow_id: int) -> None:
         """Store the GitHub id a workflow row was missing.

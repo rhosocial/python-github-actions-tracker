@@ -34,6 +34,8 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasOne
 from rhosocial.activerecord.relation.descriptors import BelongsTo, HasOne
 
+from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
+
 if TYPE_CHECKING:
     from .job import AsyncJob, Job
     from .log import AsyncStepLog, StepLog
@@ -59,7 +61,7 @@ def _clean_str(value: Any, default: str = "") -> str:
     return text or default
 
 
-class Step(DefaultTimestampMixin, ActiveRecord):
+class Step(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
     """One step of a job, synchronous twin."""
 
     __table_name__ = "ghat_steps"
@@ -182,7 +184,7 @@ class Step(DefaultTimestampMixin, ActiveRecord):
         return record
 
 
-class AsyncStep(DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncStep(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
     """One step of a job, asynchronous twin.
 
     Behavior-identical to :class:`Step`; every method performs the same

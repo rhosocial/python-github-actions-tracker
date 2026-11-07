@@ -1050,7 +1050,10 @@ class QueryController:
         # so the same run answered ``workflow: null`` for an old attempt and with
         # the name for the current one, purely because of which call was made.
         workflows = await self._store.workflows_by_id([run.workflow_id])
-        record.workflow_name, record.workflow_path = workflows.get(run.workflow_id, ("", ""))
+        name, path, state = workflows.get(run.workflow_id, ("", "", "missing"))
+        record.workflow_name = name
+        record.workflow_path = path
+        record.workflow_state = state
         record.attempt = attempt.attempt_number
         record.status = attempt.status or "queued"
         record.conclusion = attempt.conclusion
@@ -1126,9 +1129,10 @@ class QueryController:
         records = [_to_run_record(run, repo_full_name) for run in runs]
         workflows = await self._store.workflows_by_id([run.workflow_id for run in runs])
         for record, run in zip(records, runs, strict=True):
-            name, path = workflows.get(run.workflow_id, ("", ""))
+            name, path, state = workflows.get(run.workflow_id, ("", "", "missing"))
             record.workflow_name = name
             record.workflow_path = path
+            record.workflow_state = state
         run_ids = [run.id or 0 for run in runs]
         facts = await self._store.cache_facts(run_ids)
         jobs = await self._store.jobs_by_run(run_ids) if with_jobs else {}

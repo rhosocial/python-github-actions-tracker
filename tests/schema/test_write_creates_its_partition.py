@@ -59,14 +59,22 @@ async def _execution(triggered_at: datetime):
     """A run, its attempt, one job and one step -- the chain a log hangs off."""
     from rhosocial.github_actions_tracker.models import (
         AsyncJob,
+        AsyncRepository,
         AsyncRunAttempt,
         AsyncStep,
         AsyncWorkflow,
         AsyncWorkflowRun,
     )
 
+    repository = AsyncRepository(
+        github_repo_id=1, full_name="acme/demo", owner="acme", name="demo"
+    )
+    await repository.save()
     workflow = AsyncWorkflow(
-        repository_id=1, github_workflow_id=77, name="ci", path=".github/workflows/ci.yml"
+        repository_id=repository.id or 0,
+        workflow_id=77,
+        name="ci",
+        path=".github/workflows/ci.yml",
     )
     await workflow.save()
     run = AsyncWorkflowRun(

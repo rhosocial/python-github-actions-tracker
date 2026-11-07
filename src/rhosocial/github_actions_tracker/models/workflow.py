@@ -28,6 +28,7 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
+from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 
 if TYPE_CHECKING:
@@ -128,7 +129,7 @@ def _not_found(reference: str, candidates: Sequence[Any]) -> Any:
     )
 
 
-class Workflow(DefaultTimestampMixin, ActiveRecord):
+class Workflow(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
     """GitHub Actions workflow definition, synchronous twin."""
 
     __table_name__ = "ghat_workflows"
@@ -138,12 +139,18 @@ class Workflow(DefaultTimestampMixin, ActiveRecord):
 
     id: int | None = None
     repository_id: int = 0
-    #: Numeric GitHub workflow id. ``0`` for rows adopted before the id was
-    #: learned from a run payload; :meth:`upsert_from_remote` fills it in.
+    #: Numeric GitHub workflow id. This is the **only** identity used for
+    #: aggregation and filtering; ``name``/``path`` are attributes that GitHub
+    #: may change at any time. ``0`` for rows adopted before the id was learned
+    #: from a run payload; :meth:`upsert_from_remote` fills it in.
     workflow_id: int = 0
     name: str = ""
     path: str = ""
-    state: str = "active"
+    #: GitHub's ``state``: ``active``, ``disabled_manually``,
+    #: ``disabled_inactivity`` or ``deleted``. ``unknown`` is ours, for a row
+    #: created from a run payload (which does not carry the state) -- it is not a
+    #: claim that the workflow is healthy.
+    state: str = "unknown"
 
     #: Owning repository (pairs with :attr:`Repository.workflows`).
     repository: ClassVar[BelongsTo[Repository]] = BelongsTo(
@@ -163,6 +170,21 @@ class Workflow(DefaultTimestampMixin, ActiveRecord):
     def for_repository(cls, repository_id: int) -> ActiveQuery:
         """Query builder over the cached workflows of one repository."""
         return cls.query().where(cls.c.repository_id == repository_id)
+
+    @classmethod
+    def by_github_id(cls, repository_id: int, workflow_id: int) -> Workflow | None:
+        """The stored workflow for GitHub's id, or ``None``.
+
+        The one lookup that identifies a workflow. ``name`` and ``path`` change
+        whenever GitHub is edited, so a filter that resolves a workflow by its
+        label must go through here -- or through :meth:`resolve`, which accepts
+        the numeric id as one of its references.
+        """
+        if not workflow_id:
+            return None
+        return cls.find_one(
+            (cls.c.repository_id == repository_id) & (cls.c.workflow_id == workflow_id)
+        )
 
     @classmethod
     def resolve(cls, repository_id: int, ref: str) -> Workflow:
@@ -222,7 +244,10 @@ class Workflow(DefaultTimestampMixin, ActiveRecord):
         )
         name = _clean_str(remote.get("name"), self.name)
         path = _clean_str(remote.get("path"), self.path)
-        state = _clean_str(remote.get("state"), self.state or "active")
+        # Blank means "the payload does not say". That must not overwrite a
+        # stored state: a run payload has no state at all, and defaulting it to
+        # ``unknown`` here would turn a known ``deleted`` back into a guess.
+        state = _clean_str(remote.get("state"))
 
         if github_workflow_id:
             existing = cls.find_one(
@@ -247,7 +272,7 @@ class Workflow(DefaultTimestampMixin, ActiveRecord):
         record.workflow_id = github_workflow_id
         record.name = name
         record.path = path
-        record.state = state
+        record.state = state or self.state or "unknown"
         try:
             record.save()
         except IntegrityError:
@@ -280,7 +305,7 @@ class Workflow(DefaultTimestampMixin, ActiveRecord):
             self.save()
 
 
-class AsyncWorkflow(DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncWorkflow(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
     """GitHub Actions workflow definition, asynchronous twin.
 
     Behavior-identical to :class:`Workflow`; every method performs the same
@@ -294,12 +319,16 @@ class AsyncWorkflow(DefaultTimestampMixin, AsyncActiveRecord):
 
     id: int | None = None
     repository_id: int = 0
-    #: Numeric GitHub workflow id. ``0`` for rows adopted before the id was
-    #: learned from a run payload; :meth:`upsert_from_remote` fills it in.
+    #: Numeric GitHub workflow id. This is the **only** identity used for
+    #: aggregation and filtering; see :attr:`Workflow.workflow_id`.
     workflow_id: int = 0
     name: str = ""
     path: str = ""
-    state: str = "active"
+    #: GitHub's ``state``: ``active``, ``disabled_manually``,
+    #: ``disabled_inactivity`` or ``deleted``. ``unknown`` is ours, for a row
+    #: created from a run payload (which does not carry the state) -- it is not a
+    #: claim that the workflow is healthy.
+    state: str = "unknown"
 
     #: Owning repository (pairs with :attr:`AsyncRepository.workflows`).
     repository: ClassVar[AsyncBelongsTo[AsyncRepository]] = AsyncBelongsTo(
@@ -319,6 +348,15 @@ class AsyncWorkflow(DefaultTimestampMixin, AsyncActiveRecord):
     def for_repository(cls, repository_id: int) -> AsyncActiveQuery:
         """Query builder over the cached workflows of one repository."""
         return cls.query().where(cls.c.repository_id == repository_id)
+
+    @classmethod
+    async def by_github_id(cls, repository_id: int, workflow_id: int) -> AsyncWorkflow | None:
+        """The stored workflow for GitHub's id; see :meth:`Workflow.by_github_id`."""
+        if not workflow_id:
+            return None
+        return await cls.find_one(
+            (cls.c.repository_id == repository_id) & (cls.c.workflow_id == workflow_id)
+        )
 
     @classmethod
     async def resolve(cls, repository_id: int, ref: str) -> AsyncWorkflow:
@@ -348,7 +386,10 @@ class AsyncWorkflow(DefaultTimestampMixin, AsyncActiveRecord):
         )
         name = _clean_str(remote.get("name"), self.name)
         path = _clean_str(remote.get("path"), self.path)
-        state = _clean_str(remote.get("state"), self.state or "active")
+        # Blank means "the payload does not say". That must not overwrite a
+        # stored state: a run payload has no state at all, and defaulting it to
+        # ``unknown`` here would turn a known ``deleted`` back into a guess.
+        state = _clean_str(remote.get("state"))
 
         if github_workflow_id:
             existing = await cls.find_one(
@@ -373,7 +414,7 @@ class AsyncWorkflow(DefaultTimestampMixin, AsyncActiveRecord):
         record.workflow_id = github_workflow_id
         record.name = name
         record.path = path
-        record.state = state
+        record.state = state or self.state or "unknown"
         try:
             await record.save()
         except IntegrityError:

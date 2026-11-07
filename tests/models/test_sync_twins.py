@@ -126,6 +126,33 @@ def test_a_whole_chain_round_trips_through_the_sync_twins(sync_postgres) -> None
     assert Job.find_one(Job.c.id == (job.id or 0)).job_log().log_content.startswith("set up")
 
 
+def test_find_one_or_create_creates_then_finds(sync_postgres) -> None:
+    """The sync half answers like the async half: create once, find afterwards.
+
+    Pinned here rather than in its own file because the sync backend fixture
+    lives here -- the mixin is one more thing both halves must do the same way.
+    """
+    repo = Repository(github_repo_id=9, full_name="acme/or-create", owner="acme", name="or-create")
+    repo.save()
+
+    workflow, created = Workflow.find_one_or_create(
+        defaults={"name": "CI", "path": "ci.yml"},
+        repository_id=repo.id or 0,
+        workflow_id=77,
+    )
+    assert created is True
+    assert workflow.id is not None
+
+    again, created_again = Workflow.find_one_or_create(
+        defaults={"name": "Renamed", "path": "other.yml"},
+        repository_id=repo.id or 0,
+        workflow_id=77,
+    )
+    assert created_again is False
+    assert again.id == workflow.id
+    assert again.name == "CI"
+
+
 def test_every_sync_class_has_an_async_twin_on_the_same_table() -> None:
     """Adding one half without the other is the drift this catches."""
     for sync_class in SYNC_MODELS:
