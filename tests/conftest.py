@@ -123,6 +123,7 @@ class FakeGithub:
                     "head_sha": "abc",
                     "head_commit": {"message": "fix stuff"},
                     "actor": {"login": "alice"},
+                    "created_at": "2026-10-09T09:59:00Z",
                     "run_started_at": "2026-10-10T10:00:00Z",
                     "completed_at": "2026-10-10T10:05:00Z",
                     "workflow_id": 7,

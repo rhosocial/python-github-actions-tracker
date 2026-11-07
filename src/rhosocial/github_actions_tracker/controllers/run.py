@@ -820,7 +820,7 @@ class RunData:
         """
         return await run.jobs_of_attempt()
 
-    async def steps_of(self, job: AsyncJob) -> list[AsyncStep]:
+    async def steps(self, job: AsyncJob) -> list[AsyncStep]:
         """A job'"'"'s steps, in step order.
 
         A direct query rather than the relation: the relation can answer from a
@@ -866,7 +866,7 @@ class RunData:
         """
         if job.id is None or attempt.github_created_at is None:
             return
-        await _ensure_partition(attempt, job.id)
+        await _ensure_partition(attempt)
         await AsyncJobLog.store_for_job(job, content, attempt_created_at=attempt.github_created_at)
 
     # ---- step logs -----------------------------------------------------------

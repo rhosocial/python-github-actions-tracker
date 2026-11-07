@@ -69,6 +69,10 @@ def _run_payload(*, minutes_ago: int = 0, status: str = "completed") -> dict:
         "conclusion": "failure" if status == "completed" else None,
         "head_branch": "main",
         "head_sha": "a" * 40,
+        # A run GitHub actually sends always carries created_at, and that is the
+        # trigger time the log rows are addressed by; without it no capture can
+        # file a row, which would make this fixture lie about the payload.
+        "created_at": _stamp(minutes_ago + 6),
         "run_started_at": _stamp(minutes_ago + 5),
         "completed_at": _stamp(minutes_ago) if status == "completed" else None,
         "workflow_id": 7,

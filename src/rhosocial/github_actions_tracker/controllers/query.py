@@ -1164,15 +1164,18 @@ class QueryController:
             # A page can hold runs from several executions, and a log row lives
             # in the partition of its own execution'"'"'s trigger time -- so the sizes
             # are grouped by attempt rather than read with one of them.
-            by_attempt: dict[AsyncRunAttempt, list[AsyncStep]] = {}
+            # Keyed by the attempt's id, not by the instance: a model is a
+            # mutable row, so it is not a dict key.
+            by_attempt: dict[int, tuple[AsyncRunAttempt, list[AsyncStep]]] = {}
             for run in runs:
                 latest = attempts.get(run.id or 0)
-                if latest is None:
+                if latest is None or latest.id is None:
                     continue
+                bucket = by_attempt.setdefault(latest.id, (latest, []))
                 for _job, steps in jobs.get(run.id or 0, []):
-                    by_attempt.setdefault(latest, []).extend(steps)
+                    bucket[1].extend(steps)
             sizes = {}
-            for attempt, its_steps in by_attempt.items():
+            for attempt, its_steps in by_attempt.values():
                 sizes.update(await self._store.step_log_sizes(its_steps, attempt))
             for record, run in zip(records, runs, strict=True):
                 record.jobs = [

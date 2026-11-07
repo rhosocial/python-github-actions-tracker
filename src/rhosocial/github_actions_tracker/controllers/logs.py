@@ -182,7 +182,7 @@ class RunLogCapture:
             steps = await self._store.steps(item)
             if not steps:
                 continue
-            texts = await self._store.step_log_texts(steps, await _attempt_of(job))
+            texts = await self._store.step_log_texts(steps, await _attempt_of(item))
             captured.update(texts)
             steps_by_job.append((item, {step.number: step for step in steps}))
             # What the job metadata says must have a file: a step that started
@@ -208,8 +208,8 @@ class RunLogCapture:
         delay = max(0.0, self._settings.capture_retry_delay_seconds)
         missing: set[int] = set()
         archive = None
-        for attempt in range(1, attempts + 1):
-            report.attempts = attempt
+        for try_number in range(1, attempts + 1):
+            report.attempts = try_number
             try:
                 archive = await self._readers.get_run_logs(repository.full_name, run.github_run_id)
             except GhatError as exc:
@@ -218,11 +218,11 @@ class RunLogCapture:
                 # 404 until the run finishes, 5xx while GitHub's log store is
                 # busy: both are "not ready", not "gone". A read that is allowed
                 # to wait treats them that way; the last attempt still reports.
-                if retry and status in (404, 502, 503) and attempt < attempts:
+                if retry and status in (404, 502, 503) and try_number < attempts:
                     logger.info(
                         "Archive of run %s not ready (attempt %s/%s): %s",
                         run.github_run_id,
-                        attempt,
+                        try_number,
                         attempts,
                         exc,
                     )
@@ -249,7 +249,7 @@ class RunLogCapture:
                     report.steps_stored += 1
 
             missing = {number for number in wanted if number not in captured}
-            if not missing or attempt == attempts:
+            if not missing or try_number == attempts:
                 break
             # The files are written asynchronously after the job completes, so
             # a miss here means "not yet" far more often than "never". Wait and
