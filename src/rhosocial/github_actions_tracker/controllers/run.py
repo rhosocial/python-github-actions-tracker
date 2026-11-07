@@ -281,15 +281,6 @@ class RunController:
 class RunData:
     """The repository / workflow / run aggregate, one method per question."""
 
-    def __init__(self, *, payloads: GithubPayloads | None = None) -> None:
-        """Build the row layer.
-
-        Args:
-            payloads: The service that translates GitHub payloads. The default
-                instance is stateless, so a caller that has one may share it.
-        """
-        self._payloads = payloads or GithubPayloads()
-
     async def repository(self, full_name: str) -> AsyncRepository | None:
         """The tracked repository called ``full_name``, or ``None``."""
         return await AsyncRepository.find_one(AsyncRepository.c.full_name == full_name)
@@ -365,7 +356,7 @@ class RunData:
         The attribution rule is the service's; the controller only makes it
         reachable without this module knowing a GitHub field name.
         """
-        return self._payloads.belongs_to_pull_request(payload, number, head_sha)
+        return GithubPayloads.belongs_to_pull_request(payload, number, head_sha)
 
     async def store_workflow(
         self, repo: AsyncRepository, payload: Mapping[str, object]
@@ -377,7 +368,7 @@ class RunData:
         workflow's ``state`` in every shape, and a blank state must not erase a
         known ``deleted`` -- :meth:`AsyncWorkflow.refresh` enforces that.
         """
-        values = self._payloads.workflow(payload)
+        values = GithubPayloads.workflow(payload)
         workflow_id = values["workflow_id"]
         path = values["path"]
 
@@ -418,7 +409,7 @@ class RunData:
         attempt this payload describes, so jobs have a place to hang.
         """
         workflow = await self.store_workflow(repo, payload)
-        values = self._payloads.run(payload)
+        values = GithubPayloads.run(payload)
         github_run_id = values.pop("github_run_id")
         run, created = await AsyncWorkflowRun.find_one_or_create(
             defaults=values, workflow_id=workflow.id or 0, github_run_id=github_run_id
@@ -442,7 +433,7 @@ class RunData:
         the payload describes is written to its own attempt, so a late payload
         for an older attempt cannot rewrite the run's current state.
         """
-        values = self._payloads.run(payload)
+        values = GithubPayloads.run(payload)
         values.pop("github_run_id", None)
         await run.refresh_metadata(**values)
         attempt = await self.store_attempt(run, payload)
@@ -460,11 +451,11 @@ class RunData:
         row and nothing else. The payload's own attempt number wins; only a
         payload that names none falls back to the newest stored attempt.
         """
-        number = self._payloads.attempt_number(payload)
+        number = GithubPayloads.attempt_number(payload)
         if not number:
             latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
             number = latest.attempt_number if latest else 1
-        return await AsyncRunAttempt.record(run, number, **self._payloads.attempt(payload))
+        return await AsyncRunAttempt.record(run, number, **GithubPayloads.attempt(payload))
 
     async def store_job(self, run: AsyncWorkflowRun, payload: Mapping[str, object]) -> AsyncJob:
         """Store one job under the attempt it names, cascading its steps.
@@ -475,18 +466,18 @@ class RunData:
         the newest stored attempt -- a late job of an older attempt must land in
         *its* attempt, not in the current one.
         """
-        number = self._payloads.attempt_number(payload)
+        number = GithubPayloads.attempt_number(payload)
         if not number:
             latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
             number = latest.attempt_number if latest else 1
         attempt = await AsyncRunAttempt.ensure(run, number)
-        job = await AsyncJob.record(attempt, **self._payloads.job(payload))
-        await self.store_steps(job, self._payloads.steps(payload))
+        job = await AsyncJob.record(attempt, **GithubPayloads.job(payload))
+        await self.store_steps(job, GithubPayloads.steps(payload))
         return job
 
     async def store_step(self, job: AsyncJob, payload: Mapping[str, object]) -> AsyncStep:
         """Store one step of a job from a GitHub payload."""
-        return await AsyncStep.record(job, **self._payloads.step(payload))
+        return await AsyncStep.record(job, **GithubPayloads.step(payload))
 
     async def store_steps(
         self, job: AsyncJob, steps: Sequence[Mapping[str, object]]

@@ -7,21 +7,134 @@ returns is keyed by the **model column** it describes -- ``status``,
 ``commit_sha``, ``github_run_id`` -- never by a GitHub spelling such as
 ``head_sha`` or ``run_attempt``.
 
-That leaves two boundaries intact:
+Sources
+-------
 
-* a controller asks this service for values and hands them to a model; it never
-  reads a payload key itself;
-* a model stores values and never learns where they came from.
+The payloads this class accepts come from exactly these places:
 
-An API rename is one edit here, and a test can exercise the translation without
-a database, a controller or a fake client.
+* ``run`` -- a run object: ``GET /repos/{owner}/{repo}/actions/runs/{run_id}``,
+  or the ``workflow_run`` object of a ``workflow_run`` delivery.
+* ``attempt_number`` / ``attempt`` -- the same run object, or
+  ``GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{n}``.
+* ``job`` / ``steps`` -- ``GET .../runs/{run_id}/jobs`` entries,
+  ``GET .../jobs/{job_id}``, or the ``workflow_job`` object of a
+  ``workflow_job`` delivery.
+* ``workflow`` -- ``GET .../actions/workflows`` entries, any run object, or the
+  sibling ``workflow`` object beside a ``workflow_run``.
+* ``repository`` -- the repository object from ``GET /repos/{owner}/{repo}``.
+* ``belongs_to_pull_request`` -- ``GET .../actions/runs`` entries, or the
+  ``workflow_run`` object.
+* ``step`` -- one entry of a job object's ``steps`` array.
+
+An event delivery wraps its subject under the event name; a REST object does
+not. Both shapes are accepted, and :meth:`_event_source` is the one place that
+knows the difference. The ``TypedDict`` declarations below name the keys this
+class actually reads; anything else in the object is ignored.
+
+This class holds no state, so its methods are classmethods: there is nothing to
+construct and nothing to configure.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, TypedDict
+
+
+class WorkflowPayload(TypedDict, total=False):
+    """A workflow object, or the same labels carried by a run.
+
+    ``state`` is present only on a workflow object; a run payload does not
+    carry it.
+    """
+
+    workflow_id: int
+    id: int
+    name: str
+    path: str
+    state: str
+
+
+class StepPayload(TypedDict, total=False):
+    """One entry of a job object's ``steps`` array."""
+
+    number: int
+    name: str
+    status: str
+    conclusion: str | None
+    started_at: str | None
+    completed_at: str | None
+
+
+class JobPayload(TypedDict, total=False):
+    """A job object: one ``/jobs`` entry, or the ``workflow_job`` object."""
+
+    id: int
+    run_id: int
+    run_attempt: int
+    name: str
+    status: str
+    conclusion: str | None
+    runner_name: str | None
+    started_at: str | None
+    completed_at: str | None
+    steps: list[StepPayload]
+
+
+class RunPayload(TypedDict, total=False):
+    """A run object: one ``/runs`` entry, or the ``workflow_run`` object.
+
+    The same object also describes the attempt it names through
+    ``run_attempt``, ``status``, ``conclusion`` and the timestamps below.
+    """
+
+    id: int
+    run_number: int
+    run_attempt: int
+    event: str
+    status: str
+    conclusion: str | None
+    head_branch: str
+    head_sha: str
+    display_title: str
+    head_commit: Mapping[str, Any]
+    head_repository: Mapping[str, Any]
+    pull_requests: list[Mapping[str, Any]]
+    actor: Mapping[str, Any] | str
+    triggering_actor: Mapping[str, Any] | str
+    run_started_at: str | None
+    started_at: str | None
+    created_at: str | None
+    updated_at: str | None
+    completed_at: str | None
+    workflow_id: int
+    name: str
+    path: str
+
+
+class RepositoryPayload(TypedDict, total=False):
+    """A repository object from ``GET /repos/{owner}/{repo}``."""
+
+    id: int
+    full_name: str
+    owner: Mapping[str, Any] | str
+    name: str
+    is_private: bool
+    default_branch: str
+
+
+class WorkflowRunEvent(TypedDict, total=False):
+    """A ``workflow_run`` webhook delivery."""
+
+    workflow_run: RunPayload
+    workflow: WorkflowPayload
+
+
+class WorkflowJobEvent(TypedDict, total=False):
+    """A ``workflow_job`` webhook delivery."""
+
+    workflow_job: JobPayload
 
 
 class GithubPayloads:
@@ -67,8 +180,8 @@ class GithubPayloads:
         """``value`` when it is a mapping, otherwise an empty one."""
         return value if isinstance(value, Mapping) else {}
 
-    @classmethod
-    def _event_source(cls, payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    @staticmethod
+    def _event_source(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
         """The fragment of an event envelope, or the payload itself.
 
         A delivery wraps its subject under the event name (``workflow_run``,
@@ -135,8 +248,9 @@ class GithubPayloads:
 
     # ---- entities ------------------------------------------------------------
 
-    def workflow(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """The workflow values a run or workflow payload carries.
+    @classmethod
+    def workflow(cls, payload: WorkflowPayload | RunPayload | WorkflowRunEvent) -> dict[str, Any]:
+        """The workflow values a workflow object or a run payload carries.
 
         A run payload names ``workflow_id``; a workflow list entry names ``id``.
         A ``workflow_run`` event also carries the **current** workflow object as
@@ -146,153 +260,165 @@ class GithubPayloads:
         guessed.
         """
         nested = payload.get("workflow")
-        source = {**payload, **nested} if isinstance(nested, Mapping) else payload
+        source: Mapping[str, Any] = (
+            {**payload, **nested} if isinstance(nested, Mapping) else payload
+        )
         return {
-            "workflow_id": self._as_int(source.get("workflow_id"))
-            or self._as_int(source.get("id"))
+            "workflow_id": cls._as_int(source.get("workflow_id"))
+            or cls._as_int(source.get("id"))
             or 0,
-            "name": self._text(source.get("name")),
-            "path": self._text(source.get("path")),
-            "state": self._text(source.get("state")),
+            "name": cls._text(source.get("name")),
+            "path": cls._text(source.get("path")),
+            "state": cls._text(source.get("state")),
         }
 
-    def run(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """The run-shaped values a run payload carries, GitHub keys translated."""
-        payload = self._event_source(payload, "workflow_run")
-        head_commit = self._mapping(payload.get("head_commit"))
+    @classmethod
+    def run(cls, payload: RunPayload | WorkflowRunEvent) -> dict[str, Any]:
+        """The run-shaped values a run object carries, GitHub keys translated."""
+        payload = cls._event_source(payload, "workflow_run")
+        head_commit = cls._mapping(payload.get("head_commit"))
         pull_requests = payload.get("pull_requests")
         has_pull = isinstance(pull_requests, list) and bool(pull_requests)
         if has_pull and isinstance(pull_requests[0], Mapping):
             first_pull = pull_requests[0]
         else:
             first_pull = {}
-        head_repository = self._mapping(payload.get("head_repository"))
-        author = self._mapping(head_commit.get("author"))
-        base = self._mapping(first_pull.get("base"))
+        head_repository = cls._mapping(payload.get("head_repository"))
+        author = cls._mapping(head_commit.get("author"))
+        base = cls._mapping(first_pull.get("base"))
 
         actor = ""
         for key in ("actor", "triggering_actor"):
             candidate = payload.get(key)
             if isinstance(candidate, Mapping):
-                login = self._text(candidate.get("login"))
+                login = cls._text(candidate.get("login"))
                 if login:
                     actor = login
                     break
             elif candidate:
-                actor = self._text(candidate)
+                actor = cls._text(candidate)
                 break
 
         return {
-            "github_run_id": self._as_int(payload.get("id")) or 0,
-            "run_number": self._as_int(payload.get("run_number")) or 0,
-            "pr_number": self._as_int(first_pull.get("number")),
-            "event": self._text(payload.get("event")),
-            "branch": self._text(payload.get("head_branch")),
-            "commit_sha": self._text(payload.get("head_sha")),
-            "commit_message": self._text(head_commit.get("message")),
-            "display_title": self._text(payload.get("display_title")),
-            "head_repo": self._text(head_repository.get("full_name")),
-            "commit_time": self._timestamp(head_commit.get("timestamp")),
-            "commit_author": self._text(author.get("name")),
-            "base_ref": self._text(base.get("ref")),
+            "github_run_id": cls._as_int(payload.get("id")) or 0,
+            "run_number": cls._as_int(payload.get("run_number")) or 0,
+            "pr_number": cls._as_int(first_pull.get("number")),
+            "event": cls._text(payload.get("event")),
+            "branch": cls._text(payload.get("head_branch")),
+            "commit_sha": cls._text(payload.get("head_sha")),
+            "commit_message": cls._text(head_commit.get("message")),
+            "display_title": cls._text(payload.get("display_title")),
+            "head_repo": cls._text(head_repository.get("full_name")),
+            "commit_time": cls._timestamp(head_commit.get("timestamp")),
+            "commit_author": cls._text(author.get("name")),
+            "base_ref": cls._text(base.get("ref")),
             "actor": actor,
         }
 
-    def attempt_number(self, payload: Mapping[str, Any]) -> int | None:
+    @classmethod
+    def attempt_number(
+        cls, payload: RunPayload | JobPayload | WorkflowRunEvent | WorkflowJobEvent
+    ) -> int | None:
         """Which execution a run or job payload describes, when it names one."""
-        payload = self._event_source(payload, "workflow_run")
-        return self._as_int(payload.get("run_attempt"))
+        payload = cls._event_source(payload, "workflow_run")
+        if "run_attempt" not in payload:
+            payload = cls._event_source(payload, "workflow_job")
+        return cls._as_int(payload.get("run_attempt"))
 
-    def attempt(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """The attempt-shaped values a run or attempt payload carries.
+    @classmethod
+    def attempt(cls, payload: RunPayload | WorkflowRunEvent) -> dict[str, Any]:
+        """The attempt-shaped values a run or attempt object carries.
 
         ``GET /runs/{id}`` describes the latest attempt; ``/attempts/{n}``
         describes one. Both are read the same way. A completed execution that
         carries no ``completed_at`` uses ``updated_at``, its last state change.
         """
-        payload = self._event_source(payload, "workflow_run")
-        status = self._status(payload.get("status"))
+        payload = cls._event_source(payload, "workflow_run")
+        status = cls._status(payload.get("status"))
         completed_at = payload.get("completed_at")
         if not completed_at and status == "completed":
             completed_at = payload.get("updated_at")
         return {
             "status": status,
-            "conclusion": self._conclusion(payload.get("conclusion")),
-            "actor": self._actor_login(payload),
-            "started_at": self._timestamp(
+            "conclusion": cls._conclusion(payload.get("conclusion")),
+            "actor": cls._actor_login(payload),
+            "started_at": cls._timestamp(
                 payload.get("run_started_at") or payload.get("started_at")
             ),
-            "completed_at": self._timestamp(completed_at),
-            "github_created_at": self._timestamp(payload.get("created_at")),
-            "github_updated_at": self._timestamp(payload.get("updated_at")),
+            "completed_at": cls._timestamp(completed_at),
+            "github_created_at": cls._timestamp(payload.get("created_at")),
+            "github_updated_at": cls._timestamp(payload.get("updated_at")),
         }
 
-    def job(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """The job-shaped values a job payload carries."""
-        payload = self._event_source(payload, "workflow_job")
+    @classmethod
+    def job(cls, payload: JobPayload | WorkflowJobEvent) -> dict[str, Any]:
+        """The job-shaped values a job object carries."""
+        payload = cls._event_source(payload, "workflow_job")
         return {
-            "github_job_id": self._as_int(payload.get("id")) or 0,
-            "name": self._text(payload.get("name")),
-            "status": self._status(payload.get("status")),
-            "conclusion": self._conclusion(payload.get("conclusion")),
-            "runner_name": self._text(payload.get("runner_name")) or None,
-            "started_at": self._timestamp(payload.get("started_at")),
-            "completed_at": self._timestamp(payload.get("completed_at")),
+            "github_job_id": cls._as_int(payload.get("id")) or 0,
+            "name": cls._text(payload.get("name")),
+            "status": cls._status(payload.get("status")),
+            "conclusion": cls._conclusion(payload.get("conclusion")),
+            "runner_name": cls._text(payload.get("runner_name")) or None,
+            "started_at": cls._timestamp(payload.get("started_at")),
+            "completed_at": cls._timestamp(payload.get("completed_at")),
         }
 
-    def step(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+    @classmethod
+    def step(cls, payload: StepPayload) -> dict[str, Any]:
         """The step-shaped values one entry of a job's ``steps`` array carries.
 
         GitHub gives a step no id of its own, so ``number`` is also its identity;
         the model mirrors it into ``github_step_id``.
         """
         return {
-            "number": self._as_int(payload.get("number")) or 0,
-            "name": self._text(payload.get("name")),
-            "status": self._status(payload.get("status")),
-            "conclusion": self._conclusion(payload.get("conclusion")),
-            "started_at": self._timestamp(payload.get("started_at")),
-            "completed_at": self._timestamp(payload.get("completed_at")),
+            "number": cls._as_int(payload.get("number")) or 0,
+            "name": cls._text(payload.get("name")),
+            "status": cls._status(payload.get("status")),
+            "conclusion": cls._conclusion(payload.get("conclusion")),
+            "started_at": cls._timestamp(payload.get("started_at")),
+            "completed_at": cls._timestamp(payload.get("completed_at")),
         }
 
-    def steps(self, payload: Mapping[str, Any]) -> list[dict[str, Any]]:
-        """Every step of a job payload, translated; empty when it carries none."""
-        payload = self._event_source(payload, "workflow_job")
+    @classmethod
+    def steps(cls, payload: JobPayload | WorkflowJobEvent) -> list[dict[str, Any]]:
+        """Every step of a job object, translated; empty when it carries none."""
+        payload = cls._event_source(payload, "workflow_job")
         entries = payload.get("steps")
         if not isinstance(entries, list):
             return []
-        return [self.step(entry) for entry in entries if isinstance(entry, Mapping)]
+        return [cls.step(entry) for entry in entries if isinstance(entry, Mapping)]
 
-    def repository(self, payload: Mapping[str, Any], full_name: str) -> dict[str, Any]:
-        """The repository values a repository payload carries.
+    @classmethod
+    def repository(cls, payload: RepositoryPayload, full_name: str) -> dict[str, Any]:
+        """The repository values a repository object carries.
 
         ``full_name`` the caller asked for wins over the payload's own spelling:
         it is the name the caller confirmed, and GitHub answers slightly
         differently for a repository renamed mid-flight.
         """
-        name = self._text(full_name or payload.get("full_name"))
-        owner = self._mapping(payload.get("owner"))
-        owner_login = self._text(owner.get("login")) or self._text(payload.get("owner"))
+        name = cls._text(full_name or payload.get("full_name"))
+        owner = cls._mapping(payload.get("owner"))
+        owner_login = cls._text(owner.get("login")) or cls._text(payload.get("owner"))
         if not owner_login and "/" in name:
             owner_login = name.split("/", 1)[0]
-        short_name = self._text(payload.get("name"))
+        short_name = cls._text(payload.get("name"))
         if not short_name and "/" in name:
             short_name = name.split("/", 1)[1]
         return {
-            "github_repo_id": self._as_int(payload.get("id")) or 0,
+            "github_repo_id": cls._as_int(payload.get("id")) or 0,
             "full_name": name,
             "owner": owner_login,
             "name": short_name or name,
             "is_private": bool(payload.get("is_private", False)),
-            "default_branch": self._text(payload.get("default_branch"), "main"),
+            "default_branch": cls._text(payload.get("default_branch"), "main"),
         }
 
     # ---- questions -----------------------------------------------------------
 
-    def belongs_to_pull_request(
-        self, payload: Mapping[str, Any], number: int, head_sha: str
-    ) -> bool:
-        """Whether a run payload belongs to pull request ``number``.
+    @classmethod
+    def belongs_to_pull_request(cls, payload: RunPayload, number: int, head_sha: str) -> bool:
+        """Whether a run object belongs to pull request ``number``.
 
         GitHub offers no PR-number filter on the runs endpoint, so attribution
         is decided in two tiers:
@@ -309,12 +435,21 @@ class GithubPayloads:
         pull_requests = payload.get("pull_requests")
         if pull_requests:
             return any(
-                isinstance(entry, Mapping) and self._as_int(entry.get("number")) == number
+                isinstance(entry, Mapping) and cls._as_int(entry.get("number")) == number
                 for entry in pull_requests
             )
-        event = self._text(payload.get("event"))
-        same_head = self._text(payload.get("head_sha")) == head_sha
+        event = cls._text(payload.get("event"))
+        same_head = cls._text(payload.get("head_sha")) == head_sha
         return event == "pull_request" and bool(head_sha) and same_head
 
 
-__all__ = ["GithubPayloads"]
+__all__ = [
+    "GithubPayloads",
+    "JobPayload",
+    "RepositoryPayload",
+    "RunPayload",
+    "StepPayload",
+    "WorkflowJobEvent",
+    "WorkflowPayload",
+    "WorkflowRunEvent",
+]

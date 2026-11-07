@@ -726,7 +726,6 @@ class RepositoryData:
         self,
         *,
         runs_data: RunData | None = None,
-        payloads: GithubPayloads | None = None,
     ) -> None:
         """Build the row layer.
 
@@ -734,10 +733,8 @@ class RepositoryData:
             runs_data: The run row layer, which owns the workflow upsert shared
                 by both controllers. A private instance keeps existing callers
                 of ``RepositoryData()`` working.
-            payloads: The service that translates GitHub payloads.
         """
         self._runs_data = runs_data or RunData()
-        self._payloads = payloads or GithubPayloads()
 
     async def by_name(self, full_name: str) -> AsyncRepository | None:
         """The tracked repository called ``full_name``, or ``None``."""
@@ -787,7 +784,7 @@ class RepositoryData:
         call stored, because the operator's declaration wins over whatever
         GitHub reports later.
         """
-        values = self._payloads.repository(payload, full_name)
+        values = GithubPayloads.repository(payload, full_name)
         name = values["full_name"]
         existing = await AsyncRepository.find_by_full_name(name)
         if existing is not None:

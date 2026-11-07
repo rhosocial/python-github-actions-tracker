@@ -88,10 +88,9 @@ async def test_a_payload_without_an_attempt_lands_on_the_newest_one(
 
 def test_pull_request_translation_treats_empty_as_unknown() -> None:
     """An empty array is "unknown" (fork PRs), never "no pull request"."""
-    payloads = GithubPayloads()
-    assert payloads.run({})["pr_number"] is None
-    assert payloads.run({"pull_requests": []})["pr_number"] is None
-    assert payloads.run({"pull_requests": [{"number": 126}]})["pr_number"] == 126
+    assert GithubPayloads.run({})["pr_number"] is None
+    assert GithubPayloads.run({"pull_requests": []})["pr_number"] is None
+    assert GithubPayloads.run({"pull_requests": [{"number": 126}]})["pr_number"] == 126
 
 
 async def test_adopt_stores_attempt_and_pr_number(fake_client: FakeGithub, bound) -> None:
