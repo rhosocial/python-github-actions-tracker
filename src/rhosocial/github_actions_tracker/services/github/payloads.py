@@ -68,14 +68,14 @@ class GithubPayloads:
         return value if isinstance(value, Mapping) else {}
 
     @classmethod
-    def _run_source(cls, payload: Mapping[str, Any]) -> Mapping[str, Any]:
-        """The run fragment of an event envelope, or the payload itself.
+    def _event_source(cls, payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+        """The fragment of an event envelope, or the payload itself.
 
-        A ``workflow_run`` delivery wraps the run under that key; a REST run
-        object does not. Accepting both shapes here keeps the event envelope out
-        of the controllers.
+        A delivery wraps its subject under the event name (``workflow_run``,
+        ``workflow_job``); a REST object does not. Accepting both shapes here
+        keeps the event envelope out of the controllers.
         """
-        inner = payload.get("workflow_run")
+        inner = payload.get(key)
         return inner if isinstance(inner, Mapping) else payload
 
     @staticmethod
@@ -158,7 +158,7 @@ class GithubPayloads:
 
     def run(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """The run-shaped values a run payload carries, GitHub keys translated."""
-        payload = self._run_source(payload)
+        payload = self._event_source(payload, "workflow_run")
         head_commit = self._mapping(payload.get("head_commit"))
         pull_requests = payload.get("pull_requests")
         has_pull = isinstance(pull_requests, list) and bool(pull_requests)
@@ -200,6 +200,7 @@ class GithubPayloads:
 
     def attempt_number(self, payload: Mapping[str, Any]) -> int | None:
         """Which execution a run or job payload describes, when it names one."""
+        payload = self._event_source(payload, "workflow_run")
         return self._as_int(payload.get("run_attempt"))
 
     def attempt(self, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -209,6 +210,7 @@ class GithubPayloads:
         describes one. Both are read the same way. A completed execution that
         carries no ``completed_at`` uses ``updated_at``, its last state change.
         """
+        payload = self._event_source(payload, "workflow_run")
         status = self._status(payload.get("status"))
         completed_at = payload.get("completed_at")
         if not completed_at and status == "completed":
@@ -227,6 +229,7 @@ class GithubPayloads:
 
     def job(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """The job-shaped values a job payload carries."""
+        payload = self._event_source(payload, "workflow_job")
         return {
             "github_job_id": self._as_int(payload.get("id")) or 0,
             "name": self._text(payload.get("name")),
@@ -254,6 +257,7 @@ class GithubPayloads:
 
     def steps(self, payload: Mapping[str, Any]) -> list[dict[str, Any]]:
         """Every step of a job payload, translated; empty when it carries none."""
+        payload = self._event_source(payload, "workflow_job")
         entries = payload.get("steps")
         if not isinstance(entries, list):
             return []

@@ -91,7 +91,7 @@ class _Store:
     async def failed_jobs_by_run(self, run_ids):  # noqa: ANN001, ANN202
         return {run_id: list(self.failed) for run_id in run_ids}
 
-    async def update(self, run, payload):  # noqa: ANN001, ANN202
+    async def update_run(self, run, payload):  # noqa: ANN001, ANN202
         self.updated_with = payload
         return run
 
