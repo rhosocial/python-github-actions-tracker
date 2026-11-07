@@ -38,6 +38,7 @@ from rhosocial.activerecord.relation.descriptors import BelongsTo, HasOne
 
 from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
+from .validators import IdentityMixin, UtcTimestampMixin
 
 if TYPE_CHECKING:
     from .attempt import AsyncRunAttempt, RunAttempt
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
+class Job(FindOrCreateMixin, IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord):
     """A job within a workflow run, synchronous twin."""
 
     __table_name__ = "ghat_jobs"
@@ -206,7 +207,13 @@ class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
         return job
 
 
-class AsyncJob(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncJob(
+    AsyncFindOrCreateMixin,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
+):
     """A job within a workflow run, asynchronous twin.
 
     Behavior-identical to :class:`Job`; every method performs the same

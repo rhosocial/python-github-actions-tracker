@@ -41,7 +41,7 @@ import 方向只有一个——**别的层可以 import `models`，`models` 不 
    两者共用同一个 `__table_name__`，关系各声明一份，行为一致。
 3. **关系声明在模型上**，`inverse_of` 写对端的属性名。
 4. **关系注解是字符串前向引用**：目标类在另一个模块里，`models/__init__.py` 在全部
-   类定义完成后调用 `_publish_relation_targets`，把每个模型发布进每个模型模块的
+   类定义完成后调用 `_RelationPublisher.publish()`，把每个模型发布进每个模型模块的
    globals，注解才解析得到。新增关系时不需要手工 import 对端。
 5. **有序一对多用 `OrderedHasMany` / `AsyncOrderedHasMany`**（`models/relations.py`），
    它在外键过滤之外按 `order_key` 排序，批量加载时避免逐个 `await`。
@@ -50,6 +50,18 @@ import 方向只有一个——**别的层可以 import `models`，`models` 不 
    `require_token`，它们要问 provider 注册表，于是把 `models` 拖进了凭据层。现在这两个
    动作在 `credentials/resolver.py`，模型只保存 `ghat_repository_bindings` 里的
    `(provider_kind, provider_ref)` 这一对不透明值。
+8. **模型只收语义值，不收 payload。** GitHub 的键名翻译（`head_sha` → `commit_sha`、
+   `run_attempt` → `attempt_number`、时间字符串 → `datetime`）全部在
+   `services/github/payloads.py` 的 `GithubPayloads` 里；控制器把解析后的值交给
+   `Workflow.refresh` / `WorkflowRun.refresh_metadata` / `RunAttempt.record` /
+   `Job.record` / `Step.record`。模型方法签名里不出现 `Mapping`，模块里不出现
+   `*_from_remote`，也没有模块级函数——这三条由
+   `tests/models/test_no_payload_in_models.py` 用 AST 守住。
+9. **ActiveRecord 就是 Pydantic，校验放在类上。** `models/validators.py` 提供两个混入：
+   `IdentityMixin`（id 不为负、`attempt_number >= 1`）与 `UtcTimestampMixin`（naive
+   时间按 UTC 解释）；`Repository.full_name`、`RepoWebhookSecret.secret`/`state`、
+   `PatCredential.name`/`token` 各自校验。`status` / `conclusion` **不做词汇表白名单**：
+   GitHub 可能新增值，状态机才是显式拒绝未知状态的地方。
 
 ## 二、实体清单
 
@@ -76,9 +88,9 @@ import 方向只有一个——**别的层可以 import `models`，`models` 不 
 run 的"当前状态"不是一列，而是查询时由数据库从最新 attempt 算出来的推导字段
 （`WorkflowRun.latest_attempt` / `latest_status` / `latest_conclusion` /
 `latest_started_at` / `latest_completed_at`）。这样不存在"run 与 attempt 不一致"
-这种状态：同一个事实只有一份。写入路径（`adopt_from_remote` / `update_from_remote`）
-写完 attempt 后把这五个值同步到内存对象，读路径用 `find_one(..., derived=True)` /
-`find_all(..., derived=True)` 让数据库一次算出来。
+这种状态：同一个事实只有一份。写入路径（Controller 的 `RunData.adopt_run` /
+`update_run` 调用 `RunAttempt.record`）写完 attempt 后把这五个值同步到内存对象，读路径
+用 `find_one(..., derived=True)` / `find_all(..., derived=True)` 让数据库一次算出来。
 
 11 张表全部有对应模型。`ghat_pat_credentials` 的表定义在 `schema/model.py`
 （`PAT_SCHEMA`），模型在 `models/pat_credential.py`——provider（`credentials/pat`）
@@ -254,7 +266,10 @@ GitHub **没有 per-step 日志端点**（在可测仓库上全是 404），但 
 webhook workflow_job → payload.workflow_job.steps[]   （推送通道）
 GET /actions/runs/{run_id}/jobs → jobs[].steps[]       （拉取通道）
         ↓
-Job.upsert_from_remote 级联 → Step.upsert_from_remote（按 (job_id, number) 落库）
+GithubPayloads.steps(payload) 校验并翻译
+        ↓
+RunData.store_job → AsyncJob.record(attempt, …) → store_steps → AsyncStep.record(job, …)
+（job 按 (attempt_id, github_job_id)、step 按 (job_id, number) 落库）
 ```
 
 ## 七、曾有的不一致（已修正）
@@ -281,4 +296,8 @@ rg -n 'name="ct_|foreign_keys=|unique_constraints=' src/rhosocial/github_actions
 
 # 叶子层：不得从本项目其他模块 import（必须输出 0，见 §一.1）
 rg -n 'from \.\.(?!models)' -g '*.py' src/rhosocial/github_actions_tracker/models -P
+
+# 模型不认 payload、没有模块级函数（必须输出 0，见 §一.8）
+rg -n '_from_remote' -g '*.py' src/rhosocial/github_actions_tracker/models
+rg -n '^(async )?def ' -g '*.py' src/rhosocial/github_actions_tracker/models
 ```

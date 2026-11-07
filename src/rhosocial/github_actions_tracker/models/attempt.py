@@ -46,6 +46,7 @@ from rhosocial.activerecord.relation.descriptors import BelongsTo
 
 from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
+from .validators import IdentityMixin, UtcTimestampMixin
 
 if TYPE_CHECKING:
     from .job import AsyncJob, Job
@@ -250,7 +251,13 @@ class _AttemptDerived:
 
 
 class RunAttempt(
-    FindOrCreateMixin, _AttemptMerge, _AttemptTimingFields, DefaultTimestampMixin, ActiveRecord
+    FindOrCreateMixin,
+    _AttemptMerge,
+    IdentityMixin,
+    UtcTimestampMixin,
+    _AttemptTimingFields,
+    DefaultTimestampMixin,
+    ActiveRecord,
 ):
     """One execution of a workflow run, synchronous twin."""
 
@@ -426,6 +433,8 @@ class RunAttempt(
 class AsyncRunAttempt(
     AsyncFindOrCreateMixin,
     _AttemptMerge,
+    IdentityMixin,
+    UtcTimestampMixin,
     _AsyncAttemptTimingFields,
     DefaultTimestampMixin,
     AsyncActiveRecord,

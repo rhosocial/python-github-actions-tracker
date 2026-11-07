@@ -22,7 +22,8 @@ path any more.
 ## The codebase in one paragraph
 
 `src/rhosocial/github_actions_tracker/` holds `models/` (table mappings, state
-machines, payload parsing — the leaves), `services/` (the GitHub API surface),
+machines, the row validators — the leaves), `services/` (the GitHub API surface
+and `GithubPayloads`, the one translator of GitHub JSON into model values),
 `controllers/` (the flows, and the only place ORM queries are written),
 `views.py` (what the adapters shape), `config.py` / `database.py` /
 `container.py` (wiring), and `adapters/` (one per protocol).

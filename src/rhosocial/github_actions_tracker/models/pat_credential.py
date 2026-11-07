@@ -36,10 +36,13 @@ import logging
 from datetime import datetime
 from typing import ClassVar
 
+from pydantic import field_validator
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
+
+from .validators import UtcTimestampMixin
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +50,27 @@ logger = logging.getLogger(__name__)
 PROVIDER_KIND = "pat"
 
 
-class PatCredential(DefaultTimestampMixin, ActiveRecord):
+class _CredentialValues:
+    """Checks every credential row shares, whichever twin stores it."""
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_empty(cls, value: str) -> str:
+        """The alias is how an operator selects this credential."""
+        if not value:
+            raise ValueError("a credential needs a name")
+        return value
+
+    @field_validator("token")
+    @classmethod
+    def _token_not_empty(cls, value: str) -> str:
+        """A credential without a token cannot answer for anything."""
+        if not value:
+            raise ValueError("a credential needs a token")
+        return value
+
+
+class PatCredential(_CredentialValues, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord):
     """A fine-grained PAT, synchronous twin."""
 
     __table_name__ = "ghat_pat_credentials"
@@ -84,7 +107,9 @@ class PatCredential(DefaultTimestampMixin, ActiveRecord):
         return cls.query().where(cls.c.is_active == True)  # noqa: E712 - ORM predicate
 
 
-class AsyncPatCredential(DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncPatCredential(
+    _CredentialValues, UtcTimestampMixin, DefaultTimestampMixin, AsyncActiveRecord
+):
     """A fine-grained PAT, asynchronous twin.
 
     Behavior-identical to :class:`PatCredential`; the service uses this twin.

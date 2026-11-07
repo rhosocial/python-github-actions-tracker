@@ -50,6 +50,7 @@ from rhosocial.activerecord.relation.descriptors import BelongsTo
 
 from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
+from .validators import IdentityMixin, UtcTimestampMixin
 
 if TYPE_CHECKING:
     from .attempt import AsyncRunAttempt, RunAttempt
@@ -131,7 +132,14 @@ class _AsyncRunStateFields:
     )
 
 
-class WorkflowRun(FindOrCreateMixin, _RunStateFields, DefaultTimestampMixin, ActiveRecord):
+class WorkflowRun(
+    FindOrCreateMixin,
+    _RunStateFields,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    ActiveRecord,
+):
     """A single workflow run, synchronous twin."""
 
     __table_name__ = "ghat_workflow_runs"
@@ -497,7 +505,12 @@ class WorkflowRun(FindOrCreateMixin, _RunStateFields, DefaultTimestampMixin, Act
 
 
 class AsyncWorkflowRun(
-    AsyncFindOrCreateMixin, _AsyncRunStateFields, DefaultTimestampMixin, AsyncActiveRecord
+    AsyncFindOrCreateMixin,
+    _AsyncRunStateFields,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
 ):
     """A single workflow run, asynchronous twin.
 

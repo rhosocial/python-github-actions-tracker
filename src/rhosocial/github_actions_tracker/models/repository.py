@@ -30,20 +30,22 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, ClassVar
 
+#: Imported at runtime, not under ``TYPE_CHECKING``: relation loading evaluates
+#: the annotations of every relation on the class, and a name that only exists
+#: while type-checking turns that evaluation into a NameError. ``webhook_secret``
+#: refers back to this module only under ``TYPE_CHECKING``, so the import is not
+#: a cycle.
+from pydantic import field_validator
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.relation.async_descriptors import AsyncHasOne
 from rhosocial.activerecord.relation.descriptors import HasOne
 
-#: Imported at runtime, not under ``TYPE_CHECKING``: relation loading evaluates
-#: the annotations of every relation on the class, and a name that only exists
-#: while type-checking turns that evaluation into a NameError. ``webhook_secret``
-#: refers back to this module only under ``TYPE_CHECKING``, so the import is not
-#: a cycle.
 from .binding import AsyncRepositoryBinding, RepositoryBinding
 from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
+from .validators import IdentityMixin, UtcTimestampMixin
 from .webhook_secret import AsyncRepoWebhookSecret, RepoWebhookSecret
 
 if TYPE_CHECKING:
@@ -58,7 +60,29 @@ DEFAULT_PER_PAGE = 30
 MAX_PER_PAGE = 100
 
 
-class Repository(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
+class _RepositoryValues:
+    """Checks every repository row shares, whichever twin stores it."""
+
+    @field_validator("full_name")
+    @classmethod
+    def _full_name_is_owner_and_name(cls, value: str) -> str:
+        """``owner/name`` and nothing else; an empty default is left alone."""
+        if not value:
+            return value
+        owner, separator, name = value.partition("/")
+        if not separator or not owner or not name or "/" in name:
+            raise ValueError("full_name must be 'owner/name'")
+        return value
+
+
+class Repository(
+    FindOrCreateMixin,
+    _RepositoryValues,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    ActiveRecord,
+):
     """GitHub repository subscription, synchronous twin."""
 
     __table_name__ = "ghat_repositories"
@@ -276,7 +300,14 @@ class Repository(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
         )
 
 
-class AsyncRepository(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncRepository(
+    AsyncFindOrCreateMixin,
+    _RepositoryValues,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
+):
     """GitHub repository subscription, asynchronous twin.
 
     Behavior-identical to :class:`Repository`; every method performs the

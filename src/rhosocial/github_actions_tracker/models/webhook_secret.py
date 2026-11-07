@@ -36,12 +36,15 @@ import logging
 import secrets
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from pydantic import field_validator
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
+
+from .validators import IdentityMixin, UtcTimestampMixin
 
 if TYPE_CHECKING:
     from .repository import AsyncRepository, Repository
@@ -63,7 +66,23 @@ GENERATED_BYTES = 32
 
 
 class _SecretValues:
-    """Value helpers shared by the two webhook-secret twins."""
+    """Value helpers and checks shared by the two webhook-secret twins."""
+
+    @field_validator("secret")
+    @classmethod
+    def _secret_not_empty(cls, value: str) -> str:
+        """A row that cannot sign a delivery is not a configured secret."""
+        if not value:
+            raise ValueError("a webhook secret cannot be empty")
+        return value
+
+    @field_validator("state")
+    @classmethod
+    def _known_state(cls, value: str) -> str:
+        """The three states are ours; an unknown one has no meaning."""
+        if value not in STATES:
+            raise ValueError(f"state must be one of {sorted(STATES)}")
+        return value
 
     @staticmethod
     def generate_secret() -> str:
@@ -76,7 +95,9 @@ class _SecretValues:
         return str(value).strip() if value is not None else ""
 
 
-class RepoWebhookSecret(_SecretValues, DefaultTimestampMixin, ActiveRecord):
+class RepoWebhookSecret(
+    _SecretValues, IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord
+):
     """One repository's webhook secret, synchronous twin."""
 
     __table_name__ = "ghat_repo_webhook_secrets"
@@ -192,7 +213,13 @@ class RepoWebhookSecret(_SecretValues, DefaultTimestampMixin, ActiveRecord):
         }
 
 
-class AsyncRepoWebhookSecret(_SecretValues, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncRepoWebhookSecret(
+    _SecretValues,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
+):
     """One repository's webhook secret, asynchronous twin.
 
     Behavior-identical to :class:`RepoWebhookSecret`; every method performs the

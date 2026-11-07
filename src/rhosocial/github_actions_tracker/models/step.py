@@ -31,6 +31,7 @@ from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, As
 from rhosocial.activerecord.relation.descriptors import BelongsTo, HasOne
 
 from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
+from .validators import IdentityMixin, UtcTimestampMixin
 
 if TYPE_CHECKING:
     from .job import AsyncJob, Job
@@ -39,7 +40,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class Step(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
+class Step(
+    FindOrCreateMixin, IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord
+):
     """One step of a job, synchronous twin."""
 
     __table_name__ = "ghat_steps"
@@ -154,7 +157,13 @@ class Step(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
         return step
 
 
-class AsyncStep(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncStep(
+    AsyncFindOrCreateMixin,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
+):
     """One step of a job, asynchronous twin.
 
     Behavior-identical to :class:`Step`; every method performs the same

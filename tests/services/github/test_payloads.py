@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+from pydantic import ValidationError
+
 from rhosocial.github_actions_tracker.services.github.payloads import GithubPayloads
 
 
@@ -45,12 +48,12 @@ class TestTimestamps:
         ]
         assert parsed.tzinfo == timezone.utc
 
-    def test_epoch_and_bad_values(self) -> None:
+    def test_epoch_and_invalid_values(self) -> None:
         epoch = GithubPayloads.attempt({"created_at": 1_760_000_000})["github_created_at"]
         assert epoch == datetime.fromtimestamp(1_760_000_000, tz=timezone.utc)
-        assert (
-            GithubPayloads.attempt({"created_at": "not a timestamp"})["github_created_at"] is None
-        )
+        assert GithubPayloads.attempt({"created_at": ""})["github_created_at"] is None
+        with pytest.raises(ValidationError, match="not a timestamp"):
+            GithubPayloads.attempt({"created_at": "not a timestamp"})
 
 
 class TestCompletedAttempt:
@@ -200,6 +203,28 @@ class TestRepositoryValues:
         assert values["owner"] == "acme"
         assert values["name"] == "demo"
         assert values["default_branch"] == "main"
+
+
+class TestPayloadValidation:
+    def test_unknown_keys_are_ignored(self) -> None:
+        values = GithubPayloads.run({"id": 1, "permissions": {"actions": "write"}})
+        assert values["github_run_id"] == 1
+
+    def test_an_envelope_subject_must_be_an_object(self) -> None:
+        with pytest.raises(ValidationError, match="workflow_run"):
+            GithubPayloads.run({"workflow_run": "not-an-object"})
+
+    def test_a_wrong_shape_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="pull_requests"):
+            GithubPayloads.run({"id": 1, "pull_requests": "nope"})
+
+    def test_numeric_strings_are_coerced(self) -> None:
+        values = GithubPayloads.steps({"steps": [{"number": "2", "name": "test"}]})
+        assert values[0]["number"] == 2
+
+    def test_an_invalid_actor_shape_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="actor"):
+            GithubPayloads.run({"id": 1, "actor": ["octocat"]})
 
 
 class TestPullRequestAttribution:

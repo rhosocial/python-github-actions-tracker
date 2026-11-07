@@ -29,6 +29,7 @@ from rhosocial.activerecord.relation.descriptors import BelongsTo
 
 from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
+from .validators import IdentityMixin, UtcTimestampMixin
 
 if TYPE_CHECKING:
     from .repository import AsyncRepository, Repository
@@ -139,7 +140,14 @@ class _WorkflowMatch:
         )
 
 
-class Workflow(FindOrCreateMixin, _WorkflowMatch, DefaultTimestampMixin, ActiveRecord):
+class Workflow(
+    FindOrCreateMixin,
+    _WorkflowMatch,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    ActiveRecord,
+):
     """GitHub Actions workflow definition, synchronous twin."""
 
     __table_name__ = "ghat_workflows"
@@ -261,7 +269,12 @@ class Workflow(FindOrCreateMixin, _WorkflowMatch, DefaultTimestampMixin, ActiveR
 
 
 class AsyncWorkflow(
-    AsyncFindOrCreateMixin, _WorkflowMatch, DefaultTimestampMixin, AsyncActiveRecord
+    AsyncFindOrCreateMixin,
+    _WorkflowMatch,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
 ):
     """GitHub Actions workflow definition, asynchronous twin.
 

@@ -73,6 +73,8 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
+from .validators import IdentityMixin, UtcTimestampMixin
+
 #: The surrogate of a partitioned log table. Declared as an identity *key* so
 #: the ORM knows one member of the composite key is the server's to give -- it
 #: reads that off the column attributes, which is also what tells it to leave
@@ -129,7 +131,9 @@ class _LogValues:
         return datetime.now(timezone.utc)
 
 
-class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
+class JobLog(
+    CompositePKMixin, IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord
+):
     """The whole log text of one job, synchronous twin."""
 
     __table_name__ = "ghat_job_logs"
@@ -258,7 +262,13 @@ class JobLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         return _LogValues.split_lines(self.log_content)
 
 
-class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncJobLog(
+    CompositePKMixin,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
+):
     """The whole log text of one job, asynchronous twin."""
 
     __table_name__ = "ghat_job_logs"
@@ -348,7 +358,9 @@ class AsyncJobLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
         return _LogValues.split_lines(self.log_content)
 
 
-class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
+class StepLog(
+    CompositePKMixin, IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord
+):
     """What one step printed, synchronous twin.
 
     One row per step at most. Its absence is the normal case for any step whose
@@ -482,7 +494,13 @@ class StepLog(CompositePKMixin, DefaultTimestampMixin, ActiveRecord):
         return _LogValues.split_lines(self.log_content)
 
 
-class AsyncStepLog(CompositePKMixin, DefaultTimestampMixin, AsyncActiveRecord):
+class AsyncStepLog(
+    CompositePKMixin,
+    IdentityMixin,
+    UtcTimestampMixin,
+    DefaultTimestampMixin,
+    AsyncActiveRecord,
+):
     """What one step printed, asynchronous twin."""
 
     __table_name__ = "ghat_step_logs"

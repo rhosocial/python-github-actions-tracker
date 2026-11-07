@@ -20,6 +20,10 @@ models/                         每个模型封装自己的数据行为
 | `TriggerController`、`QueryController`、`DispatchController`、`RepositoryController`、`RunController`、`WebhookController`、`WorkflowController`、`TokenController`、`StatusController` | 流程本身：一个方法就是一次完整的"问一次 / 触发一次 / 投递一次" |
 | `RunData`、`RepositoryData`、`DeliveryLedger` | 流程内部的行层：唯一构造 ORM 查询的地方，跟拥有它的流程放在同一个文件里，免得每个调用方重新推导顺序 |
 
+`RunData` / `RepositoryData` 的 `store_*` 也负责**父级解析与写序**：先让
+`GithubPayloads` 把 payload 翻译成值，再决定是哪一行（`workflow_id` 还是 `path`、
+`run_attempt` 还是最新 attempt），最后调用模型的值入口。它们不自己读 GitHub 键名。
+
 ## 规则
 
 1. **一次 `save()` 就是一次完整的写。** 没有 unit of work，没有跨模型事务，没有"两个模型必须一起提交"。
@@ -29,6 +33,9 @@ models/                         每个模型封装自己的数据行为
    因为一个流程复用另一个流程本来就是流程的含义。
 4. **不写 SQL 字符串**，只用 `AsyncActiveRecord` / `AsyncActiveQuery` 的公开方法。
 5. **不 import 适配层**；适配层的参数校验、错误码映射留在适配层。
+6. **不读 GitHub 键名**。payload 交给 `services/github/payloads.py` 的
+   `GithubPayloads` 翻译，控制器只拿返回值；键名（`head_sha`、`run_attempt`、
+   `workflow_run`）一个都不出现在这里。
 
 ## 判据（必须输出 0）
 
