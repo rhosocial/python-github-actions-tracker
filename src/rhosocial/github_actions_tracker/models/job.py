@@ -45,7 +45,6 @@ from .relations import AsyncOrderedHasMany, OrderedHasMany
 if TYPE_CHECKING:
     from .attempt import AsyncRunAttempt, RunAttempt
     from .log import AsyncJobLog, JobLog
-    from .run import AsyncWorkflowRun, WorkflowRun
     from .step import AsyncStep, Step
 
 logger = logging.getLogger(__name__)
@@ -148,7 +147,7 @@ class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
     # ``job.steps()`` to get the stored steps in number order.
 
     @classmethod
-    def upsert_from_remote(cls, run: WorkflowRun, job_data: Mapping[str, Any]) -> Job:
+    def upsert_from_remote(cls, attempt: RunAttempt, job_data: Mapping[str, Any]) -> Job:
         """Create or update a job record from a remote job payload.
 
         The lookup is keyed by ``(attempt_id, github_job_id)``:
@@ -163,16 +162,16 @@ class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
         <rhosocial.github_actions_tracker.models.step.Step.upsert_from_remote>`.
 
         Args:
-            run: The persisted run record the job belongs to. Only its id and
-                its latest ``run_attempt`` are read; the job hangs off the
-                attempt, not off the run.
+            attempt: The persisted attempt the job belongs to -- the **direct**
+                parent, not the run. Resolving the attempt number is the run'"'"'s
+                job (:meth:`WorkflowRun.sync_jobs_from_remote`), because only the
+                parent knows which executions it has.
             job_data: A GitHub job payload (REST object or webhook
                 fragment), optionally carrying a ``steps`` array.
 
         Returns:
             The persisted :class:`Job` record.
         """
-        from .attempt import RunAttempt
         from .errors import InvalidStateTransitionError
         from .states import (
             KIND_JOB,
@@ -184,16 +183,14 @@ class Job(FindOrCreateMixin, DefaultTimestampMixin, ActiveRecord):
         from .step import Step
 
         github_job_id = _as_int(job_data.get("id")) or 0
-        # The payload's own attempt is authoritative; a webhook fragment that
-        # carries no attempt belongs to the newest one this run has stored.
-        latest = RunAttempt.latest_for_run(run.id or 0)
-        job_attempt = _as_int(job_data.get("run_attempt")) or (
-            latest.attempt_number if latest else 1
-        )
-        # The foreign key is NOT NULL, so the attempt row has to exist before the
-        # job can. A webhook fragment names the attempt without describing it,
-        # hence ``ensure`` rather than "find".
-        attempt = RunAttempt.ensure(run, job_attempt)
+        # The foreign key is NOT NULL and this model has exactly one parent:
+        # refusing a half-built attempt here is what keeps the cascade honest
+        # instead of letting this method silently create a grandparent.
+        if attempt.id is None:
+            raise ValueError(
+                "Job.upsert_from_remote needs a stored attempt; the run resolves "
+                "which one and stores it before handing it over"
+            )
 
         job = cls.find_one(
             (cls.c.attempt_id == attempt.id) & (cls.c.github_job_id == github_job_id)
@@ -332,7 +329,7 @@ class AsyncJob(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord)
 
     @classmethod
     async def upsert_from_remote(
-        cls, run: AsyncWorkflowRun, job_data: Mapping[str, Any]
+        cls, attempt: AsyncRunAttempt, job_data: Mapping[str, Any]
     ) -> AsyncJob:
         """Create or update a job record from a remote job payload.
 
@@ -341,7 +338,6 @@ class AsyncJob(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord)
         semantics and the ``steps`` cascade; the stored field semantics are
         identical.
         """
-        from .attempt import AsyncRunAttempt
         from .errors import InvalidStateTransitionError
         from .states import (
             KIND_JOB,
@@ -353,14 +349,11 @@ class AsyncJob(AsyncFindOrCreateMixin, DefaultTimestampMixin, AsyncActiveRecord)
         from .step import AsyncStep
 
         github_job_id = _as_int(job_data.get("id")) or 0
-        # See :meth:`Job.upsert_from_remote`: the payload's attempt wins, and a
-        # fragment without one belongs to the newest stored attempt.
-        latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
-        job_attempt = _as_int(job_data.get("run_attempt")) or (
-            latest.attempt_number if latest else 1
-        )
-        # The foreign key is NOT NULL, so the attempt row must exist first.
-        attempt = await AsyncRunAttempt.ensure(run, job_attempt)
+        if attempt.id is None:
+            raise ValueError(
+                "Job.upsert_from_remote needs a stored attempt: the run resolves "
+                "which one and stores it before handing it over"
+            )
 
         job = await cls.find_one(
             (cls.c.attempt_id == attempt.id) & (cls.c.github_job_id == github_job_id)

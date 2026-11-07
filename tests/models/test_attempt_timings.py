@@ -57,9 +57,10 @@ async def _attempt_with_jobs(
         decoy = await AsyncWorkflowRun.adopt_from_remote(
             repo, _run_payload(901, attempt=1, status="completed")
         )
+        decoy_attempt = await AsyncRunAttempt.ensure(decoy, 1)
         for index in range(pad_job_ids):
             await AsyncJob.upsert_from_remote(
-                decoy,
+                decoy_attempt,
                 {
                     "id": 8100 + index,
                     "run_attempt": 1,

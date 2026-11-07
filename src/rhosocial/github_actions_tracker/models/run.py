@@ -664,9 +664,19 @@ class WorkflowRun(FindOrCreateMixin, _RunStateFields, DefaultTimestampMixin, Act
             could not be persisted.
         """
 
+        from .attempt import RunAttempt
+
         ids: list[int] = []
         for job_data in remote_jobs:
-            job = Job.upsert_from_remote(self, job_data)
+            # The payload names its own execution; only when it does not does the
+            # newest stored attempt answer. Never the other way round: a late job
+            # of an older attempt must land in *its* attempt.
+            number = _as_int(job_data.get("run_attempt"))
+            if not number:
+                latest = RunAttempt.latest_for_run(self.id or 0)
+                number = latest.attempt_number if latest else 1
+            attempt = RunAttempt.ensure(self, number)
+            job = Job.upsert_from_remote(attempt, job_data)
             if job.id is not None:
                 ids.append(job.id)
         return ids
@@ -1110,9 +1120,16 @@ class AsyncWorkflowRun(
         behaviour and same ordering guarantees.
         """
 
+        from .attempt import AsyncRunAttempt
+
         ids: list[int] = []
         for job_data in remote_jobs:
-            job = await AsyncJob.upsert_from_remote(self, job_data)
+            number = _as_int(job_data.get("run_attempt"))
+            if not number:
+                latest = await AsyncRunAttempt.latest_for_run(self.id or 0)
+                number = latest.attempt_number if latest else 1
+            attempt = await AsyncRunAttempt.ensure(self, number)
+            job = await AsyncJob.upsert_from_remote(attempt, job_data)
             if job.id is not None:
                 ids.append(job.id)
         return ids
