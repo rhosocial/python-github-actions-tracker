@@ -14,6 +14,7 @@ are the whole surface."""
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping, Sequence
 from datetime import datetime
@@ -28,7 +29,7 @@ from ..models import (
 )
 from ..models.attempt import AsyncRunAttempt
 from ..models.errors import GhatError  # noqa: F401 - re-exported for callers
-from ..models.log import AsyncJobLog, AsyncStepLog
+from ..models.log import AsyncJobLog, AsyncStepLog, bucket_of
 from ..models.states import FAILED_CONCLUSIONS
 from ..observability import RUN_INGEST_TOTAL
 from ..services.github.protocols import RunReader
@@ -43,6 +44,8 @@ __all__ = [
 #: Conclusions that are not a failure to report: a green job, and the ones
 #: GitHub reports for work that was deliberately not run.
 _PASSING_CONCLUSIONS = frozenset({"success", "neutral", "skipped"})
+
+logger = logging.getLogger(__name__)
 
 #: How many failing jobs one run reports in a list. More than a handful means
 #: the answer is "almost everything failed", and the names stop adding signal.
@@ -846,9 +849,26 @@ class RunData:
 
         The model derives the month from the job it is given, so the write and
         the read path cannot disagree about which month this text belongs to.
+        That month's partition is ensured first, for the same reason
+        :meth:`store_step_log` does: an insert into a partitioned table with no
+        partition for the row's month fails with an ``IntegrityError`` that no
+        read path reports.
         """
         if job.id is None:
             return
+        bucket = bucket_of(job.completed_at)
+        if bucket is not None:
+            from ..schema.partitions import ensure_month
+
+            try:
+                await ensure_month(AsyncJobLog.backend(), bucket)
+            except Exception as exc:  # noqa: BLE001 - a lost race is not fatal
+                logger.debug(
+                    "could not ensure the %s partition before writing job %s: %s",
+                    bucket,
+                    job.id,
+                    exc,
+                )
         await AsyncJobLog.store_for_job(job, content)
 
     # ---- step logs -----------------------------------------------------------
@@ -953,6 +973,13 @@ class RunData:
         after the row was healed. The bucket is half of the log row's key, so
         that state aborts the write -- and the capture writes a whole run in one
         pass, which is how one stale copy used to cost every step log of a run.
+
+        The partition for that month is created first. ``ensure_month`` says
+        "safe to call before every capture" and this is that call: a partitioned
+        table with no partition answers an insert with ``no partition of
+        relation ... found for row``, which surfaces as an ``IntegrityError`` in
+        the ledger's "capture failed" and loses the whole month's step logs --
+        for a reason no read path reports.
         """
         if step.id is None:
             return
@@ -960,6 +987,18 @@ class RunData:
             fresh = await AsyncStep.find_one(AsyncStep.c.id == step.id)
             if fresh is not None and fresh.log_bucket is not None:
                 step.log_bucket = fresh.log_bucket
+        if step.log_bucket is not None:
+            from ..schema.partitions import ensure_month
+
+            try:
+                await ensure_month(AsyncStepLog.backend(), step.log_bucket)
+            except Exception as exc:  # noqa: BLE001 - a lost race is not fatal
+                logger.debug(
+                    "could not ensure the %s partition before writing step %s: %s",
+                    step.log_bucket,
+                    step.id,
+                    exc,
+                )
         try:
             await AsyncStepLog.store_for_step(step, content)
         except ValueError as exc:

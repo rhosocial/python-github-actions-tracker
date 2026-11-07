@@ -120,7 +120,11 @@ def test_compose_splits_web_and_mcp_and_adds_an_init_step() -> None:
     assert "serve" in compose and "all" in compose
     assert "serve" in compose and "mcp" in compose
     # The bundled overlay is what adds the database service; the base file must
-    # not define one (a comment may mention postgres:18).
+    # not define one. The image is the postgres-exts build: the official
+    # postgres:18 also serves the extensions this schema needs (pg_trgm ships in
+    # contrib), but the recipes and the documentation name this one. It is
+    # overridable so a mainland-China pull can switch registries without editing
+    # the file.
     bundled = (ROOT / "docker-compose.bundled.yml").read_text(encoding="utf-8")
-    assert "image: postgres:18" in bundled
+    assert "image: ${GHAT_DB_IMAGE:-vistart/postgres-exts:18}" in bundled
     assert "\n  postgres:\n" not in compose

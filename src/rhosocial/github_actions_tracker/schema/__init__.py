@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-from . import ddl_postgres
+from . import ddl_postgres, partitions
 from .model import (
     CORE_SCHEMA,
     PAT_SCHEMA,
@@ -83,10 +83,23 @@ async def ensure_extensions(backend) -> tuple[str, ...]:
 
 
 async def create_all(backend) -> None:
-    """Create every extension, table and index, through the expression system."""
+    """Create every extension, table and index, through the expression system.
+
+    A partitioned table with no partition is a table that accepts no insert --
+    PostgreSQL allows that state, and it fails at the first write with ``no
+    partition of relation ... found for row``, which is an error no read path
+    reports. So "the tables exist" is not the state this function leaves: it
+    also creates the current month and the next one, because a run that finishes
+    just after midnight rolls into a month this boot did not prepare.
+
+    ``db init`` therefore produces a schema that is writable the moment it
+    returns, and the write path's own ``ensure_month`` covers the months after
+    that -- each side does its own job rather than assuming the other's.
+    """
     await ensure_extensions(backend)
     await ddl_postgres.create_all(backend, SCHEMA)
     await ensure_accelerator_indexes(backend)
+    await partitions.ensure_through(backend, months_ahead=1)
 
 
 #: The accelerators this schema wants that the expression system cannot yet
