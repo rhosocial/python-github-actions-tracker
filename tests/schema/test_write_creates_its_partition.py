@@ -66,9 +66,7 @@ async def _execution(triggered_at: datetime):
         AsyncWorkflowRun,
     )
 
-    repository = AsyncRepository(
-        github_repo_id=1, full_name="acme/demo", owner="acme", name="demo"
-    )
+    repository = AsyncRepository(github_repo_id=1, full_name="acme/demo", owner="acme", name="demo")
     await repository.save()
     workflow = AsyncWorkflow(
         repository_id=repository.id or 0,
