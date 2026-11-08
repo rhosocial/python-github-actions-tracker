@@ -58,6 +58,7 @@ class _Run:
     """The stored run, as the flows read it."""
 
     def __init__(self, *, status: str = "completed", attempt: int = 2) -> None:
+        self.id = 1
         self.github_run_id = 90_001
         self.latest_status = status
         self.latest_attempt = attempt
@@ -72,6 +73,7 @@ class _Store:
         self.stored_run = run or _Run()
         self.failed = failed if failed is not None else [("build", "failure")]
         self.updated_with: Any = None
+        self.requested_run_ids: list[int] = []
 
     async def repository(self, full_name):  # noqa: ANN001, ANN202
         return type("Repo", (), {"full_name": full_name, "id": 1})()
@@ -89,6 +91,7 @@ class _Store:
         return []
 
     async def failed_jobs_by_run(self, run_ids):  # noqa: ANN001, ANN202
+        self.requested_run_ids.extend(run_ids)
         return {run_id: list(self.failed) for run_id in run_ids}
 
     async def update_run(self, run, payload):  # noqa: ANN001, ANN202
@@ -146,6 +149,7 @@ class TestTheSelectiveRequest:
 
         assert ("rerun_failed", 90_001) in controller._control.calls
         assert ("rerun", 90_001) not in controller._control.calls
+        assert store.requested_run_ids == [1], "the failed-job lookup uses the local row id"
         assert failed == [("build", "failure")]
         assert previous == 2
 

@@ -469,6 +469,16 @@ def main(argv: list[str] | None = None) -> None:
         parser.print_help()
         sys.exit(1)
 
+    # `serve` is a long-running process, not a one-shot command: its logging
+    # policy belongs to the service settings, not to the CLI's quiet default.
+    # Applying CliLogging here disabled INFO on the listeners and made them
+    # look silent.
+    if args.command == "serve":
+        from .commands import serve
+
+        serve.run(args, args.api_key or "")
+        return
+
     # Configure before importing the controllers: the ORM announces every
     # relation at DEBUG while the modules load, and those lines would otherwise
     # be printed before `--verbose` is known.
@@ -477,14 +487,6 @@ def main(argv: list[str] | None = None) -> None:
         # The API key guards the protocol endpoints (REST/MCP); no CLI command
         # authenticates with it. Local operation is authorised by database
         # access, and each served surface decides for itself whether to warn.
-        api_key = args.api_key or ""
-
-        if args.command == "serve":
-            # serve blocks for the lifetime of the server and manages its own loop
-            from .commands import serve
-
-            serve.run(args, api_key)
-            return
 
         runner = _runners().get(args.command)
         if runner is None:  # pragma: no cover - argparse rejects unknown commands

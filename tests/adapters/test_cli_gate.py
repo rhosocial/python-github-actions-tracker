@@ -44,3 +44,24 @@ def test_credential_runs_without_api_key(monkeypatch: pytest.MonkeyPatch) -> Non
     cli.main(["credential", "pat", "list"])
 
     assert called == ["dispatched"]
+
+
+def test_serve_keeps_the_service_logging_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`serve` must not inherit the CLI's quiet WARNING default."""
+    import logging
+
+    from rhosocial.github_actions_tracker.adapters.cli.commands import serve
+
+    seen: dict[str, str] = {}
+
+    def fake_serve(args: object, api_key: str) -> None:
+        seen["service"] = args.service  # type: ignore[attr-defined]
+        seen["key"] = api_key
+
+    monkeypatch.setattr(serve, "run", fake_serve)
+
+    before = logging.root.manager.disable
+    cli.main(["serve", "webhook"])
+
+    assert seen == {"service": "webhook", "key": ""}
+    assert logging.root.manager.disable == before

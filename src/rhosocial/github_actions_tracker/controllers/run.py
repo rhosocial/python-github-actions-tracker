@@ -729,6 +729,10 @@ class RunData:
     async def failed_jobs_by_run(self, run_ids: Sequence[int]) -> dict[int, list[tuple[str, str]]]:
         """Each run's *failing* jobs, as ``(name, conclusion)``, one query.
 
+        ``run_ids`` are local row ids (``ghat_workflow_runs.id``), not GitHub
+        run ids: the query joins on the local foreign key. A caller holding a
+        GitHub run id must resolve it first, as the query paths already do.
+
         The question a batch exists to answer is "which of these repositories is
         red, and where" -- a name and a conclusion for the jobs that did not
         pass is enough for that, and a caller that needs the steps or the log

@@ -377,7 +377,8 @@ class DispatchController:
                 "only a finished run has failed jobs to re-run."
             )
 
-        failed = (await self._store.failed_jobs_by_run([run_id])).get(run_id, [])
+        local_run_id = run.id or 0
+        failed = (await self._store.failed_jobs_by_run([local_run_id])).get(local_run_id, [])
         if not failed:
             raise ValidationError(
                 f"Run {run_id} of '{repo_full_name}' has no failed job in its latest "
