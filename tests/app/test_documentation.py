@@ -46,7 +46,7 @@ def _chapters(lang: str, index: str) -> set[str]:
         if not target.endswith(".md"):
             continue
         name = Path(target).name
-        if name in _pages(lang) or name in {LANDING, MIRROR}:
+        if name in _pages(lang):
             linked.add(name)
     return linked
 
@@ -64,11 +64,13 @@ def test_every_page_is_listed_on_the_landing_page(lang: str) -> None:
 
 def test_the_summary_mirrors_the_landing_page() -> None:
     """Two indexes that disagree are one index too many."""
+    differences: dict[str, list[str]] = {}
     for lang in LANGS:
         listed = _chapters(lang, LANDING)
         mirrored = _chapters(lang, MIRROR)
-        difference = listed ^ mirrored
-    assert mirrored == listed, f"docs/{lang}/{MIRROR} differs from {LANDING}: {sorted(difference)}"
+        if mirrored != listed:
+            differences[lang] = sorted(listed ^ mirrored)
+    assert differences == {}, f"SUMMARY.md differs from README.md: {differences}"
 
 
 def test_both_languages_carry_the_same_pages() -> None:
