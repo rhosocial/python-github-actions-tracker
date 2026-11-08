@@ -569,9 +569,6 @@ async def cmd_export(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
-    from .logging_setup import CliLogging
-
-    CliLogging.configure(verbose=False)
     parser = argparse.ArgumentParser(
         prog="rhosocial-github-actions-tracker-db",
         description="GitHub Actions Tracker database management CLI",
@@ -698,28 +695,34 @@ def main(argv: list[str] | None = None) -> None:
         parser.print_help()
         sys.exit(1)
 
-    if args.command == "init":
-        _run(cmd_init(args))
-    elif args.command == "is-initialized":
-        _run(cmd_is_initialized(args))
-    elif args.command == "reset":
-        _run(cmd_reset(args))
-    elif args.command == "drop":
-        _run(cmd_drop(args))
-    elif args.command == "cleanup":
-        _run(cmd_cleanup(args))
-    elif args.command == "partitions":
-        _run(cmd_partitions(args))
-    elif args.command == "backfill-log-times":
-        _run(cmd_backfill_log_times(args))
-    elif args.command == "stats":
-        _run(cmd_stats(args))
-    elif args.command == "usage":
-        _run(cmd_usage(args))
-    elif args.command == "export":
-        _run(cmd_export(args))
-    elif args.command == "deliveries":
-        _run(cmd_deliveries(args))
+    from .logging_setup import CliLogging
+
+    previous_disable = CliLogging.configure(verbose=False)
+    try:
+        if args.command == "init":
+            _run(cmd_init(args))
+        elif args.command == "is-initialized":
+            _run(cmd_is_initialized(args))
+        elif args.command == "reset":
+            _run(cmd_reset(args))
+        elif args.command == "drop":
+            _run(cmd_drop(args))
+        elif args.command == "cleanup":
+            _run(cmd_cleanup(args))
+        elif args.command == "partitions":
+            _run(cmd_partitions(args))
+        elif args.command == "backfill-log-times":
+            _run(cmd_backfill_log_times(args))
+        elif args.command == "stats":
+            _run(cmd_stats(args))
+        elif args.command == "usage":
+            _run(cmd_usage(args))
+        elif args.command == "export":
+            _run(cmd_export(args))
+        elif args.command == "deliveries":
+            _run(cmd_deliveries(args))
+    finally:
+        CliLogging.restore(previous_disable)
 
 
 if __name__ == "__main__":

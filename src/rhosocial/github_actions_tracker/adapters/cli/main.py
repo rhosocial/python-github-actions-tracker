@@ -462,10 +462,6 @@ def main(argv: list[str] | None = None) -> None:
     Args:
         argv: Command-line arguments (defaults to sys.argv).
     """
-    # Configure before anything imports the controllers: the ORM announces every
-    # relation at DEBUG while the modules load, and those lines would otherwise
-    # be printed before `--verbose` is known.
-    CliLogging.configure()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -473,35 +469,39 @@ def main(argv: list[str] | None = None) -> None:
         parser.print_help()
         sys.exit(1)
 
-    # `--verbose` is what puts library diagnostics on standard error.
-    CliLogging.configure(bool(getattr(args, "verbose", False)))
+    # Configure before importing the controllers: the ORM announces every
+    # relation at DEBUG while the modules load, and those lines would otherwise
+    # be printed before `--verbose` is known.
+    previous_disable = CliLogging.configure(bool(getattr(args, "verbose", False)))
+    try:
+        # The API key guards the protocol endpoints (REST/MCP); no CLI command
+        # authenticates with it. Local operation is authorised by database
+        # access, and each served surface decides for itself whether to warn.
+        api_key = args.api_key or ""
 
-    # The API key guards the protocol endpoints (REST/MCP); no CLI command
-    # authenticates with it. Local operation is authorised by database access,
-    # and each served surface decides for itself whether to warn.
-    api_key = args.api_key or ""
+        if args.command == "serve":
+            # serve blocks for the lifetime of the server and manages its own loop
+            from .commands import serve
 
-    if args.command == "serve":
-        # serve blocks for the lifetime of the server and manages its own loop
-        from .commands import serve
+            serve.run(args, api_key)
+            return
 
-        serve.run(args, api_key)
-        return
-
-    runner = _runners().get(args.command)
-    if runner is None:  # pragma: no cover - argparse rejects unknown commands
-        parser.print_help()
-        sys.exit(1)
-    discovering = args.command == "repo" and getattr(args, "repo_command", None) == "discover"
-    if discovering:
-        _run_with_db(
-            runner,
-            args,
-            ambient=True,
-            ambient_name=getattr(args, "credential", None),
-        )
-    else:
-        _run_with_db(runner, args)
+        runner = _runners().get(args.command)
+        if runner is None:  # pragma: no cover - argparse rejects unknown commands
+            parser.print_help()
+            sys.exit(1)
+        discovering = args.command == "repo" and getattr(args, "repo_command", None) == "discover"
+        if discovering:
+            _run_with_db(
+                runner,
+                args,
+                ambient=True,
+                ambient_name=getattr(args, "credential", None),
+            )
+        else:
+            _run_with_db(runner, args)
+    finally:
+        CliLogging.restore(previous_disable)
 
 
 if __name__ == "__main__":

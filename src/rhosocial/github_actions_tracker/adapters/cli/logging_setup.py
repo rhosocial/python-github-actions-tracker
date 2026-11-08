@@ -19,11 +19,14 @@ class CliLogging:
     DEFAULT_LEVEL = "WARNING"
 
     @classmethod
-    def configure(cls, verbose: bool = False) -> None:
+    def configure(cls, verbose: bool = False) -> int:
         """Keep library diagnostics out of a command's output.
 
         Args:
             verbose: Emit DEBUG lines, which is what ``--verbose`` asks for.
+
+        Returns:
+            The previous global disable level, to pass to :meth:`restore`.
         """
         level_name = "DEBUG" if verbose else os.getenv("GHAT_LOG_LEVEL", cls.DEFAULT_LEVEL)
         level = getattr(logging, level_name.upper(), logging.WARNING)
@@ -35,10 +38,22 @@ class CliLogging:
         # The ORM also sets the level of loggers it creates *after* this call.
         # `disable` is the one switch those cannot undo: it is consulted by
         # every `isEnabledFor`, so a child left at DEBUG still stays silent.
+        previous = logging.root.manager.disable
         if level > logging.DEBUG:
             logging.disable(level - 1)
         else:
             logging.disable(logging.NOTSET)
+        return previous
+
+    @classmethod
+    def restore(cls, previous_disable: int) -> None:
+        """Return the global disable level to what it was before a command.
+
+        A command runs in its own process, so restoring is only necessary for
+        an in-process caller (the test suite calls ``main``); it keeps one
+        command's logging policy from leaking into the next.
+        """
+        logging.disable(previous_disable)
 
 
 __all__ = ["CliLogging"]
