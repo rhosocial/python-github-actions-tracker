@@ -9,13 +9,12 @@ call this once, before any command runs, so the rule lives in one place.
 from __future__ import annotations
 
 import logging
-import os
 
 
 class CliLogging:
     """Configure library loggers for one CLI invocation."""
 
-    #: Level used when neither ``--verbose`` nor ``GHAT_LOG_LEVEL`` says otherwise.
+    #: Level used when ``--verbose`` is absent.
     DEFAULT_LEVEL = "WARNING"
 
     @classmethod
@@ -28,8 +27,9 @@ class CliLogging:
         Returns:
             The previous global disable level, to pass to :meth:`restore`.
         """
-        level_name = "DEBUG" if verbose else os.getenv("GHAT_LOG_LEVEL", cls.DEFAULT_LEVEL)
-        level = getattr(logging, level_name.upper(), logging.WARNING)
+        # `GHAT_LOG_LEVEL` belongs to the service process; a command has its own
+        # switch, so a container's INFO setting cannot make the CLI noisy.
+        level = logging.DEBUG if verbose else logging.WARNING
         logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
         logging.getLogger().setLevel(level)
         for name, candidate in list(logging.Logger.manager.loggerDict.items()):

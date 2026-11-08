@@ -21,9 +21,10 @@ Global flags go **before** the subcommand.
 rhosocial-github-actions-tracker --format json runs --repo owner/repo --limit 5
 ```
 
-The ORM normally writes a debug line per query to standard error. The CLI now sets one level at
-startup from `GHAT_LOG_LEVEL`: `WARNING` when unset, `DEBUG` when `--verbose` is given. Redirected
-JSON or text therefore stays clean; add `--verbose` when diagnosing.
+The ORM normally writes a debug line per query to standard error. The CLI fixes the libraries' level
+at `WARNING` and only `--verbose` raises it to `DEBUG`. Redirected JSON or text therefore stays clean;
+use `--verbose` when diagnosing. `GHAT_LOG_LEVEL` belongs to the service process and does not affect a
+command.
 
 ## Query and action commands
 

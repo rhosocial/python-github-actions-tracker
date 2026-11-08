@@ -21,9 +21,9 @@ CLI 直接访问数据库，因此不需要 API key。
 rhosocial-github-actions-tracker --format json runs --repo owner/repo --limit 5
 ```
 
-库默认会把每条查询的调试日志写到标准错误。现在 CLI 在启动时按 `GHAT_LOG_LEVEL` 统一设置级别：
-未设置时是 `WARNING`，`--verbose` 是 `DEBUG`。因此重定向标准输出得到的 JSON 或文本不会被日志行
-打断；需要排查时可以显式加 `--verbose`。
+库默认会把每条查询的调试日志写到标准错误。CLI 在启动时把库的日志级别固定为 `WARNING`，
+只有 `--verbose` 才提升到 `DEBUG`。因此重定向标准输出得到的 JSON 或文本不会被日志行打断；
+需要排查时显式加 `--verbose`。`GHAT_LOG_LEVEL` 属于服务进程，不影响命令行。
 
 ## 查询与操作命令
 
