@@ -32,6 +32,13 @@ class CliLogging:
         for name, candidate in list(logging.Logger.manager.loggerDict.items()):
             if name.startswith("rhosocial") and isinstance(candidate, logging.Logger):
                 candidate.setLevel(level)
+        # The ORM also sets the level of loggers it creates *after* this call.
+        # `disable` is the one switch those cannot undo: it is consulted by
+        # every `isEnabledFor`, so a child left at DEBUG still stays silent.
+        if level > logging.DEBUG:
+            logging.disable(level - 1)
+        else:
+            logging.disable(logging.NOTSET)
 
 
 __all__ = ["CliLogging"]
