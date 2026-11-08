@@ -132,18 +132,18 @@ that refuses the extension (a managed plan without it, a privilege we lack)
 still gets its tables, and `usage` reports `trgm_installed: false` so the
 missing accelerator is a visible state rather than a surprise.
 
-`partitions` is the other half of capacity: the two log tables are partitioned by
-the UTC month their job finished, so **a month is a unit**. `--ensure N` creates
-this month and the next N (a partitioned table starts with *no* partitions and
-refuses a write it cannot place, so this is what keeps the first capture of every
-month working); `--drop-before 6m` names every month wholly before the cutoff and
--- dry by default, as dropping is irreversible -- needs `--drop-old` to act. Both
-tables are always handled as a pair, in one transaction, because the capture path
-writes both and a month that exists on one table only is the state where the
-write has already failed. `--list` shows that pair-wise view, including the
-asymmetries.
+`partitions` is the other half of capacity. The two log tables are partitioned by
+the UTC month in which the execution was **triggered** (`attempt_created_at`,
+copied from `ghat_run_attempts.github_created_at`), so a month is a unit.
+`--ensure N` creates this month and the next N. A partitioned table starts with
+no partitions and refuses a write it cannot place, so this is what keeps the
+first capture of every month working. `--drop-before 6m` names every month
+wholly before the cutoff; it is a dry run by default, because dropping is
+irreversible, and needs `--drop-old` to act. The two tables are handled as a
+pair: a month is created for both before either is written, and `--list` shows
+that pair-wise view, including the asymmetries.
 
-Order matters when reclaiming space: drop partitions first (cheap, one metadata
+Order matters when reclaiming space: drop partitions first (one metadata
 operation), then consider `cleanup --runs-before` for the run rows themselves.
 `cleanup --logs-before` still works but is deprecated on log tables -- it deletes
 rows a partition would have dropped whole, and leaves the space for a vacuum.
@@ -151,6 +151,23 @@ rows a partition would have dropped whole, and leaves the space for a vacuum.
 Remember: PostgreSQL does not return space to the filesystem on `DELETE` alone.
 With the log tables partitioned, dropping a month is one `DROP TABLE` and needs
 no vacuum at all.
+
+### The pool: one connection per request
+
+A connection scope is per request (REST middleware and the MCP wrapper each open
+one), so:
+
+- every request in flight holds one of the `GHAT_POOL_MAX` slots, default 10;
+- **long polls count too**: `wait_for_run` holds its connection for the whole
+  wait, so a 300-second wait is a 300-second hold;
+- `GHAT_POOL_MAX` must cover “concurrent long polls + concurrent normal
+  requests”. Otherwise late arrivals queue on `acquire` and then fail after 30
+  seconds with `Failed to acquire connection within 30.0 seconds`.
+
+| `Pool stats` | Meaning | Action |
+|---|---|---|
+| `in_use` near `max_size` | saturation: concurrency exceeds the pool | raise `GHAT_POOL_MAX`, or reduce concurrent long polls |
+| `available=0, in_use=0` | a pool permit leak | restart the container; fixed in `python-activerecord`'s `a55ebbd9` |
 
 ## Runtime proxy (mainland China only)
 

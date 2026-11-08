@@ -7,7 +7,6 @@ import argparse
 import json
 import sys
 from collections.abc import Coroutine, Mapping
-from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -15,7 +14,6 @@ from rhosocial.activerecord.backend.impl.postgres.async_support import run_corou
 from rhosocial.activerecord.backend.impl.postgres.backend import AsyncPostgresBackend
 from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnectionConfig
 
-from ...controllers.run import RunData
 from ...schema import TABLES, create_all, missing_tables, reset_all
 from ...schema.partitions import shift_months
 
@@ -423,22 +421,6 @@ async def cmd_stats(args: argparse.Namespace) -> None:
         await backend.disconnect()
 
 
-class _BackendConnection:
-    """One open backend, spoken as a connection source.
-
-    The advisor takes "something that opens a connection", which the process's
-    :class:`Database` satisfies. A CLI command holds exactly one backend, so this
-    adapter is the whole difference -- no pool, no lifecycle of its own.
-    """
-
-    def __init__(self, backend: AsyncPostgresBackend) -> None:
-        self._backend = backend
-
-    @asynccontextmanager
-    async def connection(self):
-        yield self._backend
-
-
 def _bytes(value: int | None) -> str:
     """A byte count in the unit a person reads.
 
@@ -469,15 +451,16 @@ async def cmd_usage(args: argparse.Namespace) -> None:
     row column then says nothing at all rather than printing a zero that reads as
     "this table is empty".
     """
+    from ...controllers.run import RunData
+    from ...database import Database
     from ...introspection import CapacityAdvisor
 
-    backend = AsyncPostgresBackend(connection_config=get_connection_config())
-    await backend.connect()
+    database = await Database.create()
     try:
-        advisor = CapacityAdvisor(_BackendConnection(backend), RunData())
+        advisor = CapacityAdvisor(database, RunData())
         report = await advisor.advise()
     finally:
-        await backend.disconnect()
+        await database.close()
 
     if getattr(args, "json", False):
         print(json.dumps(report.as_dict(), indent=2))
@@ -554,6 +537,12 @@ async def cmd_export(args: argparse.Namespace) -> None:
     ``row_to_json`` is used so column names come back from PostgreSQL itself
     instead of being reconstructed from a cursor description.
     """
+    if args.table == "ghat_pat_credentials":
+        print(
+            "warning: this table stores credentials in plaintext; "
+            "treat the output file as a secret.",
+            file=sys.stderr,
+        )
     backend = AsyncPostgresBackend(connection_config=get_connection_config())
     try:
         await backend.connect()
@@ -580,6 +569,9 @@ async def cmd_export(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point."""
+    from .logging_setup import CliLogging
+
+    CliLogging.configure(verbose=False)
     parser = argparse.ArgumentParser(
         prog="rhosocial-github-actions-tracker-db",
         description="GitHub Actions Tracker database management CLI",

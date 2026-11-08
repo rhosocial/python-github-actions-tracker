@@ -18,7 +18,7 @@ get_run_failed_logs(run_id)   → the failed steps of every failed job, grouped 
   step failed.
 - A failed job read without a scope starts at its failed steps (`scoped_to_failed: true`);
   the scope comes from the step conclusions, not from the text.
-- A green job is not pushed to read logs — `has_log` is still honestly `true`.
+- A passing job is not pushed to read logs — `has_log` is still honestly `true`.
 
 ## Two log sources
 

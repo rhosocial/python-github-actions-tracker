@@ -1,6 +1,9 @@
 # Configuration
 
 Every setting comes from an environment variable; the service has no config file.
+The time zone is fixed to UTC: every connection scope runs
+`SET TIME ZONE 'UTC'`, because the columns are `timestamptz` and the returned
+values follow the session time zone, which is the server's setting.
 
 | Variable | Default | Meaning |
 |---|---|---|

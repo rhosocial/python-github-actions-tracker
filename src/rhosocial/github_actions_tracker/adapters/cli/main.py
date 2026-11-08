@@ -19,45 +19,53 @@ from typing import Any
 
 from rhosocial.activerecord.backend.impl.postgres.async_support import run_coroutine
 
-from .commands import (
-    cert,
-    credential,
-    failures,
-    jobs,
-    latest,
-    logs,
-    pr,
-    refresh,
-    repo,
-    rerun,
-    runs,
-    serve,
-    status,
-    trigger,
-    webhook,
-)
+from .logging_setup import CliLogging
 
 #: One command: the parsed arguments and the container the entry point built.
 Runner = Callable[[argparse.Namespace, Any], Awaitable[None]]
 
-#: Commands that read or write through the database. ``serve`` is not here: it
-#: owns its own loop for the lifetime of the server.
-RUNNERS: dict[str, Runner] = {
-    "cert": cert.run,
-    "trigger": trigger.run,
-    "rerun": rerun.run,
-    "status": status.run,
-    "jobs": jobs.run,
-    "logs": logs.run,
-    "failures": failures.run,
-    "runs": runs.run,
-    "latest": latest.run,
-    "refresh": refresh.run,
-    "pr": pr.run,
-    "credential": credential.run,
-    "repo": repo.run,
-    "webhook": webhook.run,
-}
+
+def _runners() -> dict[str, Runner]:
+    """The command table, imported after logging is configured.
+
+    The command modules import the controllers, which import the models, and the
+    ORM announces every relation it registers at DEBUG. Importing them at module
+    scope would print those lines before ``main`` ever sees ``--verbose``, so
+    the table is built on first use instead.
+    """
+    from .commands import (
+        cert,
+        credential,
+        failures,
+        jobs,
+        latest,
+        logs,
+        pr,
+        refresh,
+        repo,
+        rerun,
+        runs,
+        status,
+        trigger,
+        webhook,
+    )
+
+    return {
+        "cert": cert.run,
+        "trigger": trigger.run,
+        "rerun": rerun.run,
+        "status": status.run,
+        "jobs": jobs.run,
+        "logs": logs.run,
+        "failures": failures.run,
+        "runs": runs.run,
+        "latest": latest.run,
+        "refresh": refresh.run,
+        "pr": pr.run,
+        "credential": credential.run,
+        "repo": repo.run,
+        "webhook": webhook.run,
+    }
 
 
 def _run(coro) -> None:
@@ -65,7 +73,13 @@ def _run(coro) -> None:
     run_coroutine(coro)
 
 
-def _run_with_db(runner: Runner, args: argparse.Namespace) -> None:
+def _run_with_db(
+    runner: Runner,
+    args: argparse.Namespace,
+    *,
+    ambient: bool = False,
+    ambient_name: str | None = None,
+) -> None:
     """Run a command inside a database scope, with a container built for it.
 
     The REST adapter opens a scope per request and the MCP app opens one per
@@ -75,17 +89,31 @@ def _run_with_db(runner: Runner, args: argparse.Namespace) -> None:
 
     The container is built **without** an ambient credential: this CLI creates
     the very credentials and bindings a server later reads, so each repository's
-    binding decides which token answers.
+    binding decides which token answers. ``repo discover`` is the exception --
+    it asks GitHub which repositories a credential can reach, before any binding
+    exists -- so that command starts from the deployment's PAT instead.
     """
 
     async def body() -> None:
         from ...container import Container
+        from ...core.exceptions import GhatError
         from ...database import Database
 
         database = await Database.create()
         try:
             async with database.connection():
-                await runner(args, Container.build(database=database))
+                container = (
+                    await Container.start(database=database, name=ambient_name)
+                    if ambient
+                    else Container.build(database=database)
+                )
+                try:
+                    await runner(args, container)
+                except GhatError as exc:
+                    # A command's failure is one sentence on stderr, not a
+                    # traceback: the operator asked for an answer, not a stack.
+                    print(f"error: {exc}", file=sys.stderr)
+                    raise SystemExit(1) from None
         finally:
             await database.close()
 
@@ -378,7 +406,16 @@ def build_parser() -> argparse.ArgumentParser:
     repo_unbind = repo_subparsers.add_parser("unbind")
     repo_unbind.add_argument("--name", required=True)
     repo_subparsers.add_parser("list")
-    repo_subparsers.add_parser("discover")
+    repo_discover = repo_subparsers.add_parser("discover")
+    repo_discover.add_argument(
+        "--credential",
+        default=None,
+        help=(
+            "Credential to ask GitHub with, as 'kind/name'. Omit to use the "
+            "deployment's ambient PAT; there is no repository to look a "
+            "binding up from."
+        ),
+    )
 
     # webhook
     webhook_parser = subparsers.add_parser("webhook", help="Webhook management")
@@ -425,12 +462,19 @@ def main(argv: list[str] | None = None) -> None:
     Args:
         argv: Command-line arguments (defaults to sys.argv).
     """
+    # Configure before anything imports the controllers: the ORM announces every
+    # relation at DEBUG while the modules load, and those lines would otherwise
+    # be printed before `--verbose` is known.
+    CliLogging.configure()
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command is None:
         parser.print_help()
         sys.exit(1)
+
+    # `--verbose` is what puts library diagnostics on standard error.
+    CliLogging.configure(bool(getattr(args, "verbose", False)))
 
     # The API key guards the protocol endpoints (REST/MCP); no CLI command
     # authenticates with it. Local operation is authorised by database access,
@@ -439,14 +483,25 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "serve":
         # serve blocks for the lifetime of the server and manages its own loop
+        from .commands import serve
+
         serve.run(args, api_key)
         return
 
-    runner = RUNNERS.get(args.command)
+    runner = _runners().get(args.command)
     if runner is None:  # pragma: no cover - argparse rejects unknown commands
         parser.print_help()
         sys.exit(1)
-    _run_with_db(runner, args)
+    discovering = args.command == "repo" and getattr(args, "repo_command", None) == "discover"
+    if discovering:
+        _run_with_db(
+            runner,
+            args,
+            ambient=True,
+            ambient_name=getattr(args, "credential", None),
+        )
+    else:
+        _run_with_db(runner, args)
 
 
 if __name__ == "__main__":

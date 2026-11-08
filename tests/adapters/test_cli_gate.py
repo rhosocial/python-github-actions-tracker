@@ -15,6 +15,8 @@ from rhosocial.github_actions_tracker.adapters.cli import main as cli
 
 def test_serve_webhook_runs_without_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """The webhook receiver authenticates GitHub, not the operator."""
+    from rhosocial.github_actions_tracker.adapters.cli.commands import serve
+
     monkeypatch.delenv("GHAT_API_KEY", raising=False)
     seen: dict[str, str] = {}
 
@@ -22,7 +24,7 @@ def test_serve_webhook_runs_without_api_key(monkeypatch: pytest.MonkeyPatch) -> 
         seen["service"] = args.service  # type: ignore[attr-defined]
         seen["key"] = api_key
 
-    monkeypatch.setattr(cli.serve, "run", fake_serve)
+    monkeypatch.setattr(serve, "run", fake_serve)
 
     cli.main(["serve", "webhook"])
 

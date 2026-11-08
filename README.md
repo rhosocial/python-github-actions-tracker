@@ -74,7 +74,7 @@ repeatable, and parallel:
 The MCP endpoint is `http://127.0.0.1:8001/mcp` (Streamable HTTP). One line
 per agent — the full configuration reference, including the shared-file shapes
 and what each agent's approval gate does, is
-[Coding agents over MCP](docs/en_US/mcp-agents.md):
+[MCP interface](docs/en_US/mcp.md):
 
 ```bash
 claude mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp   # Claude Code

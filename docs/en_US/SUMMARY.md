@@ -8,6 +8,7 @@
 
 * [Features](features.md)
 * [Architecture](architecture.md)
+* [Design decisions](design.md)
 
 ## Running it
 
@@ -18,13 +19,14 @@
 
 ## Using it
 
-* [The API](api.md)
-* [Coding agents over MCP](mcp-agents.md)
+* [MCP interface](mcp.md)
+* [REST interface](rest.md)
 * [The CLI](cli.md)
 * [Logs and windows](logs.md)
 
 ## Development
 
+* [Extending the service](extending.md)
 * [Development](development.md)
 * [Testing](testing.md)
 

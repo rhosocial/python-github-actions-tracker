@@ -104,7 +104,8 @@ repository, select:
 Inject it from a file (`GHAT_BOOTSTRAP_PAT_FILE`, mounted read-only) so the token
 never reaches `docker inspect` or a process list, then verify it with the skill's
 `check_pat.py`: reads are observed, Actions *write* stays unproven — proving it means
-spending CI minutes, and a green check that lies is worse than an honest gap.
+spending CI minutes, and a check that reports success without evidence is worse
+than an honest gap.
 
 ### 4. Who can reach the MCP listener
 

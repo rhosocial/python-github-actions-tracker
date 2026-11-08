@@ -2,34 +2,27 @@
 
 ## 目录
 
-* [概览](README.md)
-* [功能](features.md)
-* [它省下什么](value.md)
-* [架构](architecture.md)
-
-## 运行
-
-* [安装](installation.md)
-* [配置](configuration.md)
-* [部署](deployment.md)
-* [运维](operations.md)
-
-## 使用
-
-* [接口](api.md)
-* [编码 Agent 接入 MCP](mcp-agents.md)
-* [命令行](cli.md)
-* [日志与窗口](logs.md)
-
-## 开发
-
-* [开发](development.md)
-* [测试](testing.md)
-* [隐私说明](privacy.md)
-
----
+- 概览
+  - [本项目在哪些方面起到了节省的作用](value.md)
+  - [功能](features.md)
+  - [架构](architecture.md)
+  - [设计取舍](design.md)
+- 运行
+  - [安装](installation.md)
+  - [配置](configuration.md)
+  - [部署](deployment.md)
+  - [运维](operations.md)
+- 使用
+  - [MCP 接口](mcp.md)
+  - [REST 接口](rest.md)
+  - [命令行](cli.md)
+  - [日志与窗口](logs.md)
+- 开发
+  - [自定义开发](extending.md)
+  - [开发](development.md)
+  - [测试](testing.md)
+  - [隐私说明](privacy.md)
 
 ## 状态
 
-中文内容正在补充。根目录的 [README.zh-CN.md](https://github.com/rhosocial/python-github-actions-tracker/blob/main/README.zh-CN.md) 说明项目做什么；
-本目录下每一页是教程，随服务一起长大。
+中文内容持续补充。根目录的 [README.zh-CN.md](https://github.com/rhosocial/python-github-actions-tracker/blob/main/README.zh-CN.md) 说明项目的作用；文档目录下的每一页都是教程，会随服务一起完善。

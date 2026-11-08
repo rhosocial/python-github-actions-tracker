@@ -3,95 +3,83 @@
 ## 两种读取，两个作用域
 
 ```
-get_job_log(job_id)                 失败 step 的文本（或合并文本）
-get_job_log(job_id, whole_job=true) 明确要整个 job 的合并文本（ghat_job_logs）
-get_job_log(job_id, step=N)         第 N 个 step 自己的文件（ghat_step_logs）
+get_job_log(job_id)                  失败 step 的文本；job 未失败时是整个 job 的合并文本
+get_job_log(job_id, whole_job=true)  明确要求整个 job 的合并文本（ghat_job_logs）
+get_job_log(job_id, step=N)          第 N 个 step 自己的文件（ghat_step_logs）
 get_job_log(job_id, failed_steps_only=true)   全部失败 step 的文本
-search_job_log(job_id, query)       在合并文本里搜，返回行号与上下文
-search_job_log(job_id, query, step=N)   在某个 step 的文本里搜
-get_run_failed_logs(run_id)         整个 run 里失败 job 的失败 step，按文本去重后各给一份
+search_job_log(job_id, query)        在合并文本中搜索，返回行号与上下文
+search_job_log(job_id, query, step=N)   在某个 step 的文本中搜索
+get_run_failed_logs(run_id)          整个 run 中失败 job 的失败 step，按逐字节相同的文本各给一份
 ```
 
-`search_job_log` 与 `get_job_log` 用同一个 `step` 参数：返回里的 `source`
-（`job` / `step`）说明行号属于哪个作用域，照它把 `from_line` 传回去即可。
-step 没采集到时返回 `reason`（`capture_closed` / `not_a_step_archive` …），**不把
-"没文档"说成"没匹配"**。
+`search_job_log` 与 `get_job_log` 使用同一个 `step` 参数：返回中的 `source`
+（`job` / `step`）说明行号属于哪个作用域，调用方照它把 `from_line` 传回去即可。
+某个 step 没有采集到日志时，返回 `reason`（`capture_closed` / `not_a_step_archive` 等）。
+本项目不会把“没有文档”说成“没有匹配”，因为这是两个不同的答案。
 
 ## 失败的 job 从失败的 step 读起
 
 不指定作用域时，由 job 自己决定：
 
-- 失败的 job 返回**没有通过的 step** 的文本，回答里带 `scoped_to_failed: true`——
-  自行缩小了范围的回答不能读起来像一份完整文档；
-- `whole_job=true` 照样要合并文本：默认只是便利，不是限制；
-- 失败 step 的日志当初没采集到（GitHub 的窗口已过）时，返回合并文本并附
-  `scope_note` 说明原因。这正是"失败文本没取回来"与"根本没有日志"的区别；
-- 通过的 job、仍在运行的 job 返回合并文本。`conclusion = null` 不算失败：只有
-  `failure` / `cancelled` / `timed_out` / `startup_failure` / `action_required` / `stale` 算。
+- 失败的 job 返回未通过的 step 文本，并带 `scoped_to_failed: true`。自行缩小范围的回答不能读起来像一份完整文档。
+- `whole_job=true` 仍然要求合并文本。默认作用域只是便利，不是限制。
+- 如果失败 step 的日志始终没有采集到，因为 GitHub 的窗口已经关闭，则返回合并文本并附 `scope_note` 说明原因。这区分了“失败文本没有取回”和“根本没有日志”。
+- 已通过的 job 和仍在运行的 job 返回合并文本。`conclusion = null` 不算失败；只有 `failure`、`cancelled`、`timed_out`、`startup_failure`、`action_required` 与 `stale` 算失败。
 
-这个选择读的是 step 的**结论**，从不读日志文本：没有错误标记，也不猜是哪个项目。
+作用域由 step 的结论决定，绝不读取日志文本：本项目不识别错误标记，也不猜测是哪个项目。
 
 ## N 个 job 打印同一条失败，就是一组
 
-`get_run_failed_logs(run_id)` 读取 run 里每个失败 job 的失败 step，按**逐字节相同的文本**
-分组：文本只给一份，外加打印它的那些 `steps`（job、step 号、名称、结论）。矩阵里十二个 job
-因同一个原因失败是常态，这个工具一次调用回答"一个原因还是多个"，而不是十二次。
+`get_run_failed_logs(run_id)` 读取 run 中每个失败 job 的失败 step，并按**逐字节相同的文本**分组：
+每段文本只给一份，外加打印它的那些 `steps`（job、step 号、名称、结论）。矩阵里有十二个 job 因同一原因失败是常态，
+这个工具用一次调用回答“一个原因还是多个原因”，而不需要调用十二次。
 
-分组**故意是精确的**：文本只要不同就是不同的组——判定"两段不同文本意思相同"属于解释，
-在项目改了输出的那天就会判错。没采集到日志的失败 step 列在 `steps_without_logs` 里，绝不顶替；
-一个失败 job 若根本没有失败 step（`startup_failure`），它列在 `jobs_without_failed_steps` 里——
-它算在 `jobs_failed` 之内，这个数必须能对上账。每组带文本尾部（`tail=`，默认 60 行，受长度
-上限约束）；要读完整 step 用 `get_job_log(job_id=..., step=N)`。
+分组是精确的：文本只要有差异就属于不同组。判定“两段不同文本意思相同”属于解释，在项目改变输出格式那天就会判错。
+没有采集到日志的失败 step 列在 `steps_without_logs` 中，本项目绝不用其他文本顶替。失败的 job 若根本没有失败 step
+（`startup_failure`），则列在 `jobs_without_failed_steps` 中；该 job 计入 `jobs_failed`，这个数量必须能对上账。
+每组带文本尾部（`tail=`，默认 60 行，并受长度上限约束）；要读完整 step，请调用
+`get_job_log(job_id=..., step=N)`。
 
 ## 窗口只寻址，不解释
 
-| 参数 | 语义 |
+| 参数 | 含义 |
 |---|---|
 | 不传 | 文档最后 200 行 |
 | `tail=N` | 最后 N 行 |
-| `from_line` / `to_line` | 显式区间（1-based，闭区间） |
-| `grep` | 调用方给的正则（非法时退化为字面量）+ `context` 行上下文 |
-| `prefer="tail"` / `"head"` | `search_job_log` 里给哪一端的匹配配上下文 |
+| `from_line` / `to_line` | 显式区间，1 起始，闭区间 |
+| `grep` | 调用方给的正则（非法时退化为字面量）加 `context` 行上下文 |
+| `prefer="tail"` / `"head"` | `search_job_log` 给哪一端的匹配配上下文 |
 
-日志是边跑边追加的：结论在末尾，初始化噪音在开头。所以 `search_job_log` 默认给**最后**
-那些匹配配上下文；两端都会报告全部匹配位置，`prefer="head"` 只把文本挪到另一端——那才是
-"这东西第一次出现在什么时候"要问的。
+日志在运行期间边写边追加：结论在末尾，初始化噪音在开头。因此 `search_job_log` 默认给最后的匹配配上下文。
+无论哪种方式，全部匹配位置都会报告；`prefer="head"` 只移动上下文文本，不移动匹配列表，该参数回答“这个问题第一次出现在什么时候”。
 
-没有测试摘要锚定、没有错误标记、没有"跳过 runner 收尾日志"——这些是某个项目的输出特征，
-通用跟踪器猜了就是错的。
+本项目不锚定测试摘要、不识别错误标记、不裁剪 runner 的收尾日志。这些是单个项目输出的特征，通用跟踪器猜测它们会辜负其他项目。
 
 ## 读 step 不会触发采集
 
-`get_job_log(step=N)` 只回答已存的行。要再抓一次，用
-`get_job(job_id, refresh_logs=true)`；它只在 GitHub 仍提供 step 分片时有意义
+`get_job_log(step=N)` 只回答已存的行。要重新抓取，请调用
+`get_job(job_id, refresh_logs=true)`；该调用只在 GitHub 仍提供 step 分片期间有意义
 （`capture.window_closes_at` 之前）。
 
 ## 容量与清理
 
-- [部署](deployment.md) 里 `db usage` 看当前占用；
-- 日志表按月分区，`db partitions --drop-before <N>m` 丢整月数据（不锁表、不需要 VACUUM）。
+- `db usage` 报告数据库当前占用；
+- 日志表按月分区，因此 `db partitions --drop-before <N>m` 可以丢弃整月数据，不锁表，也不需要 VACUUM。
 
 ## 一条日志属于哪个月
 
-每条日志行带着它所属的 **bucket**：job 完成时间所在 UTC 月的第一天。
-`ghat_jobs.log_bucket` 存同一个值，`ghat_steps.log_bucket` 从 job 复制——读路径手里有 job
-（或 step）就知道该查哪个月，不需要再查一次。
+分区列是 `attempt_created_at`：本次执行被触发的准确时间，由 `ghat_run_attempts.github_created_at`
+拷贝到日志行。`attempt_created_at` **不是**日志到达的时间。到达时间不可控——重试、回填和窗口关闭都会改变到达时间——按到达时间归档会把
+一次 run 的日志散到与该 run 无关的月份。读路径从 run 出发，本来就持有这个时间，不需要再推导一次。
 
-bucket 是**算出来的，不是单独存的**：写入方用同一个函数（`bucket_of`）从 job 自己的
-`completed_at` 算出，读取方按它寻址。这就是每个月成为可寻址单位——以及将来可整体丢弃的
-单位——的原因。
+该列是**主键的一半**。分区表要求每个主键都包含分区列，所以日志表的键是
+`(id, attempt_created_at)`。`id` 由数据库生成（`GENERATED BY DEFAULT AS IDENTITY`，模型上也声明为 identity 键，
+因此 ORM 把 `id` 排除在 INSERT 之外，并用 RETURNING 取回）；`attempt_created_at` 由调用方提供。忘记提供时，模型在构造时
+报错并指明缺失字段，这是最有用的回答。
 
-**它是主键的一半。** 分区表要求每个主键都含分区键，所以日志表的键是
-`(id, bucket)`：`id` 由数据库生成（`GENERATED BY DEFAULT AS IDENTITY`，模型上声明为 identity 键，ORM 因而把它排除在
-INSERT 之外、用 RETURNING 取回），`bucket` 由写入方给。忘了给，模型在构造时就报
-`Composite primary key field 'bucket' must be provided` —— 比让 PostgreSQL 报一个指名约束而不是指名缺失字段的
-`CheckViolation` 有用。推论是：bucket 为 NULL 的行**不可能存在**，"无 bucket 也能读"的读法从此等于
-"读全部 bucket"，字面与语义一致。
+写路径显式接收 attempt：`store_log(job, content, attempt)` 与
+`store_step_log(step, content, attempt)` 会先确保当月分区存在，然后写入。`Job` 与 `Step` 也暴露
+`attempt_created_at` 派生属性，但存储调用仍然显式接收 attempt，让读写路径不会对该行属于哪个月产生分歧。
 
-持有父行的调用方用 `JobLog.store_for_job(job, text)` /
-`StepLog.store_for_step(step, text)`，month 由模型推导；自己构造时就得显式给 bucket。
-
-**既有库要重建**：`id` 与 `bucket` 组成主键是 schema 形状的改变，而本项目没有迁移——
-`db reset` 会重建（分区表与 pg_trgm 一并就位）。迁移期的库读仍正常，写会因子键不在而失败，
-所以重建是必需步骤而非可选项。
-
+改变这一列属于 schema 形状变更。本项目没有迁移机制，因此必须重建数据库：`db reset` 会重建数据库，
+分区和 `pg_trgm` 一并就位。

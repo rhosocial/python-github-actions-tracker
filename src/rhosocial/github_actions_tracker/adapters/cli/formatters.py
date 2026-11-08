@@ -39,7 +39,11 @@ def _format_dict(data: dict[str, Any], verbose: bool) -> str:
         if isinstance(value, list) and value and isinstance(value[0], dict):
             lines.append(f"{key}:")
             for item in value:
-                lines.append(f"  - {format_text(item, verbose)}")
+                # The first line joins the bullet; the rest align under the
+                # key so a reader can see which fields belong to one item.
+                rendered = format_text(item, verbose).splitlines() or [""]
+                lines.append(f"  - {rendered[0]}")
+                lines.extend(f"    {line}" for line in rendered[1:])
         elif isinstance(value, dict):
             lines.append(f"{key}:")
             for k, v in value.items():

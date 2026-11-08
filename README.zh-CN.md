@@ -65,7 +65,7 @@ GitHub 还能回答时，绝不用缓存充当真相。
 ## 用编码 Agent 接入
 
 MCP 端点是 `http://127.0.0.1:8001/mcp`（Streamable HTTP）。每个 agent 一行——完整配置参考
-（含共享文件的形态、各家的批准关卡）见[编码 Agent 接入 MCP](docs/zh_CN/mcp-agents.md)：
+（含共享文件的形态、各家的批准关卡）见 [MCP 接口](docs/zh_CN/mcp.md)：
 
 ```bash
 claude mcp add --transport http github-actions-tracker http://127.0.0.1:8001/mcp   # Claude Code
