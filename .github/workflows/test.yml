@@ -90,7 +90,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord
-          ref: feature/introspection-enhancement
+          ref: release/v1.0.0.dev30
           path: .deps/python-activerecord
 
       - name: Check out the Postgres backend
@@ -98,7 +98,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord-postgres
-          ref: feature/introspection-enhancement
+          ref: release/v1.0.0.dev17
           path: .deps/python-activerecord-postgres
 
       - name: Check out the MCP base layer
@@ -183,7 +183,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord
-          ref: feature/introspection-enhancement
+          ref: release/v1.0.0.dev30
           path: .deps/python-activerecord
 
       - name: Check out the Postgres backend
@@ -191,7 +191,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord-postgres
-          ref: feature/introspection-enhancement
+          ref: release/v1.0.0.dev17
           path: .deps/python-activerecord-postgres
 
       - name: Check out the MCP base layer
@@ -276,14 +276,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord
-          ref: feature/introspection-enhancement
+          ref: release/v1.0.0.dev30
           path: .deps/python-activerecord
 
       - name: Check out the Postgres backend
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord-postgres
-          ref: feature/introspection-enhancement
+          ref: release/v1.0.0.dev17
           path: .deps/python-activerecord-postgres
 
       - name: Check out the MCP base layer

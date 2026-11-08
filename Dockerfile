@@ -59,8 +59,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Siblings first, exactly as the service documents and CI does it: this
 # project's requirements resolve against them, and installing it first would
 # send pip to PyPI for versions that are not published there.
-RUN pip install "git+https://github.com/rhosocial/python-activerecord.git@feature/introspection-enhancement" \
-    && pip install "git+https://github.com/rhosocial/python-activerecord-postgres.git@feature/introspection-enhancement" \
+RUN pip install "git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30" \
+    && pip install "git+https://github.com/rhosocial/python-activerecord-postgres.git@release/v1.0.0.dev17" \
     && pip install "git+https://github.com/rhosocial/python-mcpserver.git@main"
 
 WORKDIR /build
