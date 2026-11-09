@@ -56,7 +56,13 @@ class _Database:
 def _container(database: Any, *, schema: str | None = None) -> SimpleNamespace:
     """The slice of a container the routes touch."""
 
-    async def readiness() -> dict[str, Any]:
+    async def readiness(*, surface: str = "rest") -> dict[str, Any]:
+        """The real container's readiness, for the aspects these tests cover.
+
+        ``surface`` is accepted and set aside: what these tests pin is the
+        database half of readiness, and the snapshot half has its own tests.
+        """
+        del surface
         checks: dict[str, str] = {"container": "ok"}
         ready = True
         if database is None:

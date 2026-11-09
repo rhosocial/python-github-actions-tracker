@@ -283,7 +283,16 @@ class TestTheBootIsNeverBlocked:
         )
 
         class _Built(SimpleNamespace):
+            """A container stub: the certificate report is what is under test.
+
+            ``authorization`` is present so ``Container.start`` can hand it the
+            snapshot load it now performs; the stub never loads one.
+            """
+
             schema_state = "complete"
+
+            def __init__(self) -> None:
+                super().__init__(authorization=None)
 
             async def _schema_state(self) -> str:
                 return "complete"

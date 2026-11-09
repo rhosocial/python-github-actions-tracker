@@ -66,9 +66,9 @@ async def metrics_app(scope: Any, receive: Any, send: Any) -> None:
             "type": "http.response.start",
             "status": 200,
             "headers": [
-                (b"content-type", "text/plain; version=0.0.4; charset=utf-8"),
+                (b"content-type", b"text/plain; version=0.0.4; charset=utf-8"),
                 (b"content-length", str(len(body)).encode()),
-                (b"cache-control", "no-store"),
+                (b"cache-control", b"no-store"),
             ],
         }
     )

@@ -170,11 +170,17 @@ def _serve_webhook(args: argparse.Namespace, settings: Any) -> None:
     with a publicly trusted certificate, so the configured full-chain PEM and
     its key are handed to uvicorn here. Without them the listener serves plain
     HTTP and GitHub refuses to register the callback.
+
+    It is the same application as REST, with one difference: ``surface``. This
+    listener's every request is a delivery verified from the in-memory secret
+    snapshot, so "the snapshot never loaded" makes *this* listener unable to
+    answer -- which is what its readiness probe says, while the REST listener
+    on the same container stays ready and reports the same fact.
     """
     from ...rest.app import create_app
 
     _serve(
-        create_app,
+        lambda: create_app(surface="webhook"),
         args.host,
         args.port,
         ssl_certfile=settings.webhook_ssl_certfile,
@@ -213,7 +219,7 @@ def _serve_all(args: argparse.Namespace, settings: Any) -> None:
                 log_level="info",
             )
             webhook_config = uvicorn.Config(
-                create_app(container),
+                create_app(container, surface="webhook"),
                 host=settings.webhook_host,
                 port=settings.webhook_port,
                 log_level="info",

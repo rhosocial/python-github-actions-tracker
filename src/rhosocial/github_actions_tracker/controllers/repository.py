@@ -17,7 +17,7 @@ without knowing that today it names a ``ghat_pat_credentials`` row."""
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from ..core.exceptions import (
@@ -92,6 +92,7 @@ class RepositoryController:
         query: QueryController,
         credential: Any | None = None,
         kind: str = CREDENTIAL_KIND,
+        on_secret_change: Callable[[], None] | None = None,
     ) -> None:
         self._repositories = repositories
         self._webhooks = webhooks
@@ -102,6 +103,20 @@ class RepositoryController:
         self._query = query
         self._credential = credential
         self._kind = kind
+        #: Told after a secret is written, so the process-wide authorization
+        #: snapshot stops answering from the row it just replaced. A callback
+        #: rather than an imported service: this layer decides *when* the fact
+        #: changed, and the composition root decides what holds the snapshot.
+        self._on_secret_change = on_secret_change
+
+    def _secrets_changed(self) -> None:
+        """Announce a local secret write. Never fails the flow that caused it."""
+        if self._on_secret_change is None:
+            return
+        try:
+            self._on_secret_change()
+        except Exception as exc:  # noqa: BLE001 - a cache miss must not fail a write
+            logger.debug("could not announce a secret change: %s", exc)
 
     # -- subscriptions ---------------------------------------------------------
 
@@ -199,6 +214,7 @@ class RepositoryController:
         # The secret goes with the subscription: leaving it behind would make a
         # later re-subscribe inherit a key nobody re-confirmed.
         await AsyncRepoWebhookSecret.clear(repo.id or 0)
+        self._secrets_changed()
         await self._store.remove(repo)
 
     async def bind_credential(self, full_name: str, kind: str, ref: int) -> None:
@@ -614,6 +630,7 @@ class RepositoryController:
         # The ORM's DEBUG lines echo every parameter, secret included.
         with redact_credential_logging():
             record = await AsyncRepoWebhookSecret.set(repo.id or 0, secret, state=state)
+        self._secrets_changed()
 
         if not create_webhook:
             return record
@@ -642,9 +659,11 @@ class RepositoryController:
                 repo.full_name,
             )
             return record
-        return await AsyncRepoWebhookSecret.set(
+        record = await AsyncRepoWebhookSecret.set(
             repo.id or 0, secret, state=STATE_PUSHED, webhook_id=hook_id
         )
+        self._secrets_changed()
+        return record
 
     async def rotate_secret(
         self, full_name: str, create_webhook: bool = False

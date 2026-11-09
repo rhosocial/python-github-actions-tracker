@@ -20,6 +20,10 @@ from ..common.errors import GhatError, from_core_exception
 from .middleware.auth import ApiKeyMiddleware
 from .routes import jobs, repositories, runs, tokens, webhooks, workflows
 
+#: The path prefix the webhook receiver owns. Kept here so the middleware and
+#: the route module cannot spell it differently.
+WEBHOOK_PREFIX = "/webhooks/"
+
 
 def _error_response(exc: GhatError) -> JSONResponse:
     """Render one adapter error in the wire envelope shared by both handlers."""
@@ -37,6 +41,7 @@ def create_app(
     container: Container | None = None,
     *,
     database: Database | None = None,
+    surface: str = "rest",
 ) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -49,6 +54,11 @@ def create_app(
         database: The process's database seam, when the caller owns it but has
             not built a container yet (``serve all`` does exactly that). Ignored
             when ``container`` is given.
+        surface: Which listener this instance is: ``"rest"`` or ``"webhook"``.
+            The two run the same routes, so the difference is not in routing but
+            in readiness -- the webhook receiver verifies every delivery from
+            the in-memory snapshot, so "the snapshot never loaded" makes *that*
+            listener unable to answer, and only that one.
 
     Returns:
         Configured FastAPI application instance.
@@ -92,22 +102,18 @@ def create_app(
     if container is not None:
         app.state.container = container
 
-    # Register middleware
-    app.add_middleware(ApiKeyMiddleware)
-
-    # Metrics: counted per request, served from /metrics. Wrapped around the
-    # application rather than registered as a Starlette middleware so the two
-    # listeners -- this one and the MCP SDK's own ASGI app -- carry the same
-    # implementation of the same question.
-    app.add_middleware(MetricsMiddleware, protocol="rest")
-
-    # Register routes
-    app.include_router(workflows.router, prefix="/api/v1")
-    app.include_router(runs.router, prefix="/api/v1")
-    app.include_router(jobs.router, prefix="/api/v1")
-    app.include_router(repositories.router, prefix="/api/v1")
-    app.include_router(tokens.router, prefix="/api/v1")
-    app.include_router(webhooks.router)
+    # Middleware, registered in reverse execution order.
+    #
+    # ``add_middleware`` inserts at the head of the list and the stack is built
+    # by wrapping that list backwards, so the *last* registration ends up
+    # outermost. Registering the connection scope first therefore makes it the
+    # innermost layer -- it runs after authentication, which is the whole point:
+    # a request that fails its bearer check, or a delivery that cannot be
+    # verified, must not have taken a connection out of the pool to find that
+    # out.
+    #
+    # Previous order (auth inside the scope) meant an unauthenticated caller
+    # could hold a pooled connection for as long as they cared to send a body.
 
     # Per-request database scope: one pooled connection for the duration of the
     # request, so a request and a tool call resolve the models identically.
@@ -119,14 +125,41 @@ def create_app(
         that acquires a connection turns a saturated pool into a restart loop),
         and ``/readyz`` asks the database itself, with its own timeout, so
         acquiring a connection here would only widen what it is measuring.
+
+        So is the webhook receiver: a delivery is verified from the in-memory
+        snapshot before the signature is known to be real, and holding a
+        connection while an unverified client streams a body is what let ten
+        slow deliveries saturate the pool. The route opens its own scope once
+        the delivery is accepted.
         """
         if request.url.path in ApiKeyMiddleware.HEALTH_PATHS:
+            return await call_next(request)
+        if request.url.path.startswith(WEBHOOK_PREFIX):
             return await call_next(request)
         current = getattr(app.state, "container", None)
         if current is None or current.database is None:
             return await call_next(request)
         async with current.database.connection():
             return await call_next(request)
+
+    # Authentication: the bearer check is a memory comparison, so it runs
+    # before the connection scope and answers 401 without one.
+    app.add_middleware(ApiKeyMiddleware)
+
+    # Metrics: counted per request, served from /metrics. Wrapped around the
+    # application rather than registered as a Starlette middleware so the two
+    # listeners -- this one and the MCP SDK's own ASGI app -- carry the same
+    # implementation of the same question. Being outermost also means a scrape
+    # is answered here and never reaches the connection scope.
+    app.add_middleware(MetricsMiddleware, protocol="rest")
+
+    # Register routes
+    app.include_router(workflows.router, prefix="/api/v1")
+    app.include_router(runs.router, prefix="/api/v1")
+    app.include_router(jobs.router, prefix="/api/v1")
+    app.include_router(repositories.router, prefix="/api/v1")
+    app.include_router(tokens.router, prefix="/api/v1")
+    app.include_router(webhooks.router)
 
     # Probes. Two questions, deliberately answered by two paths:
     #
@@ -171,7 +204,7 @@ def create_app(
                     "checks": {"container": "not built"},
                 },
             )
-        report = await current.readiness()
+        report = await current.readiness(surface=surface)
         ready = bool(report["ready"])
         return JSONResponse(
             status_code=200 if ready else 503,

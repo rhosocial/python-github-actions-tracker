@@ -27,6 +27,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from .authorization import AuthorizationService
+from .authorization.loader import WebhookSecretLoader
 from .certificates import CertificateInspector, hostname_of
 from .config import Settings, get_settings
 from .controllers import (
@@ -82,6 +84,12 @@ class Container:
     re-ask on every readiness probe -- and it is reported without failing the
     probe: a missing table is something to alert on, not something that a load
     balancer can fix by taking the instance out of rotation.
+
+    ``authorization`` is the in-memory credential snapshot the adapters ask
+    *before* they touch the controllers: a request that cannot be authenticated
+    must not cost a database connection. It belongs to the composition root
+    rather than to a controller because it is read on the way in, and because
+    every adapter needs the same answer to the same question.
     """
 
     settings: Settings
@@ -95,6 +103,7 @@ class Container:
     database: Database | None = None
     credential: Any | None = None
     tracker: RunTracker | None = None
+    authorization: AuthorizationService | None = None
     #: ``"ok"``, ``"missing: a, b"``, or ``None`` when nothing has asked yet.
     schema_state: str | None = None
     #: The capacity reader. Kept beside the controllers rather than inside them:
@@ -169,6 +178,13 @@ class Container:
             logs=logs,
         )
         trigger = TriggerController(dispatch=dispatch, runs=runs)
+        # Built unconditionally, like the capacity advisor: a process without a
+        # database still has to answer the static-bearer question, and the
+        # snapshot half simply reports "nothing loaded" when there is nothing to
+        # load it from.
+        authorization = AuthorizationService.from_settings(resolved_settings)
+        if database is not None:
+            authorization.attach_loader(WebhookSecretLoader(database))
         repositories = RepositoryController(
             repositories=github_repositories,
             webhooks=github_webhooks,
@@ -178,6 +194,11 @@ class Container:
             runs_data=runs_data,
             query=query,
             credential=credential,
+            # Writing a secret is the one local event that makes a live snapshot
+            # wrong, and it must not wait out a TTL: a delivery that arrives in
+            # the same second as the rotation would otherwise be verified with
+            # the key that was just replaced.
+            on_secret_change=authorization.invalidate,
         )
         return cls(
             settings=resolved_settings,
@@ -213,6 +234,7 @@ class Container:
             database=database,
             credential=credential,
             tracker=shared_tracker,
+            authorization=authorization,
         )
 
     @classmethod
@@ -238,12 +260,18 @@ class Container:
             credential=credential,
         )
         container.schema_state = await container._schema_state()
+        # The webhook secret snapshot, loaded once so the first delivery can be
+        # verified from memory. A failure is recorded, not raised: the REST and
+        # MCP surfaces answer with the static key regardless, and readiness is
+        # where "this instance cannot verify a delivery" is reported.
+        if container.authorization is not None:
+            await container.authorization.start()
         _report_certificates(resolved)
         return container
 
     # -- probes ----------------------------------------------------------------
 
-    async def readiness(self) -> dict[str, Any]:
+    async def readiness(self, surface: str = "rest") -> dict[str, Any]:
         """Report whether this process can serve a request right now.
 
         The one check that can change the answer is the database: every flow in
@@ -254,13 +282,22 @@ class Container:
         resolved is absent too: routing per repository is a supported mode, and
         a credential problem is a per-call error, not a reason to stop routing.
 
+        ``surface`` names the listener asking: the webhook receiver verifies
+        every delivery from the in-memory snapshot, so "never loaded" means it
+        cannot answer at all -- a 503 there. A snapshot that is merely stale
+        still verifies, so it is reported and not failed. REST and MCP answer
+        with the static bearer key and only report the snapshot's state.
+
+        Args:
+            surface: ``"webhook"``, ``"rest"`` or ``"mcp"``.
+
         Returns:
             ``{"ready": bool, "checks": {...}}``. The checks are for a human or
             a log line; an orchestrator reads ``ready`` (or the HTTP status the
             adapter derives from it). Nothing here names a host, a user or a
             password.
         """
-        checks: dict[str, str] = {"container": "ok"}
+        checks: dict[str, Any] = {"container": "ok"}
         ready = True
         if self.database is None:
             ready = False
@@ -273,12 +310,43 @@ class Container:
                 checks["database"] = f"{type(exc).__name__}: {exc}"
             else:
                 checks["database"] = "ok"
+        auth_ready, auth_check = self._authorization_check(surface)
+        checks["auth_cache"] = auth_check
+        if not auth_ready:
+            ready = False
         if self.schema_state is not None:
             checks["schema"] = self.schema_state
         return {"ready": ready, "checks": checks}
 
+    def _authorization_check(self, surface: str) -> tuple[bool, Any]:
+        """The snapshot's contribution to readiness, as ``(ready, check)``.
+
+        Only the webhook surface can be *unable* to answer: it is the one whose
+        every request is verified from the snapshot, and a process that never
+        loaded one cannot tell a real delivery from a forged one. A stale
+        snapshot still answers correctly, so it is reported as stale rather than
+        treated as failed -- draining every instance over a TTL that expired
+        while the database was briefly unreachable would take the service down
+        for something it is still able to do.
+        """
+        if self.authorization is None:
+            return True, "not configured"
+        report = self.authorization.status()
+        if not report["enabled"]:
+            # The cache is the rollback switch: verification falls back to a
+            # short per-request lookup, which needs no preloaded snapshot.
+            return True, "disabled"
+        if surface == "webhook" and not report["loaded"]:
+            return False, "not loaded (no webhook delivery can be verified)"
+        return True, report
+
     async def healthy(self) -> bool:
-        """``True`` when this process can serve; the MCP layer's health callback."""
+        """``True`` when this process can serve; the MCP layer's health callback.
+
+        The MCP surface answers with the static bearer key, so its health is the
+        REST shape of the question -- hence the default surface rather than
+        ``"mcp"`` spelled out here.
+        """
         report = await self.readiness()
         return bool(report["ready"])
 

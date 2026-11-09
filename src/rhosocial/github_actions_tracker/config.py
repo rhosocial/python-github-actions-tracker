@@ -161,6 +161,41 @@ class LogSettings:
 
 
 @dataclass(frozen=True)
+class AuthSettings:
+    """Authorization snapshot and webhook body limits.
+
+    The snapshot is a read model: every webhook secret is loaded in one batch
+    and refreshed lazily after ``cache_ttl_seconds``. Zero disables the cache
+    and falls back to the per-request lookup the service used before it.
+    """
+
+    #: How long one snapshot may serve before a request refreshes it. Zero
+    #: disables the cache entirely.
+    cache_ttl_seconds: float = 30.0
+    #: Upper bound on cached repositories; exceeding it is reported, not hidden.
+    cache_max_entries: int = 50_000
+    #: How long a failed refresh waits before another request may retry it.
+    cache_refresh_backoff_seconds: float = 5.0
+    #: GitHub caps a delivery payload around 25 MB; the receiver refuses larger.
+    webhook_max_body_bytes: int = 25 * 1024 * 1024
+    #: How long reading one delivery body may take before the request is refused.
+    webhook_read_timeout_seconds: float = 10.0
+
+    @classmethod
+    def from_env(cls) -> AuthSettings:
+        """Build settings from the ``GHAT_AUTH_*`` and ``GHAT_WEBHOOK_*`` variables."""
+        return cls(
+            cache_ttl_seconds=_float_env("GHAT_AUTH_CACHE_TTL_SECONDS", 30.0),
+            cache_max_entries=_int_env("GHAT_AUTH_CACHE_MAX_ENTRIES", 50_000),
+            cache_refresh_backoff_seconds=_float_env(
+                "GHAT_AUTH_CACHE_REFRESH_BACKOFF_SECONDS", 5.0
+            ),
+            webhook_max_body_bytes=_int_env("GHAT_WEBHOOK_MAX_BODY_BYTES", 25 * 1024 * 1024),
+            webhook_read_timeout_seconds=_float_env("GHAT_WEBHOOK_READ_TIMEOUT_SECONDS", 10.0),
+        )
+
+
+@dataclass(frozen=True)
 class ServiceSettings:
     """Endpoint and secret settings."""
 
@@ -270,6 +305,7 @@ class Settings:
     pool: PoolSettings = field(default_factory=PoolSettings.from_env)
     service: ServiceSettings = field(default_factory=ServiceSettings.from_env)
     logs: LogSettings = field(default_factory=LogSettings.from_env)
+    auth: AuthSettings = field(default_factory=AuthSettings.from_env)
 
 
 @lru_cache(maxsize=1)

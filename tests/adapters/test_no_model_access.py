@@ -12,8 +12,13 @@ A ``TYPE_CHECKING`` import is allowed: naming a model in an annotation costs no
 access. What is forbidden is an import that *executes*, at module level or inside
 a function.
 
-Controllers are the exception by design -- they are where the model operations a
-flow is built from live -- so nothing here restricts them.
+The exceptions are explicit and listed in :data:`MODEL_READERS`. ``controllers``
+is where a flow's model operations live; ``credentials`` is the existing
+cross-cutting package that resolves a PAT from its own table; ``authorization``
+is the newest one, added for the request-authentication snapshot -- it reads the
+webhook secrets a delivery is verified against, and only it. Everything else
+stays out, so "which packages may read a row" is one list a reviewer can read
+rather than a habit.
 """
 
 from __future__ import annotations
@@ -24,6 +29,23 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[2] / "src" / "rhosocial" / "github_actions_tracker"
 PACKAGE = "rhosocial.github_actions_tracker"
 MODELS = f"{PACKAGE}.models"
+
+#: Top-level packages and modules whose files may import the models at runtime.
+#: Anything not named here must reach a row through one of these.
+#:
+#: ``database`` binds the models to a backend -- it cannot avoid naming them.
+#: ``views`` maps a state enum. Both are leaves; neither holds a flow.
+MODEL_READERS = frozenset(
+    {
+        "models",
+        "core",
+        "database.py",
+        "views.py",
+        "controllers",
+        "credentials",
+        "authorization",
+    }
+)
 
 
 def _absolute(node: ast.ImportFrom, package: str) -> str:
@@ -42,11 +64,12 @@ def _is_type_checking(test: ast.expr) -> bool:
     return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
 
 
-class _ModelImports(ast.NodeVisitor):
-    """Collect runtime imports of the models package, skipping type-only blocks."""
+class _ImportCollector(ast.NodeVisitor):
+    """Collect runtime imports whose module matches, skipping type-only blocks."""
 
-    def __init__(self, package: str) -> None:
+    def __init__(self, package: str, prefixes: tuple[str, ...]) -> None:
         self.package = package
+        self.prefixes = prefixes
         self.found: list[str] = []
 
     def visit_If(self, node: ast.If) -> None:
@@ -59,21 +82,27 @@ class _ModelImports(ast.NodeVisitor):
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = _absolute(node, self.package)
-        if module == MODELS or module.startswith(f"{MODELS}."):
+        if any(module == prefix or module.startswith(f"{prefix}.") for prefix in self.prefixes):
             self.found.append(f"line {node.lineno}: {module}")
 
 
-def _model_imports_in(source: str, package: str) -> list[str]:
-    collector = _ModelImports(package)
+def _imports_in(source: str, package: str, prefixes: tuple[str, ...]) -> list[str]:
+    collector = _ImportCollector(package, prefixes)
     collector.visit(ast.parse(source))
     return collector.found
 
 
-def _model_imports_in_tree(root: Path) -> dict[str, list[str]]:
+def _model_imports_in(source: str, package: str) -> list[str]:
+    """The ``models`` imports of one file -- the question the original rules asked."""
+    return _imports_in(source, package, (MODELS,))
+
+
+def _imports_in_tree(root: Path, prefixes: tuple[str, ...]) -> dict[str, list[str]]:
+    """Every file under ``root`` that imports one of ``prefixes`` at runtime."""
     offenders: dict[str, list[str]] = {}
     for path in sorted(root.rglob("*.py")):
         package = ".".join((PACKAGE, *path.relative_to(SRC).with_suffix("").parts[:-1]))
-        found = _model_imports_in(path.read_text(encoding="utf-8"), package)
+        found = _imports_in(path.read_text(encoding="utf-8"), package, prefixes)
         if found:
             offenders[str(path.relative_to(SRC))] = found
     return offenders
@@ -81,7 +110,7 @@ def _model_imports_in_tree(root: Path) -> dict[str, list[str]]:
 
 def test_no_adapter_imports_the_models() -> None:
     """A protocol adapter reaches data through a controller, never a model."""
-    offenders = _model_imports_in_tree(SRC / "adapters")
+    offenders = _imports_in_tree(SRC / "adapters", (MODELS,))
 
     assert not offenders, "adapters reach the models directly:\n" + "\n".join(
         f"  {path}: {', '.join(found)}" for path, found in offenders.items()
@@ -90,10 +119,28 @@ def test_no_adapter_imports_the_models() -> None:
 
 def test_no_service_imports_the_models_at_runtime() -> None:
     """A service is a capability; a flow that reads rows lives in a controller."""
-    offenders = _model_imports_in_tree(SRC / "services")
+    offenders = _imports_in_tree(SRC / "services", (MODELS,))
 
     assert not offenders, "services reach the models directly:\n" + "\n".join(
         f"  {path}: {', '.join(found)}" for path, found in offenders.items()
+    )
+
+
+def test_only_the_listed_packages_import_the_models() -> None:
+    """The allowlist is the whole list, or it is not an allowlist.
+
+    Scanning every package turns "controllers may, services may not" into a
+    decision that is written down: a new package that starts reading rows shows
+    up here as an unexpected reader, and the answer is either "add it to
+    :data:`MODEL_READERS` and say why" or "go through a controller".
+    """
+    offenders = _imports_in_tree(SRC, (MODELS,))
+    unexpected = sorted(path for path in offenders if Path(path).parts[0] not in MODEL_READERS)
+
+    assert (
+        not unexpected
+    ), "these packages read the models and are not in the allowlist:\n  " + "\n  ".join(
+        f"{path}: {', '.join(offenders[path])}" for path in unexpected
     )
 
 
@@ -122,3 +169,21 @@ def test_the_scanner_accepts_an_indirect_import() -> None:
     found = _model_imports_in(source, "rhosocial.github_actions_tracker.adapters.mcp.tools")
 
     assert found == []
+
+
+def test_the_authorization_package_imports_neither_layer_above_it() -> None:
+    """The snapshot package reads rows; it does not run flows or serve requests.
+
+    ``authorization`` holds the capability every adapter calls before anything
+    else, so it is the most widely imported package in the request path. If it
+    reached back into a controller or an adapter, that import would close a cycle
+    in the layer every protocol depends on.
+    """
+    offenders = _imports_in_tree(
+        SRC / "authorization",
+        (f"{PACKAGE}.controllers", f"{PACKAGE}.adapters"),
+    )
+
+    assert not offenders, "authorization reaches the layers above it:\n" + "\n".join(
+        f"  {path}: {', '.join(found)}" for path, found in offenders.items()
+    )

@@ -249,6 +249,7 @@ def create_mcp_app(
 
     api_key = os.getenv("GHAT_API_KEY", "")
     if api_key:
+        from ...authorization import AuthorizationService
         from .auth import StaticBearerCredentialSource
 
         resource = configured_resource or _default_static_resource()
@@ -272,6 +273,11 @@ def create_mcp_app(
                 transport_security=_transport_security(resource),
             ),
             services,
+            # The same check the SDK performs on every request, done before the
+            # connection is taken: a bearer comparison is free, and a caller
+            # that fails it must not hold a pooled connection while the SDK
+            # works that out.
+            verify_bearer=AuthorizationService(api_key=api_key).verify_bearer,
         )
 
     log.warning(
@@ -296,9 +302,20 @@ class _DatabaseBoundApp:
     keeps running untouched. Shutdown is tapped only to close the pool, which
     keeps the acquire/release accounting honest instead of leaving the
     connections to the process exit.
+
+    ``verify_bearer`` is the one credential check that runs *before* the pool is
+    touched. It is supplied in static-bearer mode, where the answer is an
+    in-memory comparison, and omitted under OAuth -- there the SDK is the
+    authority and this layer must not second-guess a token it cannot read.
     """
 
-    def __init__(self, app: Any, services: Any) -> None:
+    def __init__(
+        self,
+        app: Any,
+        services: Any,
+        *,
+        verify_bearer: Any | None = None,
+    ) -> None:
         from ...config import get_settings
         from ...database import Database
         from .result import set_request_origin
@@ -308,6 +325,7 @@ class _DatabaseBoundApp:
         self._get_settings = get_settings
         self._database_class = Database
         self._publish_origin = set_request_origin
+        self._verify_bearer = verify_bearer
         self._database: Any = None
         self._lock = asyncio.Lock()
 
@@ -339,10 +357,35 @@ class _DatabaseBoundApp:
         # name the address it used: a modeled instructions say "open the URL
         # from the error", and that URL has to be the one the client dialed.
         self._publish_origin(scope.get("scheme", ""), _host_header(scope))
+        if not self._bearer_allowed(scope):
+            # No connection, no container: the caller has not proved anything
+            # yet, and taking a pooled connection for that would let an
+            # unauthenticated client hold one for the length of the request.
+            await _send_json(send, 401, {"error": "unauthorized", "message": "Invalid API key"})
+            return
         database = await self._connection_pool()
         async with database.connection():
             await self._ensure_services(database)
             await self._app(scope, receive, send)
+
+    def _bearer_allowed(self, scope: Any) -> bool:
+        """Whether the request's bearer key is the one this process answers with.
+
+        ``True`` when no key is configured (the open development mode), when the
+        request is not one this check applies to, and when the comparison passes.
+        The SDK repeats the same check afterwards, which is defense in depth, not
+        redundancy: this one exists so the check happens before the connection.
+        """
+        if self._verify_bearer is None:
+            return True
+        presented = ""
+        for key, value in scope.get("headers") or []:
+            if key == b"authorization":
+                presented = value.decode("latin-1")
+                break
+        if not presented.startswith("Bearer "):
+            return False
+        return bool(self._verify_bearer(presented[len("Bearer ") :]))
 
     async def _send_readiness(self, send: Any) -> None:
         """Answer ``/readyz`` -- and build the container first, if needed.
@@ -359,7 +402,7 @@ class _DatabaseBoundApp:
         if not self._services.bound:
             await _send_json(send, 503, _probe_body("not_ready"))
             return
-        report = await self._services.readiness()
+        report = await self._services.readiness(surface="mcp")
         ready = bool(report["ready"])
         await _send_json(
             send,
@@ -503,9 +546,9 @@ async def _send_json(send: Any, status: int, body: dict[str, Any]) -> None:
     await send({"type": "http.response.body", "body": payload})
 
 
-def _serving(app: Any, services: Any) -> Any:
+def _serving(app: Any, services: Any, *, verify_bearer: Any | None = None) -> Any:
     """Serve ``app`` with the process database and controllers available to every tool."""
-    return _DatabaseBoundApp(app, services)
+    return _DatabaseBoundApp(app, services, verify_bearer=verify_bearer)
 
 
 def _default_static_resource() -> str:

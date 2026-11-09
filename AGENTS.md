@@ -9,7 +9,7 @@ GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。�
 
 1. **GitHub 是 run 状态的源头，数据库是它的缓存与历史**：run 级问题（存在性、状态、列表、latest）每次都回源 GitHub，接口不可访问就报错，绝不降级返回缓存；响应与本地不同则写回。服务实例无状态
 2. **用户自带令牌**：每个用户提供自己的 GitHub Fine-grained PAT，系统加密存储，不维护中心令牌池。进程没有 ambient PAT 时，按 `ghat_repository_bindings` 逐仓库解析；未绑定即匿名读
-3. **单向分层**：`adapters（MCP / REST / CLI）→ controllers → services → models`，只允许向下调用
+3. **单向分层**：`adapters（MCP / REST / CLI）→ controllers → services → models`，只允许向下调用。例外是三个横切包：`authorization/`（认证快照，见"谁可以读模型"）被适配层在控制器之前调用、`credentials/` 由 controller 使用、`schema/` 只被启动路径使用；它们各自只有一个 import `models` 的文件，且都只读不写
 4. **被动式双通道**：webhook 推送只降低延迟、补历史，不是权威来源。无后台轮询、无定时任务、无队列
 5. **探针分开**：`/livez` 只证明进程活着（**零 I/O**，失败才该重启）；`/readyz` 证明这个实例现在能接请求（**一次数据库往返**，失败只摘流）。`/health`、`/healthz` 是 `/readyz` 的别名。数据库只进 readiness；GitHub 两个都不进（第三方抖动不该摘掉全部实例，探针还会烧配额，GitHub 可达性归 `ci_status`）
 
@@ -23,6 +23,8 @@ GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。�
 - 探针路径豁免 API key，也豁免每请求的连接作用域（否则 liveness 会被连接池饱和连累成重启循环）。
 - schema 一次性在启动时检查（`missing_tables`），结果写进 `/readyz` 的 body，但**不参与就绪判定**：建表是 `init` 的事，摘流不会把表建出来。
 - ambient PAT 缺失、台账为空都**不算** not-ready：前者是按仓库绑定的正常模式，后者只是还没收到投递。
+- `/readyz` 的 `auth_cache` 只对 **webhook 面**生效：webhook 的每次投签都从内存快照验，快照从未加载说明它无法回答任何投递，因此 webhook 面 503；快照过期但已加载仍 ready（旧的照样能验签），只在 body 里报 `stale: true`。REST / MCP 面只报告快照状态，不因它 not-ready——它们用静态 key，与快照无关。
+- 各面通过 `Container.readiness(surface=...)` 传入自己是哪一个（`rest` / `webhook` / `mcp`），webhook 端口与 REST 端口跑的是同一个 `create_app`，差别只在 `surface`。
 - `/livez`、`/readyz` 与 `ci_status.service` 都带 `build` 块（`revision` / `short_revision` /
   `number` / `built_at`）。`version` 是源码常量，区分不了两次构建；判断“线上是不是我刚推的
   那次”只能看 `build.revision`。它来自镜像环境变量（构建时由 `images.yml` 传入），
@@ -131,6 +133,15 @@ get_run_failed_logs(run_id)→ run 内失败 job 的失败 step，按逐字节�
 - 因此 `GHAT_POOL_MAX` 必须覆盖"并发长轮询 + 并发普通请求"，否则后来者会在 `acquire` 上排队，
   30 秒后得到 `Failed to acquire connection within 30.0 seconds`。
 
+**认证在这一层之前**。`authorization/` 的快照让"请求有没有效"成为一个内存问题：REST 的
+静态 key 与环境变量比较，MCP 在 `database.connection()` 之前比，webhook 从快照验签。所以
+认证失败的请求**不占连接、不写库**——四个适配层测试（`test_rest_auth_before_db`、
+`test_mcp_auth_before_db`、`test_webhook_auth_cache`）用会计数的假数据库守住这条。
+新增的请求路径若先取连接再问"这是谁"，就是退回了这个修复之前的形状。
+
+快照本身每 TTL 最多刷新一次（`GHAT_AUTH_CACHE_TTL_SECONDS`，默认 30；`0` 关掉缓存回退到
+按请求短查询），三个容器各一份，**没有后台轮询**：只有 webhook 流量会触发一次刷新。
+
 **2026-10-30 的事故**：外部 PostgreSQL 在 10:20:28Z 终止了所有后端（`terminating connection due to
 administrator command`），`/readyz` 的 2 秒预算在连接仍在建立时取消了 `acquire`，而库里的
 `acquire` 只 `except Exception`——`CancelledError` 是 `BaseException`，于是**每取消一次就漏掉一个
@@ -205,13 +216,14 @@ p90 决定：`trigger_workflow` / `rerun_run` 返回 `typical_duration_seconds`�
 四个角色各有明确含义，**不要混用它们的名字**：
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  App（adapters/*/app.py、container.py）             │
-│  - 装配：设置、连接作用域、后台任务、路由、异常映射   │
-│  - 把 Container 交给适配层，不构造业务对象           │
-└─────────────────────────────────────────────────────┘
-                         │
-                         ▼
+                    ┌─────────────────────────────────────────────────────┐
+                    │ Authorization（authorization/）                     │
+                    │ - **横切能力**：认证快照与验证，被适配层在控制器之前调用 │
+                    │ - 唯一允许只读模型的横切包（loader.py 一个文件）      │
+                    └─────────────────────────────────────────────────────┘
+                         │                            │
+        ┌────────────────┘                            └────────────────┐
+        ▼                                                              ▼
 ┌─────────────────────────────────────────────────────┐
 │  适配层（adapters/mcp、rest、cli）                   │
 │  - 参数绑定/验证、认证接入、序列化、错误码映射        │
@@ -247,6 +259,25 @@ p90 决定：`trigger_workflow` / `rerun_run` 返回 `typical_duration_seconds`�
 2. **流程只写一份**：判断与顺序在 controller，能力在 service，不因协议重复
 3. **测试分层**：业务核心测试一份，协议适配层只测转换正确性
 
+### 谁可以读模型
+
+`authorization/` 与 `credentials/` 是两个横切能力包，它们各自只有一个文件 import
+`models`，做的是**读**而不是流程：
+
+| 包 | 读模型的那个文件 | 读的是什么 |
+|---|---|---|
+| `credentials/` | `pat/provider.py`、`resolver.py`、`redaction.py` | `ghat_pat_credentials`：凭据解析与脱敏 |
+| `authorization/` | `loader.py`（唯一） | `ghat_repo_webhook_secrets` + `ghat_repositories`：webhook 验签密钥快照 |
+
+为什么值得开这个口子：**认证必须在拿到数据库连接之前发生**。webhook 的签名密钥按仓库
+存在一张表里，"不读库就无法验签"意味着每个未认证请求都能先占一条连接；把这些 secret
+一次批量读进快照（TTL 30 秒，懒刷新、单飞、copy-on-write）之后，验签就是内存比较，
+认证失败的请求零连接、零写入。`GHAT_AUTH_CACHE_TTL_SECONDS=0` 关掉缓存，回退到旧的按请求
+短查询——那是回滚开关，不是第二套实现。
+
+`authorization/` 不得 import `controllers/` 或 `adapters/`（`tests/adapters/test_no_model_access.py`
+守住这条），`services/` 仍然不得 import `models`，适配层仍然不得 import `models`。
+
 ### 硬规则（由测试守住）
 
 | 规则 | 守住它的测试 |
@@ -254,6 +285,8 @@ p90 决定：`trigger_workflow` / `rerun_run` 返回 `typical_duration_seconds`�
 | **禁止 unit of work**：没有跨模型事务、没有"这些模型一起提交"的 scope、没有提交后延迟任务，也没有为它们服务的锁与诊断 | `tests/core/test_no_unit_of_work.py` |
 | 适配层不得在运行时 import `models` | `tests/adapters/test_no_model_access.py` |
 | `services/` 不得在运行时 import `models`（它只封装能力） | 同上 |
+| 只有 `MODEL_READERS` 列出的包可以读模型（`controllers`、`credentials`、`authorization`，以及 `models`/`core`/`database`/`views` 这些叶子） | 同上（`test_only_the_listed_packages_import_the_models`） |
+| `authorization/` 不得 import `controllers/` 或 `adapters/`（它被这两层调用，不能反向依赖） | 同上（`test_the_authorization_package_imports_neither_layer_above_it`） |
 | 必须能 `save()` 一次就是一次完整写；一条投递中途失败就停在那里，由下一次读修复 | 代码评审 + `tests/core/test_webhook_idempotence.py` |
 
 **unit of work 是反模式，全局禁止出现。** 本项目的持久化语义是 ActiveRecord：
@@ -319,6 +352,7 @@ src/rhosocial/github_actions_tracker/
 ├── models/          # M：表映射、状态机、payload 解析（叶子）
 ├── services/        # S：能力封装，目前只有 github/（协议 + REST 客户端）
 ├── controllers/     # C：一组流程 + 它用到的行操作（run/repository/webhook）
+├── authorization/   # A：认证快照与验证（loader.py 是唯一的模型读取点）
 ├── views.py         # V：协议无关的返回数据
 ├── config.py        # 设置：环境变量 → dataclass
 ├── database.py      # 连接池与每协程连接作用域
@@ -329,4 +363,6 @@ src/rhosocial/github_actions_tracker/
     └── cli/         #   main.py + commands/ + db.py
 ```
 
-`credentials/`（凭据 provider，自带表）与 `schema/`（DDL）是横切能力包，由 controller 使用。
+`credentials/`（凭据 provider，自带表）、`authorization/`（认证快照，见上文"谁可以读模型"）
+与 `schema/`（DDL）是横切能力包：`credentials` 与 `authorization` 各只有一个 import
+`models` 的文件，且都只读不写。

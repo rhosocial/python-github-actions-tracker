@@ -90,6 +90,29 @@ GITHUB_API_SECONDS = metrics().histogram(
 )
 
 # ---------------------------------------------------------------------------
+# Authorization
+# ---------------------------------------------------------------------------
+
+#: Credential checks answered from memory, by surface and outcome. The outcome
+#: is the authentication decision, never a reason code from the ledger: what an
+#: operator acts on is "deliveries are being refused because the secret is
+#: missing", which is ``secret_not_configured`` and not ``error``.
+AUTH_VERIFY_TOTAL = metrics().counter(
+    "ghat_auth_verify_total",
+    "Credential checks answered without a database round trip, by surface and outcome",
+    ("surface", "outcome"),
+)
+
+#: Snapshot refreshes, by outcome. ``ok`` is the lazy TTL refresh that succeeded;
+#: ``error`` is one that failed, which leaves the previous snapshot in place --
+#: the number that tells "the cache is stale" apart from "the cache is broken".
+AUTH_CACHE_REFRESH_TOTAL = metrics().counter(
+    "ghat_auth_cache_refresh_total",
+    "Authorization snapshot refreshes, by outcome",
+    ("outcome",),
+)
+
+# ---------------------------------------------------------------------------
 # Tool calls
 # ---------------------------------------------------------------------------
 
@@ -114,6 +137,8 @@ TOOL_SECONDS = metrics().histogram(
 
 __all__ = [
     "ALL_METRICS",
+    "AUTH_CACHE_REFRESH_TOTAL",
+    "AUTH_VERIFY_TOTAL",
     "GITHUB_API_SECONDS",
     "GITHUB_API_TOTAL",
     "RUN_INGEST_TOTAL",
@@ -135,4 +160,6 @@ ALL_METRICS: tuple[Any, ...] = (
     GITHUB_API_SECONDS,
     TOOL_CALLS_TOTAL,
     TOOL_SECONDS,
+    AUTH_VERIFY_TOTAL,
+    AUTH_CACHE_REFRESH_TOTAL,
 )
