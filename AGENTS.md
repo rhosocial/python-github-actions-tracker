@@ -30,6 +30,32 @@ GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。�
   那次”只能看 `build.revision`。它来自镜像环境变量（构建时由 `images.yml` 传入），
   **`null` 表示这个镜像是没盖章的（本地/自建），不是旧版本**。
 
+
+### 分区维护：库拥有语法，本项目拥有口径
+
+`schema/partitions.py` 曾是手写的：拼 `CREATE TABLE ... PARTITION OF` 字符串、自己
+`BEGIN`/`COMMIT`、自己查 `pg_inherits`。这三件事现在都在
+`python-activerecord-postgres` 的 partition 包里（`PostgresPartitionPlan` +
+`AsyncPostgresPartitionMaintenance`，随 release 线分发），本项目只保留它故意不拥有的部分：
+
+| 留在 tracker | 交给库 |
+|---|---|
+| 哪两张表、哪个分区列（`attempt_created_at`） | 计划语法、目录查询、DDL 渲染 |
+| "一个月就是一个分区"这个业务口径 | 事务单元（两表一个事务） |
+| `db partitions` 的 JSON 形状与文案 | `PairedDifference` 的成对漂移判定 |
+| UTC 边界（显式 `+00`，不靠 session zone） | `relpartbound` 解析、dry-run |
+
+两种计划形状，差别是重点：
+
+- **无界策略**（早锚点 + 月 interval，无 horizon）用来**读**目录。库返回活树并附一条
+  `issues` 说明没有有限视界——这是诚实的：本模块不声称知道"该有哪些月"，只描述
+  "实际有哪些"；
+- **有界策略**（已知月份的显式 bounds）用来**改**目录：创建用已知月份，删除先读
+  出已有月份再造计划。
+
+删除的 cutoff 必须是 aware datetime：库拿叶子的 `range_end`（本模块总写成 UTC instant）
+与它比较，类型不配对是调用方错误，不是该静默转换成错误答案的东西。
+
 ### 读取规则（缓存一致性）
 
 | 问题 | 回答来源 |
