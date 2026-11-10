@@ -35,6 +35,8 @@ PYTHONPATH=tests python -m pytest tests -q
 ```
 
 没有可用服务器时，测试会跳过并说明原因；CI 设置 `GHAT_TEST_PG_REQUIRED=1`，此时跳过会被视为失败。
+场景文件里的相对路径（`sslrootcert` 等）相对的是该文件所属项目的根：`tests/pg.py` 会向上有界寻找并
+改写成绝对路径，详见[测试](testing.md)。
 
 ## 代码结构
 

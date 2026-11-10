@@ -13,6 +13,14 @@ is shared with another project and names *its* database. Everything else (host,
 port, user, password, sslmode) comes from the environment, or from the file when
 the environment is silent.
 
+The file is shared, so a *file* it names is relative to the file itself. The
+sibling project's suite runs from that project's root and its entries write
+``sslrootcert: tests/config/postgres_root.pem``; reading such a file from this
+repository would resolve that path against the wrong directory and fail with a
+certificate error that names neither the scenario nor the file it came from.
+:func:`_resolve_file_fields` closes that gap without changing a path that is
+already correct where it stands.
+
 This is a contract, not a location: nothing here knows which server exists.
 ``resolve_scenario()`` returns ``None`` when nothing names one, and the fixture in
 ``conftest.py`` turns that into a skip.
@@ -55,6 +63,18 @@ FIELD_ENV: dict[str, tuple[str, ...]] = {
     "sslmode": ("GHAT_DB_SSLMODE", "PGSSLMODE"),
 }
 
+#: Connection fields whose value is a path on disk. They are the reason a shared
+#: scenarios file cannot be read from another project's root unchanged: the path
+#: is written relative to the file's project, and libpq resolves it against the
+#: CWD.
+FILE_FIELDS: tuple[str, ...] = ("sslcert", "sslkey", "sslrootcert", "sslcrl")
+
+#: How far above the scenario file a relative path may be looked for. The shared
+#: file lives at ``<project root>/tests/config``, so two levels cover it; the
+#: third covers a file placed one directory higher. The bound is the point -- a
+#: match further up is a different file that happens to share a name.
+FILE_SEARCH_DEPTH = 3
+
 
 def _repo_root() -> Path:
     """The repository root, from the location of this file."""
@@ -70,6 +90,45 @@ def _expand(value: Any) -> Any:
     if not isinstance(value, str) or "${" not in value:
         return value
     return re.sub(r"\$\{(\w+)\}", lambda m: os.getenv(m.group(1), ""), value)
+
+
+def _resolve_file_fields(scenario: dict[str, Any], base: Path) -> dict[str, Any]:
+    """Point a relative file path at the directory the scenario was read from.
+
+    The scenarios file is shared with the sibling ``python-activerecord-postgres``
+    project, whose entries write ``sslrootcert: tests/config/postgres_root.pem``.
+    That is correct where that project's own suite runs -- from its repository
+    root -- and wrong everywhere else, including here, where the documented
+    invocation reads the very same file and then fails with ``root certificate
+    file "tests/config/postgres_root.pem" does not exist``, naming neither the
+    scenario nor the file it came from. A path written that way is relative to
+    the project that owns the file, and that project root is one of the
+    directories above the file itself: it lives at ``<root>/tests/config``.
+
+    The search is therefore bounded and ordered. ``base`` is the directory the
+    scenario file was read from; a rewrite looks there, then at each parent, up
+    to :data:`FILE_SEARCH_DEPTH` levels -- nearest first, because that is the
+    one the entry was written against. A match further up the tree is not the
+    same file, it is a coincidence, and a bounded walk refuses to mistake one
+    for the other. Nothing is rewritten when the path already resolves from the
+    working directory, so a scenario that means "relative to where you are
+    standing" keeps meaning that; and a path that exists in neither place is
+    left alone, so it still fails with the name the operator wrote.
+    """
+    resolved = dict(scenario)
+    for field in FILE_FIELDS:
+        value = resolved.get(field)
+        if not isinstance(value, str) or not value:
+            continue
+        candidate = Path(value)
+        if candidate.is_absolute() or candidate.is_file():
+            continue
+        for directory in (base, *base.parents)[:FILE_SEARCH_DEPTH]:
+            beside = (directory / candidate).resolve()
+            if beside.is_file():
+                resolved[field] = str(beside)
+                break
+    return resolved
 
 
 def _scenario_from_file() -> dict[str, Any] | None:
@@ -92,7 +151,10 @@ def _scenario_from_file() -> dict[str, Any] | None:
         # configuration: it would otherwise read as "no server configured".
         raise ValueError(f"scenario '{name}' is not defined in {path}")
 
-    return {key: _expand(value) for key, value in scenario.items() if key != "enabled"}
+    return _resolve_file_fields(
+        {key: _expand(value) for key, value in scenario.items() if key != "enabled"},
+        path.parent,
+    )
 
 
 def _scenario_from_env() -> dict[str, Any]:
@@ -129,6 +191,8 @@ def resolve_scenario() -> dict[str, Any] | None:
 
 __all__ = [
     "FIELD_ENV",
+    "FILE_FIELDS",
+    "FILE_SEARCH_DEPTH",
     "SCENARIO_FILE",
     "SCENARIO_FILE_ALIAS",
     "SCENARIO_FILE_ENV",

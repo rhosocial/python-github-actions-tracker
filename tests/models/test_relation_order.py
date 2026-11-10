@@ -65,19 +65,17 @@ async def test_every_ordered_relation_keeps_its_order(bound) -> None:
     nightly = await _workflow(repo.id, 7_102, ".github/workflows/nightly.yml")
 
     # Insert run_number 1, 3, 2, and a second run sharing the number 3.
-    oldest = await _run(ci.id, 90_001, 1)
+    await _run(ci.id, 90_001, 1)
     newest = await _run(ci.id, 90_003, 3)
-    middle = await _run(ci.id, 90_002, 2)
-    twin = await _run(ci.id, 90_004, 3)
+    await _run(ci.id, 90_002, 2)
+    await _run(ci.id, 90_004, 3)
 
     reloaded = await models.AsyncWorkflow.find_one(models.AsyncWorkflow.c.id == ci.id)
     assert reloaded is not None
     # Newest first; the two runs that share run_number 3 answer in id order.
     assert [row.github_run_id for row in await reloaded.runs()] == [90_003, 90_004, 90_002, 90_001]
 
-    repo_reloaded = await models.AsyncRepository.find_one(
-        models.AsyncRepository.c.id == repo.id
-    )
+    repo_reloaded = await models.AsyncRepository.find_one(models.AsyncRepository.c.id == repo.id)
     assert repo_reloaded is not None
     workflows = await repo_reloaded.workflows()
     assert [row.path for row in workflows] == [

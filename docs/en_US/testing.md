@@ -21,6 +21,15 @@ PYTHONPATH=tests python -m pytest tests -q
 Without a server the tests skip and say why; in CI `GHAT_TEST_PG_REQUIRED=1` turns
 that into a failure.
 
+**File paths inside a scenarios file** (`sslrootcert` and friends) are relative to
+the project that owns the file, not to the directory pytest runs from: the shared
+file writes `tests/config/postgres_root.pem`, which does not exist relative to
+this repository's root. `tests/pg.py` therefore resolves such a path by looking a
+bounded number of levels above the scenarios file (`FILE_SEARCH_DEPTH`) and
+rewriting it to an absolute path, while leaving a path that already resolves from
+the working directory exactly as written. The command above works as-is; if you
+write your own scenarios file, use absolute paths and save the reader the search.
+
 ## Scope
 
 Run the files affected by your change. The full suite takes 3–5 minutes against a

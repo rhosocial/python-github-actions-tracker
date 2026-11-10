@@ -40,7 +40,9 @@ PYTHONPATH=tests python -m pytest tests -q
 ```
 
 Without a server the tests skip and say why; in CI `GHAT_TEST_PG_REQUIRED=1` turns
-that into a failure.
+that into a failure. Relative paths inside a scenarios file (`sslrootcert` and
+friends) are relative to the project that owns it; `tests/pg.py` resolves them by
+searching a bounded number of levels above the file — see [Testing](testing.md).
 
 ## The codebase in one paragraph
 
