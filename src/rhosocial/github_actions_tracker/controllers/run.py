@@ -376,9 +376,10 @@ class RunData:
         if workflow_id:
             existing = await AsyncWorkflow.by_github_id(repo.id or 0, workflow_id)
         if existing is None and path:
-            existing = await AsyncWorkflow.find_one(
-                (AsyncWorkflow.c.repository_id == (repo.id or 0)) & (AsyncWorkflow.c.path == path)
-            )
+            # The path lookup is the ordered one: a path can hold more than one
+            # row while nothing constrains it (see `AsyncWorkflow.by_path`), and
+            # the row that answers decides which workflow the run is filed under.
+            existing = await AsyncWorkflow.by_path(repo.id or 0, path)
         if existing is not None:
             return await existing.refresh(**values)
 

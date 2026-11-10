@@ -310,7 +310,17 @@ CORE_SCHEMA = Schema(
             foreign_keys=(
                 ForeignKey("repository_id", "ghat_repositories", on_delete=OnDelete.CASCADE),
             ),
-            unique_constraints=(UniqueConstraint(("repository_id", "workflow_id")),),
+            # Both halves of `RunController.store_workflow`'s lookup are keys,
+            # not hints: the id when the payload carries one, the path when it
+            # does not (`workflow_id = 0` marks a row whose id was never
+            # learned). Without the path half declared, two rows at one path
+            # make the lookup's answer depend on the query plan -- and the
+            # concurrent insert of the two rows raises nothing for
+            # `find_one_or_create` to recover from.
+            unique_constraints=(
+                UniqueConstraint(("repository_id", "workflow_id")),
+                UniqueConstraint(("repository_id", "path")),
+            ),
             indexes=(Index("idx_workflows_repository", ("repository_id",)),),
         ),
         Table(

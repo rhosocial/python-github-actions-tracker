@@ -236,6 +236,28 @@ def test_the_partition_column_renders_as_a_timestamp_on_both_log_tables() -> Non
         assert '"attempt_created_at" TIMESTAMP WITH TIME ZONE' in _statement_for(name), name
 
 
+def test_workflow_keys_carry_both_lookup_halves() -> None:
+    """The by-path lookup is a key too, not a hint.
+
+    ``RunController.store_workflow`` resolves a workflow by GitHub id when the
+    payload carries one and by ``(repository_id, path)`` when it does not. The
+    library is explicit that a natural key must be backed by a unique
+    constraint, and equally explicit that it will not inspect the schema for
+    one -- so the declaration here *is* the guarantee, for the concurrent
+    insert in particular: two deliveries racing on the same path both insert
+    while nothing constrains them, and ``find_one_or_create``'s recovery has no
+    violation to recover from.
+
+    A database created before this declaration keeps the shape it was built
+    with (``CREATE TABLE IF NOT EXISTS``, no migrations), which is why
+    ``scripts/add_workflow_path_key.py`` exists; that the constraint reaches new
+    databases is what this pins.
+    """
+    workflows = _statement_for("ghat_workflows")
+    assert 'UNIQUE ("repository_id", "workflow_id")' in workflows
+    assert 'UNIQUE ("repository_id", "path")' in workflows
+
+
 def test_drop_order_covers_every_table_and_legacy_name() -> None:
     """A reset must drop everything, including names this schema retired."""
     dropped = " ".join(ddl_postgres.drop_statements(SCHEMA))

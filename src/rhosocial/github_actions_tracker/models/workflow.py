@@ -201,6 +201,31 @@ class Workflow(
         )
 
     @classmethod
+    def by_path(cls, repository_id: int, path: str) -> Workflow | None:
+        """The newest stored workflow at this path, or ``None``.
+
+        The second chance, for a payload whose workflow id was never learned: a
+        row created from a path carries ``workflow_id = 0`` until a later
+        delivery fills the id in through :meth:`refresh`. While that is pending
+        -- and for as long as no unique constraint covers
+        ``(repository_id, path)`` -- one path can hold more than one row, and
+        ``find_one`` would answer with whichever row the planner reached first.
+
+        The order is therefore part of the contract, not a detail: the **newest**
+        row wins, which is the same last-write-wins rule :meth:`refresh` and
+        :meth:`not_found` already follow. An unordered limit would make the
+        answer depend on the plan.
+        """
+        if not path:
+            return None
+        return (
+            cls.query()
+            .where((cls.c.repository_id == repository_id) & (cls.c.path == path))
+            .order_by((cls.c.id, "DESC"))
+            .one()
+        )
+
+    @classmethod
     def resolve(cls, repository_id: int, ref: str) -> Workflow:
         """Resolve a workflow reference to the stored record.
 
@@ -320,6 +345,18 @@ class AsyncWorkflow(
             return None
         return await cls.find_one(
             (cls.c.repository_id == repository_id) & (cls.c.workflow_id == workflow_id)
+        )
+
+    @classmethod
+    async def by_path(cls, repository_id: int, path: str) -> AsyncWorkflow | None:
+        """The newest stored workflow at this path; see :meth:`Workflow.by_path`."""
+        if not path:
+            return None
+        return await (
+            cls.query()
+            .where((cls.c.repository_id == repository_id) & (cls.c.path == path))
+            .order_by((cls.c.id, "DESC"))
+            .one()
         )
 
     @classmethod
