@@ -56,6 +56,27 @@ GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。�
 删除的 cutoff 必须是 aware datetime：库拿叶子的 `range_end`（本模块总写成 UTC instant）
 与它比较，类型不配对是调用方错误，不是该静默转换成错误答案的东西。
 
+
+### 日志：级别现在真的生效，但掩码仍靠手动
+
+`GHAT_LOG_LEVEL` 从 setting 存在之日起就被读进 `settings.service.log_level`，
+然后**从未被应用**——库的 quiet 默认（`WARNING`）一直生效，所以运维设 `INFO`
+想拿查询日志，得到的和 `WARNING` 一样安静。`observability/bootstrap.py` 补上这
+一步：根 logger 装一个 handler（库按设计从不自装），库的命名空间通过框架自己的
+`configure_logging(level=...)` 设级。
+
+框架把它设为"库自己的决定"，所以应用之后在某个具体 logger 上覆盖仍然赢——
+`tests/observability/test_logging_policy.py` 守住这条，以及"重申策略不叠 handler"。
+
+**凭据掩码目前仍是手动开关，且这是有原因的。** release 线上的 ORM 在 INFO 打印
+每条 SQL 的位置参数元组，值原样出现；`credentials/redaction.py` 在两个写入点
+前后把相关 logger 抬到 `WARNING`。framework 的 `feature/logging-execution`
+分支改掉了这三件事（参数不再记 INFO、未命名位置元组只渲染 `<N params: types>`、
+传 `ParamMeta` 就走 `LogPayload` 按字段掩码），但**尚未合入 release**。那之前
+这个手动开关不能删；合入之后应当删掉它，改为在两条写路径上传
+`ExecutionOptions(log_context=LogContext(param_meta=...))`，其他任何地方都不该
+靠抬 logger level 工作。
+
 ### 读取规则（缓存一致性）
 
 | 问题 | 回答来源 |

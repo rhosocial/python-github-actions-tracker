@@ -47,8 +47,14 @@ def run(args: argparse.Namespace, api_key: str) -> None:
         api_key: API key for authentication
     """
     from ....config import get_settings
+    from ....observability.bootstrap import apply_logging_policy
 
-    settings = get_settings().service
+    resolved = get_settings()
+    # The level is a service-process setting, and until now it was read into
+    # settings and applied nowhere -- the library's quiet default held, so an
+    # operator who set INFO to see queries got the same silence as WARNING.
+    apply_logging_policy(resolved.service.log_level)
+    settings = resolved.service
     _resolve_bind_defaults(args, settings)
 
     if args.service == "rest":
