@@ -67,13 +67,13 @@ from typing import TYPE_CHECKING, Annotated, ClassVar
 from rhosocial.activerecord.base.ddl import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field import CompositePKMixin
-from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
+from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
-from .validators import IdentityMixin, UtcTimestampMixin
+from .validators import IdentityMixin
 
 #: The surrogate of a partitioned log table. Declared as an identity *key* so
 #: the ORM knows one member of the composite key is the server's to give -- it

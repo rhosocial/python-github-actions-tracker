@@ -38,11 +38,9 @@ from typing import ClassVar
 
 from pydantic import field_validator
 from rhosocial.activerecord.base.field_proxy import FieldProxy
-from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
+from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
-
-from .validators import UtcTimestampMixin
 
 logger = logging.getLogger(__name__)
 

@@ -24,14 +24,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING, ClassVar
 
 from rhosocial.activerecord.base.field_proxy import FieldProxy
-from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
+from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasOne
 from rhosocial.activerecord.relation.descriptors import BelongsTo, HasOne
 
 from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
-from .validators import IdentityMixin, UtcTimestampMixin
+from .validators import IdentityMixin
 
 if TYPE_CHECKING:
     from .job import AsyncJob, Job

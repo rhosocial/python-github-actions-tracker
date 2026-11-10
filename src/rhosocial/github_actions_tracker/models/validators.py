@@ -8,12 +8,15 @@ failed join or a comparison between a naive and an aware timestamp.
 Only invariants that are true regardless of GitHub's vocabulary live here. A
 status or conclusion is *not* validated: GitHub may add one, and the state
 machine is where an unknown value is rejected explicitly rather than silently.
+
+The "every timestamp is timezone-aware" rule used to be checked by a local
+``UtcTimestampMixin``; it is not here any more, because the library now ships
+one in ``rhosocial.activerecord.field`` and it does strictly more -- it also
+normalizes the naive values a database driver hands back, which the local copy
+never saw. The models import it from there.
 """
 
 from __future__ import annotations
-
-from datetime import datetime, timezone
-from typing import Any
 
 from pydantic import ValidationInfo, field_validator
 
@@ -59,22 +62,4 @@ class IdentityMixin:
         return value
 
 
-class UtcTimestampMixin:
-    """Every timestamp a model holds is timezone-aware.
-
-    A naive value is read as UTC -- the same assumption the service makes of
-    any timestamp it did not offset itself -- so a stored value and a value
-    computed by the database compare equal. The alternative is a silent
-    TypeError at the first comparison, far from the call that caused it.
-    """
-
-    @field_validator("*", mode="before")
-    @classmethod
-    def _naive_timestamp_is_utc(cls, value: Any) -> Any:
-        """Attach UTC to a naive datetime; leave every other value untouched."""
-        if isinstance(value, datetime) and value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
-
-
-__all__ = ["IdentityMixin", "UtcTimestampMixin"]
+__all__ = ["IdentityMixin"]

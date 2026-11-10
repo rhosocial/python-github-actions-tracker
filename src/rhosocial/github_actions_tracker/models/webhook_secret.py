@@ -38,13 +38,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import field_validator
 from rhosocial.activerecord.base.field_proxy import FieldProxy
-from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
+from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
-from .validators import IdentityMixin, UtcTimestampMixin
+from .validators import IdentityMixin
 
 if TYPE_CHECKING:
     from .repository import AsyncRepository, Repository

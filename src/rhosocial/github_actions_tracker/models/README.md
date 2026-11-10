@@ -57,10 +57,12 @@ import 方向只有一个——**别的层可以 import `models`，`models` 不 
    `Job.record` / `Step.record`。模型方法签名里不出现 `Mapping`，模块里不出现
    `*_from_remote`，也没有模块级函数——这三条由
    `tests/models/test_no_payload_in_models.py` 用 AST 守住。
-9. **ActiveRecord 就是 Pydantic，校验放在类上。** `models/validators.py` 提供两个混入：
-   `IdentityMixin`（id 不为负、`attempt_number >= 1`）与 `UtcTimestampMixin`（naive
-   时间按 UTC 解释）；`Repository.full_name`、`RepoWebhookSecret.secret`/`state`、
-   `PatCredential.name`/`token` 各自校验。`status` / `conclusion` **不做词汇表白名单**：
+9. **ActiveRecord 就是 Pydantic，校验放在类上。** `models/validators.py` 提供
+   `IdentityMixin`（id 不为负、`attempt_number >= 1`）；`UtcTimestampMixin`（naive
+   时间按 UTC 解释）直接取自库的 `rhosocial.activerecord.field`——它比本地旧实现
+   多归一化驱动返回的 naive 值，没有理由自己留一份；`Repository.full_name`、
+   `RepoWebhookSecret.secret`/`state`、`PatCredential.name`/`token` 各自校验。
+   `status` / `conclusion` **不做词汇表白名单**：
    GitHub 可能新增值，状态机才是显式拒绝未知状态的地方。
 
 ## 二、实体清单
