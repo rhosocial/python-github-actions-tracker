@@ -41,10 +41,9 @@ from rhosocial.activerecord.base.fields import DerivedField
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
-from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
-from rhosocial.activerecord.relation.descriptors import BelongsTo
+from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasMany
+from rhosocial.activerecord.relation.descriptors import BelongsTo, HasMany
 
-from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 
 if TYPE_CHECKING:
@@ -288,10 +287,10 @@ class RunAttempt(
     #: Owning run (pairs with :attr:`WorkflowRun.attempts`).
     run: ClassVar[BelongsTo[WorkflowRun]] = BelongsTo(foreign_key="run_id", inverse_of="attempts")
     #: Jobs of this attempt, in local id order.
-    jobs: ClassVar[OrderedHasMany[Job]] = OrderedHasMany(
+    jobs: ClassVar[HasMany[Job]] = HasMany(
         foreign_key="attempt_id",
         inverse_of="attempt",
-        order_key=lambda job: job.id,
+        order_by="id",
     )
 
     # ---- query domain -------------------------------------------------------
@@ -460,10 +459,10 @@ class AsyncRunAttempt(
         foreign_key="run_id", inverse_of="attempts"
     )
     #: Jobs of this attempt, in local id order.
-    jobs: ClassVar[AsyncOrderedHasMany[AsyncJob]] = AsyncOrderedHasMany(
+    jobs: ClassVar[AsyncHasMany[AsyncJob]] = AsyncHasMany(
         foreign_key="attempt_id",
         inverse_of="attempt",
-        order_key=lambda job: job.id,
+        order_by="id",
     )
 
     # ---- query domain -------------------------------------------------------

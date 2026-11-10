@@ -43,8 +43,11 @@ import 方向只有一个——**别的层可以 import `models`，`models` 不 
 4. **关系注解是字符串前向引用**：目标类在另一个模块里，`models/__init__.py` 在全部
    类定义完成后调用 `_RelationPublisher.publish()`，把每个模型发布进每个模型模块的
    globals，注解才解析得到。新增关系时不需要手工 import 对端。
-5. **有序一对多用 `OrderedHasMany` / `AsyncOrderedHasMany`**（`models/relations.py`），
-   它在外键过滤之外按 `order_key` 排序，批量加载时避免逐个 `await`。
+5. **有序一对多用库的 `HasMany(order_by=...)` / `AsyncHasMany(order_by=...)`**：
+   顺序属于关系而不是每个调用点，`order_by` 只接受字段名，库会自动补主键作
+   决胜项，且顺序落在 SQL 里（`jobs()`、`steps_query()`、`with_()` 预加载都一致）。
+   项目曾有自己的 `models/relations.py`（批加载后 Python 排序）：预加载那条路
+   当时是无序的，现在不是了。
 6. **没有迁移**：schema 变形状即重建数据库（见 `schema/model.py` 顶部说明）。
 7. **凭据由服务解析，不由模型解析。** `Repository` 上曾有 `resolve_token` /
    `require_token`，它们要问 provider 注册表，于是把 `models` 拖进了凭据层。现在这两个

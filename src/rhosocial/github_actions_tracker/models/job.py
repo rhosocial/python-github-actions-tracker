@@ -33,10 +33,13 @@ from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
-from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasOne
-from rhosocial.activerecord.relation.descriptors import BelongsTo, HasOne
+from rhosocial.activerecord.relation.async_descriptors import (
+    AsyncBelongsTo,
+    AsyncHasMany,
+    AsyncHasOne,
+)
+from rhosocial.activerecord.relation.descriptors import BelongsTo, HasMany, HasOne
 
-from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 
 if TYPE_CHECKING:
@@ -96,10 +99,10 @@ class Job(IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord)
         return self.status == "completed" and self.conclusion == "failure"
 
     #: Steps of this job, in step number order.
-    steps: ClassVar[OrderedHasMany[Step]] = OrderedHasMany(
+    steps: ClassVar[HasMany[Step]] = HasMany(
         foreign_key="job_id",
         inverse_of="job",
-        order_key=lambda step: step.number,
+        order_by="number",
     )
 
     # ---- query domain -------------------------------------------------------
@@ -266,10 +269,10 @@ class AsyncJob(
         foreign_key="job_id", inverse_of="job"
     )
     #: Steps of this job, in step number order.
-    steps: ClassVar[AsyncOrderedHasMany[AsyncStep]] = AsyncOrderedHasMany(
+    steps: ClassVar[AsyncHasMany[AsyncStep]] = AsyncHasMany(
         foreign_key="job_id",
         inverse_of="job",
-        order_key=lambda step: step.number,
+        order_by="number",
     )
 
     # ---- query domain -------------------------------------------------------

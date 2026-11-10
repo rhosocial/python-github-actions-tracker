@@ -24,10 +24,9 @@ from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
-from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
-from rhosocial.activerecord.relation.descriptors import BelongsTo
+from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasMany
+from rhosocial.activerecord.relation.descriptors import BelongsTo, HasMany
 
-from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 
 if TYPE_CHECKING:
@@ -173,11 +172,10 @@ class Workflow(
         foreign_key="repository_id", inverse_of="workflows"
     )
     #: Runs of this workflow, newest first.
-    runs: ClassVar[OrderedHasMany[WorkflowRun]] = OrderedHasMany(
+    runs: ClassVar[HasMany[WorkflowRun]] = HasMany(
         foreign_key="workflow_id",
         inverse_of="workflow",
-        order_key=lambda run: run.run_number,
-        reverse=True,
+        order_by=("run_number", "DESC"),
     )
 
     # ---- query domain -------------------------------------------------------
@@ -302,11 +300,10 @@ class AsyncWorkflow(
         foreign_key="repository_id", inverse_of="workflows"
     )
     #: Runs of this workflow, newest first.
-    runs: ClassVar[AsyncOrderedHasMany[AsyncWorkflowRun]] = AsyncOrderedHasMany(
+    runs: ClassVar[AsyncHasMany[AsyncWorkflowRun]] = AsyncHasMany(
         foreign_key="workflow_id",
         inverse_of="workflow",
-        order_key=lambda run: run.run_number,
-        reverse=True,
+        order_by=("run_number", "DESC"),
     )
 
     # ---- query domain -------------------------------------------------------

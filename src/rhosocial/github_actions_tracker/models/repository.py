@@ -39,11 +39,10 @@ from pydantic import field_validator
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
-from rhosocial.activerecord.relation.async_descriptors import AsyncHasOne
-from rhosocial.activerecord.relation.descriptors import HasOne
+from rhosocial.activerecord.relation.async_descriptors import AsyncHasMany, AsyncHasOne
+from rhosocial.activerecord.relation.descriptors import HasMany, HasOne
 
 from .binding import AsyncRepositoryBinding, RepositoryBinding
-from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 from .webhook_secret import AsyncRepoWebhookSecret, RepoWebhookSecret
 
@@ -97,10 +96,10 @@ class Repository(
     default_branch: str = "main"
 
     #: Cached workflows of this repository, in local id order.
-    workflows: ClassVar[OrderedHasMany[Workflow]] = OrderedHasMany(
+    workflows: ClassVar[HasMany[Workflow]] = HasMany(
         foreign_key="repository_id",
         inverse_of="repository",
-        order_key=lambda workflow: workflow.id or 0,
+        order_by="id",
     )
     #: Which credential answers for this repository; absent for anonymous.
     binding: ClassVar[HasOne[RepositoryBinding]] = HasOne(
@@ -325,10 +324,10 @@ class AsyncRepository(
     default_branch: str = "main"
 
     #: Cached workflows of this repository, in local id order.
-    workflows: ClassVar[AsyncOrderedHasMany[AsyncWorkflow]] = AsyncOrderedHasMany(
+    workflows: ClassVar[AsyncHasMany[AsyncWorkflow]] = AsyncHasMany(
         foreign_key="repository_id",
         inverse_of="repository",
-        order_key=lambda workflow: workflow.id or 0,
+        order_by="id",
     )
     #: Which credential answers for this repository; absent for anonymous.
     binding: ClassVar[AsyncHasOne[AsyncRepositoryBinding]] = AsyncHasOne(

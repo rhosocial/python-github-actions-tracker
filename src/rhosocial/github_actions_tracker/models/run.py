@@ -45,10 +45,9 @@ from rhosocial.activerecord.base.fields import DerivedField
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
 from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
-from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
-from rhosocial.activerecord.relation.descriptors import BelongsTo
+from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasMany
+from rhosocial.activerecord.relation.descriptors import BelongsTo, HasMany
 
-from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 
 if TYPE_CHECKING:
@@ -178,10 +177,10 @@ class WorkflowRun(
     #: Every stored execution of this run, in attempt-number order. A job no
     #: longer hangs off the run directly (``attempt_id -> run_id`` would be a
     #: BCNF violation), so reading the run's jobs goes through these.
-    attempts: ClassVar[OrderedHasMany[RunAttempt]] = OrderedHasMany(
+    attempts: ClassVar[HasMany[RunAttempt]] = HasMany(
         foreign_key="run_id",
         inverse_of="run",
-        order_key=lambda attempt: attempt.attempt_number,
+        order_by="attempt_number",
     )
 
     # ---- derived: the state of the newest attempt ---------------------------
@@ -553,10 +552,10 @@ class AsyncWorkflowRun(
     #: Every stored execution of this run, in attempt-number order. A job no
     #: longer hangs off the run directly (``attempt_id -> run_id`` would be a
     #: BCNF violation), so reading the run's jobs goes through these.
-    attempts: ClassVar[AsyncOrderedHasMany[AsyncRunAttempt]] = AsyncOrderedHasMany(
+    attempts: ClassVar[AsyncHasMany[AsyncRunAttempt]] = AsyncHasMany(
         foreign_key="run_id",
         inverse_of="run",
-        order_key=lambda attempt: attempt.attempt_number,
+        order_by="attempt_number",
     )
 
     # ---- derived: the state of the newest attempt ---------------------------
