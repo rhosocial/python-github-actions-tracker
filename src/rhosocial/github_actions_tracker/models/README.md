@@ -67,6 +67,18 @@ import 方向只有一个——**别的层可以 import `models`，`models` 不 
    `RepoWebhookSecret.secret`/`state`、`PatCredential.name`/`token` 各自校验。
    `status` / `conclusion` **不做词汇表白名单**：
    GitHub 可能新增值，状态机才是显式拒绝未知状态的地方。
+10. **库的新能力按"本地是否还有一份"取舍，不按新旧取舍。** release 线
+   （core `v1.0.0.dev30` / postgres `v1.0.0.dev17`）带来的东西分三类：
+
+   | 库新增 | 本项目做法 |
+   |---|---|
+   | `find_one_or_create`、`HasMany(order_by=...)`、`UtcTimestampMixin`、分区维护契约、日志策略 | **采用**：本地那几份（`models/mixins.py`、`models/relations.py`、`validators.py` 里的混入）已删 |
+   | `ReadOnlyMixin` / keyless 模型 | **不用**：只读语义与 `DefaultTimestampMixin` 互斥（库自己在类定义时报 `TypeError`），本项目每张表都写、都带时间戳；也没有无主键表 |
+   | `StaleRecordError` / 乐观锁 | **不用**：模型没有版本列；投递是"以 GitHub 为准的下一次读修复"，不是并发更新竞争 |
+   | `seconds_between` 表达式 | **不用**：`duration_seconds` 在 `views.py` 里由已在内存的两个 `datetime` 相减，不发生在 SQL 中 |
+
+   第三列不是"以后再说"：前两列落地之后，这里记录的正是**为什么不再有本地实现**，
+   以及**为什么剩下的不抄**。
 
 ## 二、实体清单
 
