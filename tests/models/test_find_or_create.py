@@ -7,13 +7,18 @@ and if not make it" as two statements is where the races live -- two deliveries
 of one run read "no row" together, both insert, and the loser used to surface an
 ``IntegrityError`` for a row that exists.
 
-What this mixin promises, and what these tests pin:
+What the library's ``find_one_or_create`` promises, and what these tests pin:
 
 * an absent row is created with the caller's defaults, and ``created`` says so;
 * a present row is returned untouched (refreshing it stays with the model's
   value entry, which knows which fields may be overwritten);
 * an empty lookup is refused rather than matching an arbitrary row;
 * the async and sync halves answer identically.
+
+The project used to carry its own ``FindOrCreateMixin`` for this; the library
+now provides it on every model, with the same ``(row, created)`` contract and a
+savepoint for the insert race, so the local copy was deleted. These tests
+stay as the project's pin on the behaviour its write paths depend on.
 """
 
 from __future__ import annotations

@@ -43,7 +43,6 @@ from rhosocial.activerecord.relation.async_descriptors import AsyncHasOne
 from rhosocial.activerecord.relation.descriptors import HasOne
 
 from .binding import AsyncRepositoryBinding, RepositoryBinding
-from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 from .webhook_secret import AsyncRepoWebhookSecret, RepoWebhookSecret
@@ -76,7 +75,6 @@ class _RepositoryValues:
 
 
 class Repository(
-    FindOrCreateMixin,
     _RepositoryValues,
     IdentityMixin,
     UtcTimestampMixin,
@@ -301,7 +299,6 @@ class Repository(
 
 
 class AsyncRepository(
-    AsyncFindOrCreateMixin,
     _RepositoryValues,
     IdentityMixin,
     UtcTimestampMixin,

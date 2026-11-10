@@ -36,7 +36,6 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo, AsyncHasOne
 from rhosocial.activerecord.relation.descriptors import BelongsTo, HasOne
 
-from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 
@@ -48,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class Job(FindOrCreateMixin, IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord):
+class Job(IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord):
     """A job within a workflow run, synchronous twin."""
 
     __table_name__ = "ghat_jobs"
@@ -208,7 +207,6 @@ class Job(FindOrCreateMixin, IdentityMixin, UtcTimestampMixin, DefaultTimestampM
 
 
 class AsyncJob(
-    AsyncFindOrCreateMixin,
     IdentityMixin,
     UtcTimestampMixin,
     DefaultTimestampMixin,

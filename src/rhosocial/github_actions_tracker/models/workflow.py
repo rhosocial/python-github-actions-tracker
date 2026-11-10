@@ -27,7 +27,6 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
-from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 
@@ -141,7 +140,6 @@ class _WorkflowMatch:
 
 
 class Workflow(
-    FindOrCreateMixin,
     _WorkflowMatch,
     IdentityMixin,
     UtcTimestampMixin,
@@ -269,7 +267,6 @@ class Workflow(
 
 
 class AsyncWorkflow(
-    AsyncFindOrCreateMixin,
     _WorkflowMatch,
     IdentityMixin,
     UtcTimestampMixin,

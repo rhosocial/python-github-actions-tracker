@@ -44,7 +44,6 @@ from rhosocial.activerecord.query import ActiveQuery, AsyncActiveQuery
 from rhosocial.activerecord.relation.async_descriptors import AsyncBelongsTo
 from rhosocial.activerecord.relation.descriptors import BelongsTo
 
-from .mixins import AsyncFindOrCreateMixin, FindOrCreateMixin
 from .relations import AsyncOrderedHasMany, OrderedHasMany
 from .validators import IdentityMixin
 
@@ -251,7 +250,6 @@ class _AttemptDerived:
 
 
 class RunAttempt(
-    FindOrCreateMixin,
     _AttemptMerge,
     IdentityMixin,
     UtcTimestampMixin,
@@ -431,7 +429,6 @@ class RunAttempt(
 
 
 class AsyncRunAttempt(
-    AsyncFindOrCreateMixin,
     _AttemptMerge,
     IdentityMixin,
     UtcTimestampMixin,
