@@ -74,9 +74,12 @@ GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。�
 `credentials/redaction.py` 用"把 logger 抬到 WARNING"兜住这件事，分支
 `feature/logging-execution` 合入后该文件已删除。
 
-注意 `save()` 不透传 `log_context`，调用方无法在模型写入上挂 `ParamMeta`；
-但也不需要——上述两条默认规则已经覆盖。真要按字段名精确掩码（例如某个业务
-自定义字段），在直接 `backend.execute(sql, params, options=...)` 的调用点传
+模型写入上的日志上下文由库自己给：`save()` 的 insert/update 路径都带
+`LogContext(model=..., operation="insert"/"update", object_name=..., schema=...)`，
+所以每条 SQL 行能回答"是哪张表、哪个模型、什么操作"。调用方仍无法在模型写入上
+挂自己的 `ParamMeta`——`save()` 没有透传参数的口子；但也不需要，上述两条默认
+规则已经覆盖。真要按字段名精确掩码（例如某个业务自定义字段），在直接
+`backend.execute(sql, params, options=...)` 的调用点传
 `LogContext(param_meta=(ParamMeta(index=0, field="token", sensitive=True),))`。
 
 ### 读取规则（缓存一致性）
