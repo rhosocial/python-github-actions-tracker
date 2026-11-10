@@ -16,7 +16,10 @@
 #       its release line (v1.0.0.dev30 / v1.0.0.dev17). The column-constraint work
 #       the models depend on was merged into those lines, so the release refs are
 #       the code the image ships; the old fix/ branch is the same tree, and using
-#       it here would let this job and the Dockerfile drift apart;
+#       it here would let this job and the Dockerfile drift apart. `ghat orm`
+#       additionally needs the core's feature/activerecord-cli line, which is not
+#       in either release yet: tests/adapters/test_cli_orm.py skips its two live
+#       cases here and they start running the moment these refs include it.
 #   rhosocial-mcpserver  PUBLIC. The default GITHUB_TOKEN (contents: read) can
 #       read it cross-repository, same as the other two.
 #

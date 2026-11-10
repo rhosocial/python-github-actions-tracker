@@ -59,6 +59,13 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Siblings first, exactly as the service documents and CI does it: this
 # project's requirements resolve against them, and installing it first would
 # send pip to PyPI for versions that are not published there.
+#
+# `ghat orm` needs the core package's `feature/activerecord-cli` line, which is
+# not merged into a release line yet -- until it is, the command in this image
+# prints where to get it and exits 4. When the line merges, cut the dev30 ref
+# above to the release that contains it (and the same ref in test.yml); nothing
+# in this project's source needs to change, because the wrapper resolves the
+# CLI by import.
 RUN pip install "git+https://github.com/rhosocial/python-activerecord.git@release/v1.0.0.dev30" \
     && pip install "git+https://github.com/rhosocial/python-activerecord-postgres.git@release/v1.0.0.dev17" \
     && pip install "git+https://github.com/rhosocial/python-mcpserver.git@main"
