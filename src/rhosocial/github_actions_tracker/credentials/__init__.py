@@ -33,7 +33,6 @@ from .base import (
     register_provider,
 )
 from .pat import PROVIDER_MODELS, pat_provider
-from .redaction import redact_credential_logging
 
 #: Every provider-owned table name, for teardown.
 PROVIDER_TABLES: tuple[str, ...] = ("ghat_pat_credentials",)
@@ -64,6 +63,5 @@ __all__ = [
     "parse_credential_ref",
     "pat_provider",
     "provider_kinds",
-    "redact_credential_logging",
     "register_provider",
 ]

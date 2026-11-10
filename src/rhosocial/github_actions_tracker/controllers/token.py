@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..core.exceptions import TokenNotFoundError
-from ..credentials.redaction import redact_credential_logging
 from ..services.github.protocols import CredentialProbe
 from ..views import TokenRecord, as_utc
 
@@ -62,16 +61,15 @@ class TokenController:
             TokenAlreadyExistsError: The name or the value is already stored.
             TokenInvalidError: GitHub rejected the token.
         """
-        with redact_credential_logging():
-            record = await self._provider().add(
-                token=token,
-                name=name,
-                client=self._probe,
-                scope=scope,
-                verify=True,
-                probe_repo=probe_repo,
-                github_name=github_name,
-            )
+        record = await self._provider().add(
+            token=token,
+            name=name,
+            client=self._probe,
+            scope=scope,
+            verify=True,
+            probe_repo=probe_repo,
+            github_name=github_name,
+        )
         return self._view(record)
 
     async def ensure_token(
@@ -183,15 +181,14 @@ class TokenController:
         probe_repo: str | None = None,
     ) -> TokenRecord:
         """Rotate a credential, keeping its rows out of the query log."""
-        with redact_credential_logging():
-            record = await self._provider().rotate(
-                ref=ref,
-                new_token=token,
-                client=self._probe,
-                expires_at=expires_at,
-                verify=True,
-                probe_repo=probe_repo,
-            )
+        record = await self._provider().rotate(
+            ref=ref,
+            new_token=token,
+            client=self._probe,
+            expires_at=expires_at,
+            verify=True,
+            probe_repo=probe_repo,
+        )
         return self._view(record)
 
     async def refresh_token(self, name: str, probe_repo: str | None = None) -> TokenRecord:

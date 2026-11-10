@@ -68,14 +68,16 @@ GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。�
 框架把它设为"库自己的决定"，所以应用之后在某个具体 logger 上覆盖仍然赢——
 `tests/observability/test_logging_policy.py` 守住这条，以及"重申策略不叠 handler"。
 
-**凭据掩码目前仍是手动开关，且这是有原因的。** release 线上的 ORM 在 INFO 打印
-每条 SQL 的位置参数元组，值原样出现；`credentials/redaction.py` 在两个写入点
-前后把相关 logger 抬到 `WARNING`。framework 的 `feature/logging-execution`
-分支改掉了这三件事（参数不再记 INFO、未命名位置元组只渲染 `<N params: types>`、
-传 `ParamMeta` 就走 `LogPayload` 按字段掩码），但**尚未合入 release**。那之前
-这个手动开关不能删；合入之后应当删掉它，改为在两条写路径上传
-`ExecutionOptions(log_context=LogContext(param_meta=...))`，其他任何地方都不该
-靠抬 logger level 工作。
+**凭据掩码由库负责，本项目不再有手动开关。** ORM 的 SQL 参数行只记 `DEBUG`（`INFO`
+看不到），且未命名位置元组渲染为 `<N params: types>` 而不打印值——所以
+`GHAT_LOG_LEVEL=INFO` 的生产默认下，PAT 与 webhook secret 不会进日志。曾经
+`credentials/redaction.py` 用"把 logger 抬到 WARNING"兜住这件事，分支
+`feature/logging-execution` 合入后该文件已删除。
+
+注意 `save()` 不透传 `log_context`，调用方无法在模型写入上挂 `ParamMeta`；
+但也不需要——上述两条默认规则已经覆盖。真要按字段名精确掩码（例如某个业务
+自定义字段），在直接 `backend.execute(sql, params, options=...)` 的调用点传
+`LogContext(param_meta=(ParamMeta(index=0, field="token", sensitive=True),))`。
 
 ### 读取规则（缓存一致性）
 
@@ -313,7 +315,7 @@ p90 决定：`trigger_workflow` / `rerun_run` 返回 `typical_duration_seconds`�
 
 | 包 | 读模型的那个文件 | 读的是什么 |
 |---|---|---|
-| `credentials/` | `pat/provider.py`、`resolver.py`、`redaction.py` | `ghat_pat_credentials`：凭据解析与脱敏 |
+| `credentials/` | `pat/provider.py`、`resolver.py` | `ghat_pat_credentials`：凭据解析 |
 | `authorization/` | `loader.py`（唯一） | `ghat_repo_webhook_secrets` + `ghat_repositories`：webhook 验签密钥快照 |
 
 为什么值得开这个口子：**认证必须在拿到数据库连接之前发生**。webhook 的签名密钥按仓库

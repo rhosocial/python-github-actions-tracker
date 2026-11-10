@@ -28,7 +28,6 @@ from ..core.exceptions import (
     ValidationError,
     map_api_error,
 )
-from ..credentials.redaction import redact_credential_logging
 from ..models import AsyncRepository, AsyncWorkflow
 from ..models.binding import AsyncRepositoryBinding
 from ..models.webhook_secret import (
@@ -627,9 +626,7 @@ class RepositoryController:
         url = webhook_url or _webhook_defaults()["url"]
 
         state = STATE_UNKNOWN if _clean_str(supplied) else STATE_PENDING_USER
-        # The ORM's DEBUG lines echo every parameter, secret included.
-        with redact_credential_logging():
-            record = await AsyncRepoWebhookSecret.set(repo.id or 0, secret, state=state)
+        record = await AsyncRepoWebhookSecret.set(repo.id or 0, secret, state=state)
         self._secrets_changed()
 
         if not create_webhook:
