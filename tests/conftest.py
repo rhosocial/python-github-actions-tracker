@@ -703,6 +703,28 @@ def credential() -> StubCredential:
     return StubCredential()
 
 
+@pytest.fixture(autouse=True)
+def fresh_settings():
+    """Give every test the settings its own environment describes.
+
+    ``get_settings`` is ``lru_cache``d -- deliberately, because a process reads
+    its configuration once -- which makes it invisible to ``monkeypatch.setenv``:
+    a test that sets ``GHAT_API_KEY`` and then builds a container gets whatever
+    the *first* test in the process happened to read. That is not a bug in the
+    product, it is the cache doing its job; but it makes any test that varies the
+    environment depend on test ordering, and two of them failed precisely when
+    another file ran first.
+
+    Clearing around each test restores what the env var promises, in one place,
+    instead of every such test remembering to clear it itself.
+    """
+    from rhosocial.github_actions_tracker.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 def _ensure_compatible_event_loop() -> None:
     """Make the default loop one psycopg will accept on Windows.
 
