@@ -130,6 +130,52 @@ secret 只在“已生成但尚未推送到 GitHub”时显示一次。需要再
 
 `deliveries` 打印的时间戳带数据库会话的显式偏移，可能是 `+08:00`；接口返回的时间戳始终是 UTC。
 
+## 临时取行：`orm`
+
+`rhosocial-github-actions-tracker orm` 转接到核心库的模型 CLI（`rhosocial-activerecord`，
+`feature/activerecord-cli` 分支线）。上面的命令回答本服务知道该怎么问的问题，`orm` 则经由 ORM
+直达任意一行——领域命令覆盖不到的操作，走这里。
+
+```bash
+# 裸类名会补上本项目的模型模块（同步/异步孪生都发布在那里），后端与连接自动补全。
+rhosocial-github-actions-tracker orm dql count --model AsyncRepository
+rhosocial-github-actions-tracker orm dql list --model AsyncWorkflowRun --limit 5
+rhosocial-github-actions-tracker orm dql get --model AsyncJob --pk 42
+rhosocial-github-actions-tracker orm dql list --model WorkflowRun --where "branch=main" \
+  --order-by "id desc"
+
+# 写入要显式：非终端下删除必须 --yes。
+rhosocial-github-actions-tracker orm dml create --model AsyncRepository \
+  --data '{"github_repo_id": 4242, "full_name": "acme/demo", "owner": "acme", "name": "demo"}'
+rhosocial-github-actions-tracker orm dml delete --model AsyncStepLog --pk '{"id": 7}' --yes
+```
+
+包装层补什么、留什么：
+
+- **模型**：裸 `Class` 补成 `rhosocial.github_actions_tracker.models`。完整的 `module:Class`
+  （或点号形式 `module.Class`）原样转发，因此别的项目的模型也能用。
+- **后端**：按类名的 `Async` 前缀判定——这是本项目的同步/异步命名规则。显式的
+  `--backend-class` 优先。
+- **连接**：从 `GHAT_DB_*` 读，与服务自身同一批变量，密码因此不出现在 `ps` 里。本项目的
+  设置里没有 `sslrootcert`，`verify-full` 部署按次传：
+  `--config sslrootcert=/path/root.pem`（库会合并到连接之上）。显式的 `--connection` 或
+  `--config-class` 优先。
+
+键入之前需要知道的四件事：
+
+1. **这条分支线必须先装上。** 模型 CLI 还没进 release 线；没装时本条命令打印去哪里取，
+   并以退出码 `4` 结束。
+2. **`--where` 只有等值。** 没有 `>` / `<` 这类运算符；范围问题归领域命令（或一个
+   `dql run` 查询对象）。
+3. **分区表会先警告，那是库在说实话。** 不带分区键（`attempt_created_at`）读
+   `ghat_step_logs` / `ghat_job_logs`，会打印一句"这会在每个分区上扫描"再给出结果。
+   不是故意全扫时，把列约束上。
+4. **复合主键要 JSON。** 日志表的主键是 `(id, attempt_created_at)`，所以 `--pk` 是 JSON 对象：
+   `--pk '{"id": 7, "attempt_created_at": "2026-11-01T00:00:00+00:00"}'`。
+
+退出码用库自己的一套：`0` 成功、`1` 错误、`2` 用法错、`3` 找不到、`4` 分支线未装、
+`5` 删除需要 `--yes`、`6` 模型拒绝写入。
+
 ## 错误与退出码
 
 命令失败时，CLI 把一句话写到标准错误，并以退出码 `1` 结束，例如：

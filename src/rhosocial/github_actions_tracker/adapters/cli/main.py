@@ -8,6 +8,10 @@ debugging tool; for debugging a single module, run that module directly:
 
     python -m rhosocial.github_actions_tracker.adapters.cli.github_debug --help
     python -m rhosocial.github_actions_tracker.adapters.cli.db         --help
+
+``orm`` is the one delegation: it forwards to the library's model CLI for
+ad-hoc row access, with this deployment's models, backend and connection
+pre-filled. See :mod:`adapters.cli.orm`.
 """
 
 from __future__ import annotations
@@ -453,6 +457,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bind port (default from config: GHAT_*_PORT)",
     )
 
+    # orm: the library's model CLI, forwarded. Declared here so `ghat --help`
+    # lists it and says what it is; the arguments themselves are never parsed
+    # by this parser (see `main`), because they are the library's own.
+    orm_parser = subparsers.add_parser(
+        "orm",
+        help=(
+            "Ad-hoc access to any stored row through the library's model CLI "
+            "(dml/dql/set/cte; needs python-activerecord's "
+            "feature/activerecord-cli line)"
+        ),
+    )
+    orm_parser.add_argument("orm_arguments", nargs=argparse.REMAINDER)
+
     return parser
 
 
@@ -462,8 +479,22 @@ def main(argv: list[str] | None = None) -> None:
     Args:
         argv: Command-line arguments (defaults to sys.argv).
     """
+    arguments = list(sys.argv[1:] if argv is None else argv)
+
+    # `orm` is a passthrough, taken before argparse sees it. Its argument list
+    # belongs to the library's CLI, and argparse cannot forward one: REMAINDER
+    # stops at a token that starts with "-", so `ghat orm dql list --model X`
+    # dies in the outer parser, while re-declaring the library's flags here
+    # would drift from them the first time the library adds one. The wrapper's
+    # own global flags mean nothing to a forwarded command, so this reads the
+    # first argument only.
+    if arguments and arguments[0] == "orm":
+        from . import orm as orm_command
+
+        raise SystemExit(orm_command.run(arguments[1:]))
+
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
 
     if args.command is None:
         parser.print_help()
@@ -478,6 +509,18 @@ def main(argv: list[str] | None = None) -> None:
 
         serve.run(args, args.api_key or "")
         return
+
+    # `orm` reaches this point only when the operator wrote something before
+    # the word (a global flag) or asked for `--help`; the normal path was taken
+    # above, before argparse. Either way the library's CLI opens its own
+    # backend from `GHAT_DB_*` and configures the models itself, so it runs
+    # outside `_run_with_db` -- the Database/Container scope would hand it a
+    # connection it never reads. Its logging policy is its own (`--log-level`),
+    # for the same reason `serve` is exempt here.
+    if args.command == "orm":
+        from . import orm as orm_command
+
+        raise SystemExit(orm_command.run(args.orm_arguments))
 
     # Configure before importing the controllers: the ORM announces every
     # relation at DEBUG while the modules load, and those lines would otherwise

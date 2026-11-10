@@ -137,6 +137,54 @@ A file produced from such a table is key material and must not be committed or s
 `deliveries` prints timestamps with the database session's explicit offset, which may be `+08:00`;
 timestamps returned by the interfaces are always UTC.
 
+## Ad-hoc row access: `orm`
+
+`rhosocial-github-actions-tracker orm` forwards to the core package's model CLI
+(`rhosocial-activerecord`, on the `feature/activerecord-cli` line). Where the commands above answer
+questions this service knows how to ask, `orm` reaches any stored row directly through the ORM,
+which is what an operator doing something the domain commands do not cover needs.
+
+```bash
+# A bare class name resolves to this project's models; the sync and the async
+# twins are both published there. The backend and the connection are filled in.
+rhosocial-github-actions-tracker orm dql count --model AsyncRepository
+rhosocial-github-actions-tracker orm dql list --model AsyncWorkflowRun --limit 5
+rhosocial-github-actions-tracker orm dql get --model AsyncJob --pk 42
+rhosocial-github-actions-tracker orm dql list --model WorkflowRun --where "branch=main" \
+  --order-by "id desc"
+
+# Writes are explicit: a delete wants --yes outside a terminal.
+rhosocial-github-actions-tracker orm dml create --model AsyncRepository \
+  --data '{"github_repo_id": 4242, "full_name": "acme/demo", "owner": "acme", "name": "demo"}'
+rhosocial-github-actions-tracker orm dml delete --model AsyncStepLog --pk '{"id": 7}' --yes
+```
+
+What the wrapper fills in, and what it leaves to you:
+
+- **Model**: a bare `Class` is completed with `rhosocial.github_actions_tracker.models`. A full
+  `module:Class` (or dotted `module.Class`) is passed through, so another project's models work too.
+- **Backend**: inferred from the `Async` prefix of the class name, which is this project's
+  sync/async naming rule. An explicit `--backend-class` wins.
+- **Connection**: read from `GHAT_DB_*` -- the same variables the service reads -- so the password
+  never appears in `ps` output. The tracker's settings carry no `sslrootcert`, so a `verify-full`
+  deployment passes one per invocation: `--config sslrootcert=/path/root.pem` (the library merges it
+  on top). An explicit `--connection` or `--config-class` wins.
+
+Four things to know before typing:
+
+1. **The line must be installed.** The model CLI is not on a release line yet. Without it the
+   command prints where it lives and exits `4`.
+2. **`--where` is equality only.** There are no `>` / `<` operators; range questions belong to the
+   domain commands (or a `dql run` query object).
+3. **A partitioned table warns, and that is the library being honest.** Reading `ghat_step_logs` or
+   `ghat_job_logs` without their partition key (`attempt_created_at`) prints a note that the query
+   scans every partition, then answers. Constrain the column when you did not mean to scan.
+4. **Composite primary keys need JSON.** The log tables are keyed by `(id, attempt_created_at)`,
+   so `--pk` is a JSON object: `--pk '{"id": 7, "attempt_created_at": "2026-11-01T00:00:00+00:00"}'`.
+
+Exit codes are the library's own: `0` success, `1` error, `2` usage, `3` not found, `4` the line is
+not installed, `5` a delete needs `--yes`, `6` the model refused a write.
+
 ## Errors and exit codes
 
 When a command fails, the CLI writes one sentence to standard error and exits with `1`:
