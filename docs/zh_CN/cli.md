@@ -133,7 +133,7 @@ secret 只在“已生成但尚未推送到 GitHub”时显示一次。需要再
 ## 临时取行：`orm`
 
 `rhosocial-github-actions-tracker orm` 转接到核心库的模型 CLI（`rhosocial-activerecord`，
-`feature/activerecord-cli` 分支线）。上面的命令回答本服务知道该怎么问的问题，`orm` 则经由 ORM
+`v1.0.0.dev30` / #138 起提供）。上面的命令回答本服务知道该怎么问的问题，`orm` 则经由 ORM
 直达任意一行——领域命令覆盖不到的操作，走这里。
 
 ```bash
@@ -163,8 +163,8 @@ rhosocial-github-actions-tracker orm dml delete --model AsyncStepLog --pk '{"id"
 
 键入之前需要知道的四件事：
 
-1. **这条分支线必须先装上。** 模型 CLI 还没进 release 线；没装时本条命令打印去哪里取，
-   并以退出码 `4` 结束。
+1. **核心库要够新。** 模型 CLI 自 `v1.0.0.dev30`（#138）起提供；更旧的核心上该命令会说清
+   这一点、点名版本，并以退出码 `4` 结束。
 2. **`--where` 只有等值。** 没有 `>` / `<` 这类运算符；范围问题归领域命令（或一个
    `dql run` 查询对象）。
 3. **分区表会先警告，那是库在说实话。** 不带分区键（`attempt_created_at`）读
@@ -173,7 +173,7 @@ rhosocial-github-actions-tracker orm dml delete --model AsyncStepLog --pk '{"id"
 4. **复合主键要 JSON。** 日志表的主键是 `(id, attempt_created_at)`，所以 `--pk` 是 JSON 对象：
    `--pk '{"id": 7, "attempt_created_at": "2026-11-01T00:00:00+00:00"}'`。
 
-退出码用库自己的一套：`0` 成功、`1` 错误、`2` 用法错、`3` 找不到、`4` 分支线未装、
+退出码用库自己的一套：`0` 成功、`1` 错误、`2` 用法错、`3` 找不到、`4` 核心库过旧、
 `5` 删除需要 `--yes`、`6` 模型拒绝写入。
 
 ## 错误与退出码

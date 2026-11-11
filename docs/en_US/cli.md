@@ -140,9 +140,10 @@ timestamps returned by the interfaces are always UTC.
 ## Ad-hoc row access: `orm`
 
 `rhosocial-github-actions-tracker orm` forwards to the core package's model CLI
-(`rhosocial-activerecord`, on the `feature/activerecord-cli` line). Where the commands above answer
-questions this service knows how to ask, `orm` reaches any stored row directly through the ORM,
-which is what an operator doing something the domain commands do not cover needs.
+(`rhosocial-activerecord`, added in `v1.0.0.dev30` / #138). Where the commands above
+answer questions this service knows how to ask, `orm` reaches any stored row directly
+through the ORM, which is what an operator doing something the domain commands do not
+cover needs.
 
 ```bash
 # A bare class name resolves to this project's models; the sync and the async
@@ -172,8 +173,8 @@ What the wrapper fills in, and what it leaves to you:
 
 Four things to know before typing:
 
-1. **The line must be installed.** The model CLI is not on a release line yet. Without it the
-   command prints where it lives and exits `4`.
+1. **The core package must be new enough.** The model CLI arrived in `v1.0.0.dev30`
+   (#138); on an older core the command says so, names the version, and exits `4`.
 2. **`--where` is equality only.** There are no `>` / `<` operators; range questions belong to the
    domain commands (or a `dql run` query object).
 3. **A partitioned table warns, and that is the library being honest.** Reading `ghat_step_logs` or

@@ -1,12 +1,12 @@
 # src/rhosocial/github_actions_tracker/adapters/cli/orm.py
 """``ghat orm``: the library's model CLI, pointed at this deployment.
 
-The core package ships a model CLI (``rhosocial-activerecord``, on the
-``feature/activerecord-cli`` line): ``dml`` / ``dql`` / ``set`` / ``cte`` over
-any ActiveRecord model, resolving the backend and connection from explicit
-class references. It is generic by design -- the core package knows nothing
-about the packages that happen to ship a backend -- so using it here means
-naming this deployment's models, backend and connection every time.
+The core package ships a model CLI (``rhosocial-activerecord``, since
+``v1.0.0.dev30`` / #138): ``dml`` / ``dql`` / ``set`` / ``cte`` over any
+ActiveRecord model, resolving the backend and connection from explicit class
+references. It is generic by design -- the core package knows nothing about the
+packages that happen to ship a backend -- so using it here means naming this
+deployment's models, backend and connection every time.
 
 This module is the delegation that removes that typing, not a reimplementation:
 
@@ -24,9 +24,10 @@ Whatever the operator did type wins: an explicit ``--backend-class``,
 ``--config key=value`` overrides are merged by the library on top of the
 connection above.
 
-The library's CLI is not on a release line yet, so the import is guarded: the
-failure names the line to install rather than surfacing a bare ImportError
-from argparse's argument list.
+The import is still guarded -- a core package older than
+:data:`CLI_AVAILABLE_SINCE` has no such module, and an ImportError surfacing
+through argparse's argument list would be a worse answer than naming the
+version to upgrade to.
 """
 
 from __future__ import annotations
@@ -35,9 +36,15 @@ import sys
 from collections.abc import Sequence
 from typing import Any
 
-#: Where the library's model CLI lives. Imported lazily, because its absence is
-#: an expected state until the branch reaches a release line.
+#: Where the library's model CLI lives. Imported lazily, because an older core
+#: package is a state an operator can act on (upgrade), not a crash.
 CLI_MODULE = "rhosocial.activerecord.cli"
+
+#: The core package release that added the model CLI, so the failure message
+#: can name a version instead of a branch that no longer exists. The CLI was
+#: merged into the release line as #138 in ``v1.0.0.dev30``; the project it was
+#: developed on (``feature/activerecord-cli``) is the same tree.
+CLI_AVAILABLE_SINCE = "v1.0.0.dev30"
 
 #: This project's models, where ``models/__init__.py`` publishes every sync and
 #: async class, so a bare class name resolves without the operator typing it.
@@ -62,9 +69,9 @@ MODEL_FLAG = "--model"
 EXIT_CLI_UNAVAILABLE = 4
 
 _MISSING_CLI = (
-    "error: the model CLI lives on python-activerecord's 'feature/activerecord-cli' "
-    "line, which is not a release line yet, so it is not installed here. Install the "
-    "core package from that branch (or put its src on PYTHONPATH) and retry."
+    "error: the model CLI is part of the core package since "
+    f"{CLI_AVAILABLE_SINCE}, and the installed one is older than that. Upgrade "
+    "rhosocial-activerecord and retry."
 )
 
 

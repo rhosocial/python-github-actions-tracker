@@ -7,11 +7,13 @@ operator typed, infer the backend the model's sync/async half needs, and supply
 the connection without the password ever reaching the command line. Those are
 pure functions and are tested as such -- no library, no database, no network.
 
-Only two tests need more: the gate (what an operator sees when the CLI line is
-not installed) and one smoke run through a real PostgreSQL. Both skip with a
-reason rather than fail, the same contract the scenarios file uses: the suite
-runs on machines that have not installed the ``feature/activerecord-cli`` line
-yet, and a missing optional dependency is not a broken build.
+Only two tests need more: the gate (what an operator sees when the installed
+core package has no model CLI) and one smoke run through a real PostgreSQL.
+Both skip with a reason rather than fail, the same contract the scenarios file
+uses: the suite runs on machines whose core package predates the CLI (it was
+added in ``v1.0.0.dev30`` / #138, and before that it lived on the
+``feature/activerecord-cli`` branch), and a missing optional dependency is not a
+broken build.
 """
 
 from __future__ import annotations
@@ -36,8 +38,8 @@ def _cli_available() -> bool:
 needs_cli = pytest.mark.skipif(
     not _cli_available(),
     reason=(
-        "python-activerecord's feature/activerecord-cli line is not installed "
-        "(put its src on PYTHONPATH to run this)"
+        "the installed core package is older than "
+        f"{orm.CLI_AVAILABLE_SINCE}, which is where the model CLI was added"
     ),
 )
 
@@ -182,7 +184,7 @@ class TestNothingIsInvented:
 
 
 class TestTheGate:
-    def test_a_missing_cli_line_names_the_line_it_lives_on(
+    def test_a_missing_cli_names_the_version_it_arrived_in(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
         """The one failure an operator will actually hit, stated usefully.
@@ -196,8 +198,9 @@ class TestTheGate:
 
         assert orm.run(["dql", "count", "--model", "AsyncJob"]) == orm.EXIT_CLI_UNAVAILABLE
         message = capsys.readouterr().err
-        assert "feature/activerecord-cli" in message
-        assert "PYTHONPATH" in message
+        assert orm.CLI_AVAILABLE_SINCE in message
+        assert "older than that" in message
+        assert "Upgrade" in message
 
     @needs_cli
     def test_the_unavailable_code_matches_the_librarys_own(self) -> None:
