@@ -105,19 +105,21 @@ def _run_with_db(
 
         database = await Database.create()
         try:
-            async with database.connection():
-                container = (
-                    await Container.start(database=database, name=ambient_name)
-                    if ambient
-                    else Container.build(database=database)
-                )
-                try:
-                    await runner(args, container)
-                except GhatError as exc:
-                    # A command's failure is one sentence on stderr, not a
-                    # traceback: the operator asked for an answer, not a stack.
-                    print(f"error: {exc}", file=sys.stderr)
-                    raise SystemExit(1) from None
+            # No command-wide connection: a command's controllers borrow one per
+            # database operation, so `--wait` and log capture do not occupy a
+            # permit while they wait for GitHub.
+            container = (
+                await Container.start(database=database, name=ambient_name)
+                if ambient
+                else Container.build(database=database)
+            )
+            try:
+                await runner(args, container)
+            except GhatError as exc:
+                # A command's failure is one sentence on stderr, not a
+                # traceback: the operator asked for an answer, not a stack.
+                print(f"error: {exc}", file=sys.stderr)
+                raise SystemExit(1) from None
         finally:
             await database.close()
 

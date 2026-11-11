@@ -364,9 +364,8 @@ class _DatabaseBoundApp:
             await _send_json(send, 401, {"error": "unauthorized", "message": "Invalid API key"})
             return
         database = await self._connection_pool()
-        async with database.connection():
-            await self._ensure_services(database)
-            await self._app(scope, receive, send)
+        await self._ensure_services(database)
+        await self._app(scope, receive, send)
 
     def _bearer_allowed(self, scope: Any) -> bool:
         """Whether the request's bearer key is the one this process answers with.
@@ -397,8 +396,7 @@ class _DatabaseBoundApp:
         """
         if not self._services.bound:
             database = await self._connection_pool()
-            async with database.connection():
-                await self._ensure_services(database)
+            await self._ensure_services(database)
         if not self._services.bound:
             await _send_json(send, 503, _probe_body("not_ready"))
             return
@@ -431,7 +429,11 @@ class _DatabaseBoundApp:
             return
         async with self._lock:
             if not self._services.bound:
-                self._services.bind(await Container.start(database))
+                # The PAT lookup is the only database work of a cold start, so
+                # it borrows one connection and releases it before any request
+                # is served.
+                async with database.connection():
+                    self._services.bind(await Container.start(database))
 
     def _tap_shutdown(self, send: Any) -> Any:
         async def tapped(message: Any) -> None:

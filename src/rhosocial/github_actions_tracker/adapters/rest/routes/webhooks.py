@@ -243,18 +243,13 @@ async def github_webhook(request: Request) -> dict:
             request, service, repository, payload, signature, event_type, delivery_id
         )
 
-    database = _database_of(request)
     result_args = {
         "event_type": event_type,
         "payload": payload,
         "delivery_id": delivery_id,
         "repository_full_name": repository,
     }
-    if database is None:
-        result = await service.process_webhook(**result_args)
-    else:
-        async with database.connection():
-            result = await service.process_webhook(**result_args)
+    result = await service.process_webhook(**result_args)
     return {"status": "processed", "event": event_type, **result}
 
 
@@ -293,12 +288,7 @@ async def _verify_by_lookup(
     (already read above) and not the processing (opened by the caller after this
     returns). This is the rollback path: the same questions, asked per request.
     """
-    database = _database_of(request)
-    if database is None:
-        resolved = await service.resolve_secret(repository)
-    else:
-        async with database.connection():
-            resolved = await service.resolve_secret(repository)
+    resolved = await service.resolve_secret(repository)
 
     if resolved is None:
         await service.record_missing_secret(event_type or "unknown", delivery_id, repository)

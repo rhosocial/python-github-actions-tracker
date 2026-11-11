@@ -39,6 +39,7 @@ from ..models.webhook_secret import (
 from ..services.github.payloads import GithubPayloads
 from ..services.github.protocols import RepositoryReader, RunReader, WebhookManager
 from ..views import BindingSummary, RunRecord, _clean_str, _webhook_defaults
+from .mixins import DatabaseConnectionMixin
 from .run import RunController, RunData
 
 if TYPE_CHECKING:
@@ -62,7 +63,7 @@ DEFAULT_WEBHOOK_EVENTS: tuple[str, ...] = ("workflow_run", "workflow_job")
 CREDENTIAL_KIND = "pat"
 
 
-class RepositoryController:
+class RepositoryController(DatabaseConnectionMixin):
     """Manage repository subscriptions and their cached workflows.
 
     Args:
@@ -92,7 +93,9 @@ class RepositoryController:
         credential: Any | None = None,
         kind: str = CREDENTIAL_KIND,
         on_secret_change: Callable[[], None] | None = None,
+        database: Any = None,
     ) -> None:
+        super().__init__(database=database)
         self._repositories = repositories
         self._webhooks = webhooks
         self._readers = readers
@@ -212,7 +215,8 @@ class RepositoryController:
         await self._delete_own_hooks(repo)
         # The secret goes with the subscription: leaving it behind would make a
         # later re-subscribe inherit a key nobody re-confirmed.
-        await AsyncRepoWebhookSecret.clear(repo.id or 0)
+        async with self.connection():
+            await AsyncRepoWebhookSecret.clear(repo.id or 0)
         self._secrets_changed()
         await self._store.remove(repo)
 
@@ -626,7 +630,8 @@ class RepositoryController:
         url = webhook_url or _webhook_defaults()["url"]
 
         state = STATE_UNKNOWN if _clean_str(supplied) else STATE_PENDING_USER
-        record = await AsyncRepoWebhookSecret.set(repo.id or 0, secret, state=state)
+        async with self.connection():
+            record = await AsyncRepoWebhookSecret.set(repo.id or 0, secret, state=state)
         self._secrets_changed()
 
         if not create_webhook:
@@ -656,9 +661,10 @@ class RepositoryController:
                 repo.full_name,
             )
             return record
-        record = await AsyncRepoWebhookSecret.set(
-            repo.id or 0, secret, state=STATE_PUSHED, webhook_id=hook_id
-        )
+        async with self.connection():
+            record = await AsyncRepoWebhookSecret.set(
+                repo.id or 0, secret, state=STATE_PUSHED, webhook_id=hook_id
+            )
         self._secrets_changed()
         return record
 
@@ -680,7 +686,8 @@ class RepositoryController:
         repo = await self._store.by_name(full_name)
         if repo is None:
             raise RepositoryNotFoundError(f"Repository '{full_name}' is not tracked")
-        record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
+        async with self.connection():
+            record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
         if record is None:
             return {
                 "repository": repo.full_name,
@@ -704,7 +711,8 @@ class RepositoryController:
         repo = await self._store.by_name(full_name)
         if repo is None:
             raise RepositoryNotFoundError(f"Repository '{full_name}' is not tracked")
-        record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
+        async with self.connection():
+            record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
         if record is None:
             raise ValidationError(f"No webhook secret is registered for '{full_name}'")
         return record.secret
@@ -735,13 +743,14 @@ class RepositoryController:
 # -- the rows the flows above are built from ------------------------------
 
 
-class RepositoryData:
+class RepositoryData(DatabaseConnectionMixin):
     """Repositories, their credential bindings, and their cached workflows."""
 
     def __init__(
         self,
         *,
         runs_data: RunData | None = None,
+        database: Any = None,
     ) -> None:
         """Build the row layer.
 
@@ -749,12 +758,16 @@ class RepositoryData:
             runs_data: The run row layer, which owns the workflow upsert shared
                 by both controllers. A private instance keeps existing callers
                 of ``RepositoryData()`` working.
+            database: The pool each method borrows a connection from; absent in
+                the tests, which bind the models to a backend instead.
         """
-        self._runs_data = runs_data or RunData()
+        super().__init__(database=database)
+        self._runs_data = runs_data or RunData(database=database)
 
     async def by_name(self, full_name: str) -> AsyncRepository | None:
         """The tracked repository called ``full_name``, or ``None``."""
-        return await AsyncRepository.find_by_full_name(full_name)
+        async with self.connection():
+            return await AsyncRepository.find_by_full_name(full_name)
 
     async def by_github_id(self, github_repo_id: int) -> AsyncRepository | None:
         """The tracked repository with this GitHub id, or ``None``.
@@ -762,25 +775,29 @@ class RepositoryData:
         A webhook payload names the repository by id and full name; the id is the
         stable one across renames.
         """
-        return await AsyncRepository.find_by_github_id(github_repo_id)
+        async with self.connection():
+            return await AsyncRepository.find_by_github_id(github_repo_id)
 
     async def by_id(self, repository_id: int) -> AsyncRepository | None:
         """The tracked repository with this local id, or ``None``."""
-        return await AsyncRepository.find_one(AsyncRepository.c.id == repository_id)
+        async with self.connection():
+            return await AsyncRepository.find_one(AsyncRepository.c.id == repository_id)
 
     async def list_all(self, *, limit: int = 200, offset: int = 0) -> list[AsyncRepository]:
         """Subscribed repositories, oldest first."""
-        return await (
-            AsyncRepository.query()
-            .order_by((AsyncRepository.c.id, "ASC"))
-            .limit(limit)
-            .offset(offset)
-            .all()
-        )
+        async with self.connection():
+            return await (
+                AsyncRepository.query()
+                .order_by((AsyncRepository.c.id, "ASC"))
+                .limit(limit)
+                .offset(offset)
+                .all()
+            )
 
     async def count(self) -> int:
         """How many repositories are subscribed."""
-        return await AsyncRepository.query().count()
+        async with self.connection():
+            return await AsyncRepository.query().count()
 
     async def bound_ids(self) -> set[int]:
         """Ids of the repositories that answer with a credential of their own.
@@ -788,10 +805,11 @@ class RepositoryData:
         A repository absent from the set reads anonymously, which a public
         repository supports -- so this is a fact to report, not a fault.
         """
-        rows = await (
-            AsyncRepositoryBinding.query().select(AsyncRepositoryBinding.c.repository_id).all()
-        )
-        return {row.repository_id for row in rows}
+        async with self.connection():
+            rows = await (
+                AsyncRepositoryBinding.query().select(AsyncRepositoryBinding.c.repository_id).all()
+            )
+            return {row.repository_id for row in rows}
 
     async def store(self, payload: Mapping[str, object], full_name: str) -> AsyncRepository:
         """Store a repository from values a service produced, or return its row.
@@ -800,13 +818,16 @@ class RepositoryData:
         call stored, because the operator's declaration wins over whatever
         GitHub reports later.
         """
-        values = GithubPayloads.repository(payload, full_name)
-        name = values["full_name"]
-        existing = await AsyncRepository.find_by_full_name(name)
-        if existing is not None:
-            return existing
-        repository, _ = await AsyncRepository.find_one_or_create(defaults=values, full_name=name)
-        return repository
+        async with self.connection():
+            values = GithubPayloads.repository(payload, full_name)
+            name = values["full_name"]
+            existing = await AsyncRepository.find_by_full_name(name)
+            if existing is not None:
+                return existing
+            repository, _ = await AsyncRepository.find_one_or_create(
+                defaults=values, full_name=name
+            )
+            return repository
 
     async def bind(self, repository_id: int, kind: str, ref: int) -> None:
         """Record that the credential ``(kind, ref)`` answers for this repository.
@@ -814,7 +835,8 @@ class RepositoryData:
         Replaces any previous binding: one repository is answered by one
         credential, and "changed its mind" is the same write as "bound".
         """
-        await AsyncRepositoryBinding.bind(repository_id, kind, ref)
+        async with self.connection():
+            await AsyncRepositoryBinding.bind(repository_id, kind, ref)
 
     async def unbind(self, repository_id: int) -> bool:
         """Drop the repository's binding, answering whether there was one.
@@ -822,7 +844,8 @@ class RepositoryData:
         The repository itself stays subscribed; from here it reads anonymously,
         which a public repository supports.
         """
-        return await AsyncRepositoryBinding.unbind(repository_id)
+        async with self.connection():
+            return await AsyncRepositoryBinding.unbind(repository_id)
 
     async def remove(self, repo: AsyncRepository) -> None:
         """Delete a subscription and everything cached under it.
@@ -831,7 +854,8 @@ class RepositoryData:
         model's: it is all local, and it must complete even when GitHub cannot be
         reached.
         """
-        await repo.unsubscribe()
+        async with self.connection():
+            await repo.unsubscribe()
 
     async def workflows_of(self, repository_ids: Sequence[int]) -> dict[int, list[AsyncWorkflow]]:
         """Each repository's cached workflows, in one query.
@@ -841,21 +865,23 @@ class RepositoryData:
         different answers, and only the caller can decide which one to ask
         GitHub about.
         """
-        ids = [repository_id for repository_id in repository_ids if repository_id]
-        if not ids:
-            return {}
+        async with self.connection():
+            ids = [repository_id for repository_id in repository_ids if repository_id]
+            if not ids:
+                return {}
 
-        rows = await AsyncWorkflow.query().where(AsyncWorkflow.c.repository_id.in_(ids)).all()
-        by_repo: dict[int, list[AsyncWorkflow]] = {}
-        for workflow in rows:
-            by_repo.setdefault(workflow.repository_id, []).append(workflow)
-        for workflows in by_repo.values():
-            workflows.sort(key=lambda workflow: workflow.id or 0)
-        return by_repo
+            rows = await AsyncWorkflow.query().where(AsyncWorkflow.c.repository_id.in_(ids)).all()
+            by_repo: dict[int, list[AsyncWorkflow]] = {}
+            for workflow in rows:
+                by_repo.setdefault(workflow.repository_id, []).append(workflow)
+            for workflows in by_repo.values():
+                workflows.sort(key=lambda workflow: workflow.id or 0)
+            return by_repo
 
     async def workflows(self, repo: AsyncRepository) -> list[AsyncWorkflow]:
         """The cached workflows of ``repo``."""
-        return await AsyncWorkflow.for_repository(repo.id or 0).all()
+        async with self.connection():
+            return await AsyncWorkflow.for_repository(repo.id or 0).all()
 
     async def workflow(self, repo: AsyncRepository, reference: str) -> AsyncWorkflow:
         """The repository's workflow matching ``reference``.
@@ -867,7 +893,8 @@ class RepositoryData:
             WorkflowNotFoundError: Nothing matches; the message lists what the
                 repository does have.
         """
-        return await AsyncWorkflow.resolve(repo.id or 0, reference)
+        async with self.connection():
+            return await AsyncWorkflow.resolve(repo.id or 0, reference)
 
     async def store_workflow(
         self, repo: AsyncRepository, payload: Mapping[str, object]
@@ -877,10 +904,12 @@ class RepositoryData:
         Delegated to the run row layer: adopting a run needs the same upsert, and
         a copy here would be a copy that drifts.
         """
-        return await self._runs_data.store_workflow(repo, payload)
+        async with self.connection():
+            return await self._runs_data.store_workflow(repo, payload)
 
     async def store_workflows(
         self, repo: AsyncRepository, payloads: Sequence[Mapping[str, object]]
     ) -> list[AsyncWorkflow]:
         """Store or refresh a batch of workflows, keeping the payload order."""
-        return [await self.store_workflow(repo, payload) for payload in payloads]
+        async with self.connection():
+            return [await self.store_workflow(repo, payload) for payload in payloads]

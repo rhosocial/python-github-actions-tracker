@@ -36,6 +36,7 @@ from ..observability import RUN_INGEST_TOTAL
 from ..services.github.payloads import GithubPayloads
 from ..services.github.protocols import RunReader
 from ..views import DurationSample
+from .mixins import DatabaseConnectionMixin
 
 __all__ = [
     "RunController",
@@ -278,16 +279,18 @@ class RunController:
 # -- the rows the flows above are built from ------------------------------
 
 
-class RunData:
+class RunData(DatabaseConnectionMixin):
     """The repository / workflow / run aggregate, one method per question."""
 
     async def repository(self, full_name: str) -> AsyncRepository | None:
         """The tracked repository called ``full_name``, or ``None``."""
-        return await AsyncRepository.find_one(AsyncRepository.c.full_name == full_name)
+        async with self.connection():
+            return await AsyncRepository.find_one(AsyncRepository.c.full_name == full_name)
 
     async def repository_by_id(self, repository_id: int) -> AsyncRepository | None:
         """The tracked repository with this local id, or ``None``."""
-        return await AsyncRepository.find_one(AsyncRepository.c.id == repository_id)
+        async with self.connection():
+            return await AsyncRepository.find_one(AsyncRepository.c.id == repository_id)
 
     async def repositories(self, names: Sequence[str]) -> dict[str, AsyncRepository]:
         """The tracked repositories among ``names``, keyed by full name.
@@ -295,12 +298,13 @@ class RunData:
         One query for the whole batch: a caller answering about fifteen
         repositories must not read the table fifteen times.
         """
-        if not names:
-            return {}
-        rows = await (
-            AsyncRepository.query().where(AsyncRepository.c.full_name.in_(list(names))).all()
-        )
-        return {repo.full_name: repo for repo in rows}
+        async with self.connection():
+            if not names:
+                return {}
+            rows = await (
+                AsyncRepository.query().where(AsyncRepository.c.full_name.in_(list(names))).all()
+            )
+            return {repo.full_name: repo for repo in rows}
 
     async def run(self, github_run_id: int, *, with_state: bool = True) -> AsyncWorkflowRun | None:
         """The stored run with this GitHub id, or ``None``.
@@ -310,14 +314,16 @@ class RunData:
         caller that asks about a run by id wants to know how it went; a caller
         that only needs identity can turn it off.
         """
-        return await AsyncWorkflowRun.find_by_github_id(github_run_id, derived=with_state)
+        async with self.connection():
+            return await AsyncWorkflowRun.find_by_github_id(github_run_id, derived=with_state)
 
     async def repository_of(self, run: AsyncWorkflowRun) -> AsyncRepository | None:
         """The repository a run belongs to, or ``None`` when the row is gone."""
-        workflow = await self.workflow_of(run)
-        if workflow is None:
-            return None
-        return await AsyncRepository.find_one(AsyncRepository.c.id == workflow.repository_id)
+        async with self.connection():
+            workflow = await self.workflow_of(run)
+            if workflow is None:
+                return None
+            return await AsyncRepository.find_one(AsyncRepository.c.id == workflow.repository_id)
 
     async def note_webhook_received(self, run: AsyncWorkflowRun) -> AsyncWorkflowRun:
         """Stamp a run with the arrival of a ``workflow_run`` delivery.
@@ -326,15 +332,17 @@ class RunData:
         and writing the run's signal from a job event made the two
         indistinguishable.
         """
-        from datetime import datetime, timezone
+        async with self.connection():
+            from datetime import datetime, timezone
 
-        run.webhook_received_at = datetime.now(timezone.utc)
-        await run.save()
-        return run
+            run.webhook_received_at = datetime.now(timezone.utc)
+            await run.save()
+            return run
 
     async def workflow_of(self, run: AsyncWorkflowRun) -> AsyncWorkflow | None:
         """The workflow a run belongs to, or ``None`` when the row is gone."""
-        return await AsyncWorkflow.find_one(AsyncWorkflow.c.id == run.workflow_id)
+        async with self.connection():
+            return await AsyncWorkflow.find_one(AsyncWorkflow.c.id == run.workflow_id)
 
     async def workflow(self, repo: AsyncRepository, reference: str) -> AsyncWorkflow:
         """The repository's workflow matching ``reference``.
@@ -346,7 +354,8 @@ class RunData:
             WorkflowNotFoundError: Nothing matches; the message lists what the
                 repository does have.
         """
-        return await AsyncWorkflow.resolve(repo.id or 0, reference)
+        async with self.connection():
+            return await AsyncWorkflow.resolve(repo.id or 0, reference)
 
     def belongs_to_pull_request(
         self, payload: Mapping[str, object], number: int, head_sha: str
@@ -368,37 +377,38 @@ class RunData:
         workflow's ``state`` in every shape, and a blank state must not erase a
         known ``deleted`` -- :meth:`AsyncWorkflow.refresh` enforces that.
         """
-        values = GithubPayloads.workflow(payload)
-        workflow_id = values["workflow_id"]
-        path = values["path"]
+        async with self.connection():
+            values = GithubPayloads.workflow(payload)
+            workflow_id = values["workflow_id"]
+            path = values["path"]
 
-        existing = None
-        if workflow_id:
-            existing = await AsyncWorkflow.by_github_id(repo.id or 0, workflow_id)
-        if existing is None and path:
-            # The path lookup is the ordered one: a path can hold more than one
-            # row while nothing constrains it (see `AsyncWorkflow.by_path`), and
-            # the row that answers decides which workflow the run is filed under.
-            existing = await AsyncWorkflow.by_path(repo.id or 0, path)
-        if existing is not None:
-            return await existing.refresh(**values)
+            existing = None
+            if workflow_id:
+                existing = await AsyncWorkflow.by_github_id(repo.id or 0, workflow_id)
+            if existing is None and path:
+                # The path lookup is the ordered one: a path can hold more than one
+                # row while nothing constrains it (see `AsyncWorkflow.by_path`), and
+                # the row that answers decides which workflow the run is filed under.
+                existing = await AsyncWorkflow.by_path(repo.id or 0, path)
+            if existing is not None:
+                return await existing.refresh(**values)
 
-        defaults = dict(values)
-        if not defaults["state"]:
-            defaults["state"] = "unknown"
-        if workflow_id:
-            record, _ = await AsyncWorkflow.find_one_or_create(
-                defaults=defaults, repository_id=repo.id or 0, workflow_id=workflow_id
-            )
-        elif path:
-            record, _ = await AsyncWorkflow.find_one_or_create(
-                defaults=defaults, repository_id=repo.id or 0, path=path
-            )
-        else:
-            record = AsyncWorkflow(repository_id=repo.id or 0, **defaults)
-            await record.save()
-        logger.debug("Stored workflow %s ('%s') for repository %s", workflow_id, path, repo.id)
-        return record
+            defaults = dict(values)
+            if not defaults["state"]:
+                defaults["state"] = "unknown"
+            if workflow_id:
+                record, _ = await AsyncWorkflow.find_one_or_create(
+                    defaults=defaults, repository_id=repo.id or 0, workflow_id=workflow_id
+                )
+            elif path:
+                record, _ = await AsyncWorkflow.find_one_or_create(
+                    defaults=defaults, repository_id=repo.id or 0, path=path
+                )
+            else:
+                record = AsyncWorkflow(repository_id=repo.id or 0, **defaults)
+                await record.save()
+            logger.debug("Stored workflow %s ('%s') for repository %s", workflow_id, path, repo.id)
+            return record
 
     async def adopt_run(
         self, repo: AsyncRepository, payload: Mapping[str, object]
@@ -409,21 +419,22 @@ class RunData:
         then the run row, keyed by ``(workflow_id, github_run_id)``, then the
         attempt this payload describes, so jobs have a place to hang.
         """
-        workflow = await self.store_workflow(repo, payload)
-        values = GithubPayloads.run(payload)
-        github_run_id = values.pop("github_run_id")
-        run, created = await AsyncWorkflowRun.find_one_or_create(
-            defaults=values, workflow_id=workflow.id or 0, github_run_id=github_run_id
-        )
-        if created:
-            attempt = await self.store_attempt(run, payload)
-            run._apply_attempt_state(attempt)
-            logger.info("Adopted run %s from '%s'", github_run_id, repo.full_name)
-        # Counted here rather than in the model: a model writes a row, and the
-        # registry is the controller's business. ``created`` and ``updated`` are
-        # separate on purpose -- see the counter's declaration.
-        RUN_INGEST_TOTAL.inc(result="created")
-        return run
+        async with self.connection():
+            workflow = await self.store_workflow(repo, payload)
+            values = GithubPayloads.run(payload)
+            github_run_id = values.pop("github_run_id")
+            run, created = await AsyncWorkflowRun.find_one_or_create(
+                defaults=values, workflow_id=workflow.id or 0, github_run_id=github_run_id
+            )
+            if created:
+                attempt = await self.store_attempt(run, payload)
+                run._apply_attempt_state(attempt)
+                logger.info("Adopted run %s from '%s'", github_run_id, repo.full_name)
+            # Counted here rather than in the model: a model writes a row, and the
+            # registry is the controller's business. ``created`` and ``updated`` are
+            # separate on purpose -- see the counter's declaration.
+            RUN_INGEST_TOTAL.inc(result="created")
+            return run
 
     async def update_run(
         self, run: AsyncWorkflowRun, payload: Mapping[str, object]
@@ -434,13 +445,14 @@ class RunData:
         the payload describes is written to its own attempt, so a late payload
         for an older attempt cannot rewrite the run's current state.
         """
-        values = GithubPayloads.run(payload)
-        values.pop("github_run_id", None)
-        await run.refresh_metadata(**values)
-        attempt = await self.store_attempt(run, payload)
-        run._apply_attempt_state(attempt)
-        RUN_INGEST_TOTAL.inc(result="updated")
-        return run
+        async with self.connection():
+            values = GithubPayloads.run(payload)
+            values.pop("github_run_id", None)
+            await run.refresh_metadata(**values)
+            attempt = await self.store_attempt(run, payload)
+            run._apply_attempt_state(attempt)
+            RUN_INGEST_TOTAL.inc(result="updated")
+            return run
 
     async def store_attempt(
         self, run: AsyncWorkflowRun, payload: Mapping[str, object]
@@ -452,11 +464,12 @@ class RunData:
         row and nothing else. The payload's own attempt number wins; only a
         payload that names none falls back to the newest stored attempt.
         """
-        number = GithubPayloads.attempt_number(payload)
-        if not number:
-            latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
-            number = latest.attempt_number if latest else 1
-        return await AsyncRunAttempt.record(run, number, **GithubPayloads.attempt(payload))
+        async with self.connection():
+            number = GithubPayloads.attempt_number(payload)
+            if not number:
+                latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
+                number = latest.attempt_number if latest else 1
+            return await AsyncRunAttempt.record(run, number, **GithubPayloads.attempt(payload))
 
     async def store_job(self, run: AsyncWorkflowRun, payload: Mapping[str, object]) -> AsyncJob:
         """Store one job under the attempt it names, cascading its steps.
@@ -467,41 +480,46 @@ class RunData:
         the newest stored attempt -- a late job of an older attempt must land in
         *its* attempt, not in the current one.
         """
-        number = GithubPayloads.attempt_number(payload)
-        if not number:
-            latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
-            number = latest.attempt_number if latest else 1
-        attempt = await AsyncRunAttempt.ensure(run, number)
-        job = await AsyncJob.record(attempt, **GithubPayloads.job(payload))
-        await self.store_steps(job, GithubPayloads.steps(payload))
-        return job
+        async with self.connection():
+            number = GithubPayloads.attempt_number(payload)
+            if not number:
+                latest = await AsyncRunAttempt.latest_for_run(run.id or 0)
+                number = latest.attempt_number if latest else 1
+            attempt = await AsyncRunAttempt.ensure(run, number)
+            job = await AsyncJob.record(attempt, **GithubPayloads.job(payload))
+            await self.store_steps(job, GithubPayloads.steps(payload))
+            return job
 
     async def store_step(self, job: AsyncJob, payload: Mapping[str, object]) -> AsyncStep:
         """Store one step of a job from a GitHub payload."""
-        return await AsyncStep.record(job, **GithubPayloads.step(payload))
+        async with self.connection():
+            return await AsyncStep.record(job, **GithubPayloads.step(payload))
 
     async def store_steps(
         self, job: AsyncJob, steps: Sequence[Mapping[str, object]]
     ) -> list[AsyncStep]:
         """Store every step of a job from values the service already translated."""
-        return [await AsyncStep.record(job, **values) for values in steps]
+        async with self.connection():
+            return [await AsyncStep.record(job, **values) for values in steps]
 
     async def sync_jobs(
         self, run: AsyncWorkflowRun, jobs: Sequence[Mapping[str, object]]
     ) -> list[int]:
         """Store a batch of job payloads under their own attempts."""
-        ids: list[int] = []
-        for job_data in jobs:
-            job = await self.store_job(run, job_data)
-            if job.id is not None:
-                ids.append(job.id)
-        return ids
+        async with self.connection():
+            ids: list[int] = []
+            for job_data in jobs:
+                job = await self.store_job(run, job_data)
+                if job.id is not None:
+                    ids.append(job.id)
+            return ids
 
     # -- reading a repository's runs -------------------------------------------
 
     async def workflows(self, repo: AsyncRepository) -> list[AsyncWorkflow]:
         """Every cached workflow of ``repo``."""
-        return await AsyncWorkflow.for_repository(repo.id or 0).all()
+        async with self.connection():
+            return await AsyncWorkflow.for_repository(repo.id or 0).all()
 
     async def runs(
         self,
@@ -521,27 +539,28 @@ class RunData:
         ``commit_sha`` shorter than 40 characters is a prefix search, which is
         what makes an abbreviated sha useful.
         """
-        if not workflow_ids:
-            return []
+        async with self.connection():
+            if not workflow_ids:
+                return []
 
-        query = AsyncWorkflowRun.query().where(
-            AsyncWorkflowRun.c.workflow_id.in_(list(workflow_ids))
-        )
-        if branch:
-            query = query.where(AsyncWorkflowRun.c.branch == branch)
-        if commit_sha:
-            sha = commit_sha.strip().lower()
-            if len(sha) >= 40:
-                query = query.where(AsyncWorkflowRun.c.commit_sha == sha)
-            else:
-                query = query.where(AsyncWorkflowRun.c.commit_sha.like(f"{sha}%"))
+            query = AsyncWorkflowRun.query().where(
+                AsyncWorkflowRun.c.workflow_id.in_(list(workflow_ids))
+            )
+            if branch:
+                query = query.where(AsyncWorkflowRun.c.branch == branch)
+            if commit_sha:
+                sha = commit_sha.strip().lower()
+                if len(sha) >= 40:
+                    query = query.where(AsyncWorkflowRun.c.commit_sha == sha)
+                else:
+                    query = query.where(AsyncWorkflowRun.c.commit_sha.like(f"{sha}%"))
 
-        query = query.order_by((AsyncWorkflowRun.c.run_number, "DESC"))
-        if limit is not None:
-            query = query.limit(limit)
-        if offset:
-            query = query.offset(offset)
-        return await query.all()
+            query = query.order_by((AsyncWorkflowRun.c.run_number, "DESC"))
+            if limit is not None:
+                query = query.limit(limit)
+            if offset:
+                query = query.offset(offset)
+            return await query.all()
 
     async def runs_by_ids(self, run_ids: Sequence[int]) -> list[AsyncWorkflowRun]:
         """The stored runs with these ids, each carrying its newest attempt's state.
@@ -550,10 +569,11 @@ class RunData:
         what a read path needs after it has upserted a page of payloads: the page
         order comes from GitHub, the state comes from the row.
         """
-        ids = [run_id for run_id in run_ids if run_id]
-        if not ids:
-            return []
-        return await AsyncWorkflowRun.find_all(AsyncWorkflowRun.c.id.in_(ids), derived=True)
+        async with self.connection():
+            ids = [run_id for run_id in run_ids if run_id]
+            if not ids:
+                return []
+            return await AsyncWorkflowRun.find_all(AsyncWorkflowRun.c.id.in_(ids), derived=True)
 
     async def latest_attempts_of_runs(self, run_ids: Sequence[int]) -> dict[int, AsyncRunAttempt]:
         """Each run's newest stored attempt, keyed by *local run id*.
@@ -563,16 +583,17 @@ class RunData:
         spend a query on every sample. A run with no attempt row is absent from
         the mapping rather than mapped to a fabricated one.
         """
-        ids = [run_id for run_id in run_ids if run_id]
-        if not ids:
-            return {}
-        rows = await AsyncRunAttempt.find_all(AsyncRunAttempt.c.run_id.in_(ids), derived=True)
-        newest: dict[int, AsyncRunAttempt] = {}
-        for row in rows:
-            current = newest.get(row.run_id)
-            if current is None or row.attempt_number > current.attempt_number:
-                newest[row.run_id] = row
-        return newest
+        async with self.connection():
+            ids = [run_id for run_id in run_ids if run_id]
+            if not ids:
+                return {}
+            rows = await AsyncRunAttempt.find_all(AsyncRunAttempt.c.run_id.in_(ids), derived=True)
+            newest: dict[int, AsyncRunAttempt] = {}
+            for row in rows:
+                current = newest.get(row.run_id)
+                if current is None or row.attempt_number > current.attempt_number:
+                    newest[row.run_id] = row
+            return newest
 
     async def recent_run_ids(self, workflow_ids: Sequence[int], limit: int = 10) -> list[int]:
         """The ids of these workflows' most recently stored runs.
@@ -582,17 +603,18 @@ class RunData:
         follows the order runs were adopted -- the newest row is the one this
         service learned about last.
         """
-        if not workflow_ids:
-            return []
-        rows = await (
-            AsyncWorkflowRun.query()
-            .select(AsyncWorkflowRun.c.id)
-            .where(AsyncWorkflowRun.c.workflow_id.in_(list(workflow_ids)))
-            .order_by((AsyncWorkflowRun.c.id, "DESC"))
-            .limit(limit)
-            .all()
-        )
-        return [row.id for row in rows if row.id is not None]
+        async with self.connection():
+            if not workflow_ids:
+                return []
+            rows = await (
+                AsyncWorkflowRun.query()
+                .select(AsyncWorkflowRun.c.id)
+                .where(AsyncWorkflowRun.c.workflow_id.in_(list(workflow_ids)))
+                .order_by((AsyncWorkflowRun.c.id, "DESC"))
+                .limit(limit)
+                .all()
+            )
+            return [row.id for row in rows if row.id is not None]
 
     async def workflows_by_id(self, workflow_ids: Sequence[int]) -> dict[int, tuple[str, str, str]]:
         """The ``(name, path, state)`` of each workflow id, one query for the batch.
@@ -605,11 +627,14 @@ class RunData:
         "the workflow is gone": the row stays (a tombstone), and a caller that
         prints a name must be able to print what GitHub last said about it.
         """
-        ids = [workflow_id for workflow_id in workflow_ids if workflow_id]
-        if not ids:
-            return {}
-        rows = await AsyncWorkflow.find_all(AsyncWorkflow.c.id.in_(ids))
-        return {row.id or 0: (row.name, row.path, row.state) for row in rows if row.id is not None}
+        async with self.connection():
+            ids = [workflow_id for workflow_id in workflow_ids if workflow_id]
+            if not ids:
+                return {}
+            rows = await AsyncWorkflow.find_all(AsyncWorkflow.c.id.in_(ids))
+            return {
+                row.id or 0: (row.name, row.path, row.state) for row in rows if row.id is not None
+            }
 
     async def remember_workflow_id(self, workflow: AsyncWorkflow, github_workflow_id: int) -> None:
         """Store the GitHub id a workflow row was missing.
@@ -619,14 +644,16 @@ class RunData:
         asks for one. Filling it in at the first successful resolution keeps
         that from happening twice.
         """
-        if workflow.id is None or not github_workflow_id:
-            return
-        workflow.workflow_id = github_workflow_id
-        await workflow.save()
+        async with self.connection():
+            if workflow.id is None or not github_workflow_id:
+                return
+            workflow.workflow_id = github_workflow_id
+            await workflow.save()
 
     async def count(self) -> int:
         """How many runs are stored."""
-        return await AsyncWorkflowRun.query().count()
+        async with self.connection():
+            return await AsyncWorkflowRun.query().count()
 
     async def added_since(self, cutoff: datetime) -> int:
         """How many run rows this process stored since ``cutoff``.
@@ -640,14 +667,18 @@ class RunData:
         Args:
             cutoff: An aware datetime; rows inserted at or after it are counted.
         """
-        return await AsyncWorkflowRun.query().where(AsyncWorkflowRun.c.created_at >= cutoff).count()
+        async with self.connection():
+            return await (
+                AsyncWorkflowRun.query().where(AsyncWorkflowRun.c.created_at >= cutoff).count()
+            )
 
     async def latest(
         self, workflow_ids: Sequence[int], *, branch: str | None = None
     ) -> AsyncWorkflowRun | None:
         """The newest stored run of these workflows, or ``None``."""
-        rows = await self.runs(workflow_ids, branch=branch, limit=1)
-        return rows[0] if rows else None
+        async with self.connection():
+            rows = await self.runs(workflow_ids, branch=branch, limit=1)
+            return rows[0] if rows else None
 
     async def belongs_to(self, run: AsyncWorkflowRun, repo: AsyncRepository) -> bool:
         """Whether this run is one of ``repo``'s.
@@ -656,15 +687,17 @@ class RunData:
         remember which repository it belongs to -- but a caller *naming* a
         repository must not be answered with another repository's run.
         """
-        workflow = await self.workflow_of(run)
-        return workflow is not None and workflow.repository_id == repo.id
+        async with self.connection():
+            workflow = await self.workflow_of(run)
+            return workflow is not None and workflow.repository_id == repo.id
 
     async def set_default_branch(self, repo: AsyncRepository, branch: str) -> AsyncRepository:
         """Record the default branch GitHub reported, when it changed."""
-        if branch and branch != repo.default_branch:
-            repo.default_branch = branch
-            await repo.save()
-        return repo
+        async with self.connection():
+            if branch and branch != repo.default_branch:
+                repo.default_branch = branch
+                await repo.save()
+            return repo
 
     async def jobs_by_run(
         self, run_ids: Sequence[int]
@@ -675,46 +708,47 @@ class RunData:
         returns just that, and mixing attempts would report the same job twice.
         Three queries for the whole batch, whatever the number of runs.
         """
-        ids = [run_id for run_id in run_ids if run_id]
-        if not ids:
-            return {}
+        async with self.connection():
+            ids = [run_id for run_id in run_ids if run_id]
+            if not ids:
+                return {}
 
-        attempts = await (
-            AsyncRunAttempt.query()
-            .select(
-                AsyncRunAttempt.c.id, AsyncRunAttempt.c.run_id, AsyncRunAttempt.c.attempt_number
-            )
-            .where(AsyncRunAttempt.c.run_id.in_(ids))
-            .all()
-        )
-        latest: dict[int, tuple[int, int]] = {}
-        for attempt in attempts:
-            current = latest.get(attempt.run_id)
-            if current is None or attempt.attempt_number > current[0]:
-                latest[attempt.run_id] = (attempt.attempt_number, attempt.id)
-
-        attempt_to_run = {attempt_id: run_id for run_id, (_, attempt_id) in latest.items()}
-        grouped: dict[int, list[AsyncJob]] = {run_id: [] for run_id in ids}
-        if attempt_to_run:
-            jobs = await (
-                AsyncJob.query()
-                .where(AsyncJob.c.attempt_id.in_(list(attempt_to_run)))
-                .with_("steps")
-                .order_by((AsyncJob.c.id, "ASC"))
+            attempts = await (
+                AsyncRunAttempt.query()
+                .select(
+                    AsyncRunAttempt.c.id, AsyncRunAttempt.c.run_id, AsyncRunAttempt.c.attempt_number
+                )
+                .where(AsyncRunAttempt.c.run_id.in_(ids))
                 .all()
             )
-            for job in jobs:
-                run_id = attempt_to_run.get(job.attempt_id)
-                if run_id is not None:
-                    grouped.setdefault(run_id, []).append(job)
+            latest: dict[int, tuple[int, int]] = {}
+            for attempt in attempts:
+                current = latest.get(attempt.run_id)
+                if current is None or attempt.attempt_number > current[0]:
+                    latest[attempt.run_id] = (attempt.attempt_number, attempt.id)
 
-        # Nested comprehension on purpose: ``await`` cannot appear inside a
-        # comprehension nested in another one before Python 3.11, and this
-        # project supports 3.10.
-        by_run: dict[int, list[tuple[AsyncJob, list[AsyncStep]]]] = {}
-        for run_id, jobs in grouped.items():
-            by_run[run_id] = [(job, await job.steps()) for job in jobs]
-        return by_run
+            attempt_to_run = {attempt_id: run_id for run_id, (_, attempt_id) in latest.items()}
+            grouped: dict[int, list[AsyncJob]] = {run_id: [] for run_id in ids}
+            if attempt_to_run:
+                jobs = await (
+                    AsyncJob.query()
+                    .where(AsyncJob.c.attempt_id.in_(list(attempt_to_run)))
+                    .with_("steps")
+                    .order_by((AsyncJob.c.id, "ASC"))
+                    .all()
+                )
+                for job in jobs:
+                    run_id = attempt_to_run.get(job.attempt_id)
+                    if run_id is not None:
+                        grouped.setdefault(run_id, []).append(job)
+
+            # Nested comprehension on purpose: ``await`` cannot appear inside a
+            # comprehension nested in another one before Python 3.11, and this
+            # project supports 3.10.
+            by_run: dict[int, list[tuple[AsyncJob, list[AsyncStep]]]] = {}
+            for run_id, jobs in grouped.items():
+                by_run[run_id] = [(job, await job.steps()) for job in jobs]
+            return by_run
 
     async def runs_by_github_ids(self, github_run_ids: Sequence[int]) -> list[AsyncWorkflowRun]:
         """The stored rows for these GitHub run ids, identity only.
@@ -722,10 +756,11 @@ class RunData:
         A caller holding a view has the GitHub id, not the row id; this is the
         bridge back to the table without loading state it will not use.
         """
-        ids = [run_id for run_id in github_run_ids if run_id]
-        if not ids:
-            return []
-        return await AsyncWorkflowRun.find_all(AsyncWorkflowRun.c.github_run_id.in_(ids))
+        async with self.connection():
+            ids = [run_id for run_id in github_run_ids if run_id]
+            if not ids:
+                return []
+            return await AsyncWorkflowRun.find_all(AsyncWorkflowRun.c.github_run_id.in_(ids))
 
     async def failed_jobs_by_run(self, run_ids: Sequence[int]) -> dict[int, list[tuple[str, str]]]:
         """Each run's *failing* jobs, as ``(name, conclusion)``, one query.
@@ -742,52 +777,55 @@ class RunData:
         Only the latest attempt of each run, like :meth:`jobs_by_run`: mixing
         attempts would list a job a re-run has already replaced.
         """
-        ids = [run_id for run_id in run_ids if run_id]
-        if not ids:
-            return {}
+        async with self.connection():
+            ids = [run_id for run_id in run_ids if run_id]
+            if not ids:
+                return {}
 
-        attempts = await (
-            AsyncRunAttempt.query()
-            .select(
-                AsyncRunAttempt.c.id,
-                AsyncRunAttempt.c.run_id,
-                AsyncRunAttempt.c.attempt_number,
+            attempts = await (
+                AsyncRunAttempt.query()
+                .select(
+                    AsyncRunAttempt.c.id,
+                    AsyncRunAttempt.c.run_id,
+                    AsyncRunAttempt.c.attempt_number,
+                )
+                .where(AsyncRunAttempt.c.run_id.in_(ids))
+                .all()
             )
-            .where(AsyncRunAttempt.c.run_id.in_(ids))
-            .all()
-        )
-        latest: dict[int, tuple[int, int]] = {}
-        for attempt in attempts:
-            current = latest.get(attempt.run_id)
-            if current is None or attempt.attempt_number > current[0]:
-                latest[attempt.run_id] = (attempt.attempt_number, attempt.id)
+            latest: dict[int, tuple[int, int]] = {}
+            for attempt in attempts:
+                current = latest.get(attempt.run_id)
+                if current is None or attempt.attempt_number > current[0]:
+                    latest[attempt.run_id] = (attempt.attempt_number, attempt.id)
 
-        attempt_to_run = {attempt_id: run_id for run_id, (_, attempt_id) in latest.items()}
-        failed: dict[int, list[tuple[str, str]]] = {run_id: [] for run_id in ids}
-        if not attempt_to_run:
+            attempt_to_run = {attempt_id: run_id for run_id, (_, attempt_id) in latest.items()}
+            failed: dict[int, list[tuple[str, str]]] = {run_id: [] for run_id in ids}
+            if not attempt_to_run:
+                return failed
+
+            jobs = await (
+                AsyncJob.query()
+                .select(
+                    AsyncJob.c.id, AsyncJob.c.attempt_id, AsyncJob.c.name, AsyncJob.c.conclusion
+                )
+                .where(AsyncJob.c.attempt_id.in_(list(attempt_to_run)))
+                .order_by((AsyncJob.c.id, "ASC"))
+                .all()
+            )
+            for job in jobs:
+                conclusion = (job.conclusion or "").lower()
+                # Only a conclusion that says "failed" counts. GitHub leaves the
+                # conclusion unset while a job or step is still being materialized,
+                # and "not passing" would report that as a failure.
+                if conclusion not in FAILED_CONCLUSIONS:
+                    continue
+                run_id = attempt_to_run.get(job.attempt_id)
+                if run_id is None:
+                    continue
+                if len(failed[run_id]) >= FAILED_JOBS_PER_RUN:
+                    continue
+                failed[run_id].append((job.name, conclusion))
             return failed
-
-        jobs = await (
-            AsyncJob.query()
-            .select(AsyncJob.c.id, AsyncJob.c.attempt_id, AsyncJob.c.name, AsyncJob.c.conclusion)
-            .where(AsyncJob.c.attempt_id.in_(list(attempt_to_run)))
-            .order_by((AsyncJob.c.id, "ASC"))
-            .all()
-        )
-        for job in jobs:
-            conclusion = (job.conclusion or "").lower()
-            # Only a conclusion that says "failed" counts. GitHub leaves the
-            # conclusion unset while a job or step is still being materialized,
-            # and "not passing" would report that as a failure.
-            if conclusion not in FAILED_CONCLUSIONS:
-                continue
-            run_id = attempt_to_run.get(job.attempt_id)
-            if run_id is None:
-                continue
-            if len(failed[run_id]) >= FAILED_JOBS_PER_RUN:
-                continue
-            failed[run_id].append((job.name, conclusion))
-        return failed
 
     async def cache_facts(self, run_ids: Sequence[int]) -> dict[int, tuple[int, bool]]:
         """What the local copy holds for each run: newest cached attempt, and whether it has jobs.
@@ -799,47 +837,49 @@ class RunData:
             ``run_id -> (newest cached attempt number, that attempt has jobs)``.
             A run with no attempt row at all maps to ``(0, False)``.
         """
-        if not run_ids:
-            return {}
+        async with self.connection():
+            if not run_ids:
+                return {}
 
-        attempts = await (
-            AsyncRunAttempt.query()
-            .select(
-                AsyncRunAttempt.c.run_id, AsyncRunAttempt.c.attempt_number, AsyncRunAttempt.c.id
-            )
-            .where(AsyncRunAttempt.c.run_id.in_(list(run_ids)))
-            .all()
-        )
-        newest: dict[int, tuple[int, int]] = {}
-        for row in attempts:
-            current = newest.get(row.run_id)
-            if current is None or row.attempt_number > current[0]:
-                newest[row.run_id] = (row.attempt_number, row.id)
-
-        filled = {attempt_id for _, attempt_id in newest.values()}
-        with_jobs: set[int] = set()
-        if filled:
-            jobs = await (
-                AsyncJob.query()
-                .select(AsyncJob.c.attempt_id)
-                .where(AsyncJob.c.attempt_id.in_(list(filled)))
+            attempts = await (
+                AsyncRunAttempt.query()
+                .select(
+                    AsyncRunAttempt.c.run_id, AsyncRunAttempt.c.attempt_number, AsyncRunAttempt.c.id
+                )
+                .where(AsyncRunAttempt.c.run_id.in_(list(run_ids)))
                 .all()
             )
-            with_jobs = {row.attempt_id for row in jobs}
+            newest: dict[int, tuple[int, int]] = {}
+            for row in attempts:
+                current = newest.get(row.run_id)
+                if current is None or row.attempt_number > current[0]:
+                    newest[row.run_id] = (row.attempt_number, row.id)
 
-        return {
-            run_id: (
-                newest[run_id][0] if run_id in newest else 0,
-                run_id in newest and newest[run_id][1] in with_jobs,
-            )
-            for run_id in run_ids
-        }
+            filled = {attempt_id for _, attempt_id in newest.values()}
+            with_jobs: set[int] = set()
+            if filled:
+                jobs = await (
+                    AsyncJob.query()
+                    .select(AsyncJob.c.attempt_id)
+                    .where(AsyncJob.c.attempt_id.in_(list(filled)))
+                    .all()
+                )
+                with_jobs = {row.attempt_id for row in jobs}
+
+            return {
+                run_id: (
+                    newest[run_id][0] if run_id in newest else 0,
+                    run_id in newest and newest[run_id][1] in with_jobs,
+                )
+                for run_id in run_ids
+            }
 
     # -- jobs, steps and logs --------------------------------------------------
 
     async def job(self, github_job_id: int) -> AsyncJob | None:
         """The stored job with this GitHub id, or ``None``."""
-        return await AsyncJob.find_one(AsyncJob.c.github_job_id == github_job_id)
+        async with self.connection():
+            return await AsyncJob.find_one(AsyncJob.c.github_job_id == github_job_id)
 
     async def run_of(self, job: AsyncJob) -> AsyncWorkflowRun | None:
         """The run a job belongs to, or ``None`` when the row is gone.
@@ -849,10 +889,11 @@ class RunData:
         attempts. Reading ``job.run_id`` would be reading a column that does not
         exist.
         """
-        attempt = await AsyncRunAttempt.find_one(AsyncRunAttempt.c.id == job.attempt_id)
-        if attempt is None:
-            return None
-        return await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.id == attempt.run_id)
+        async with self.connection():
+            attempt = await AsyncRunAttempt.find_one(AsyncRunAttempt.c.id == job.attempt_id)
+            if attempt is None:
+                return None
+            return await AsyncWorkflowRun.find_one(AsyncWorkflowRun.c.id == attempt.run_id)
 
     async def latest_attempt(self, run: AsyncWorkflowRun) -> AsyncRunAttempt | None:
         """The newest attempt row of a run, or ``None``.
@@ -862,16 +903,17 @@ class RunData:
         read that asked for them. A flow that needs "has this finished, and
         when" reads the row instead of trusting a possibly-unloaded attribute.
         """
-        if run.id is None:
-            return None
-        attempts = await (
-            AsyncRunAttempt.query()
-            .where(AsyncRunAttempt.c.run_id == run.id)
-            .order_by((AsyncRunAttempt.c.attempt_number, "DESC"))
-            .limit(1)
-            .all()
-        )
-        return attempts[0] if attempts else None
+        async with self.connection():
+            if run.id is None:
+                return None
+            attempts = await (
+                AsyncRunAttempt.query()
+                .where(AsyncRunAttempt.c.run_id == run.id)
+                .order_by((AsyncRunAttempt.c.attempt_number, "DESC"))
+                .limit(1)
+                .all()
+            )
+            return attempts[0] if attempts else None
 
     async def attempt_with_timings(self, attempt: AsyncRunAttempt) -> AsyncRunAttempt:
         """The same attempt row, read back with its derived timing columns.
@@ -880,10 +922,11 @@ class RunData:
         row returned from a write carries ``None`` for them. A read path that
         wants the span re-reads it; a write path must not pay for a second query.
         """
-        if attempt.id is None:
-            return attempt
-        fresh = await AsyncRunAttempt.find_one(AsyncRunAttempt.c.id == attempt.id, derived=True)
-        return fresh or attempt
+        async with self.connection():
+            if attempt.id is None:
+                return attempt
+            fresh = await AsyncRunAttempt.find_one(AsyncRunAttempt.c.id == attempt.id, derived=True)
+            return fresh or attempt
 
     async def attempt_ids(self, run_ids: Sequence[int]) -> list[int]:
         """Every stored attempt id of these runs.
@@ -891,15 +934,16 @@ class RunData:
         A job hangs off an attempt, so "the jobs of these runs" is two hops:
         attempts first, then their jobs. Both reads are indexed.
         """
-        if not run_ids:
-            return []
-        rows = await (
-            AsyncRunAttempt.query()
-            .select(AsyncRunAttempt.c.id)
-            .where(AsyncRunAttempt.c.run_id.in_(list(run_ids)))
-            .all()
-        )
-        return [row.id for row in rows if row.id is not None]
+        async with self.connection():
+            if not run_ids:
+                return []
+            rows = await (
+                AsyncRunAttempt.query()
+                .select(AsyncRunAttempt.c.id)
+                .where(AsyncRunAttempt.c.run_id.in_(list(run_ids)))
+                .all()
+            )
+            return [row.id for row in rows if row.id is not None]
 
     async def job_conclusions(self, attempt_ids: Sequence[int], job_name: str) -> list[str | None]:
         """The conclusion of every job called ``job_name`` under these attempts.
@@ -908,15 +952,18 @@ class RunData:
         an execution that has not failed -- what the caller does with that is the
         service's call.
         """
-        if not attempt_ids:
-            return []
-        rows = await (
-            AsyncJob.query()
-            .select(AsyncJob.c.conclusion)
-            .where((AsyncJob.c.attempt_id.in_(list(attempt_ids))) & (AsyncJob.c.name == job_name))
-            .all()
-        )
-        return [row.conclusion for row in rows]
+        async with self.connection():
+            if not attempt_ids:
+                return []
+            rows = await (
+                AsyncJob.query()
+                .select(AsyncJob.c.conclusion)
+                .where(
+                    (AsyncJob.c.attempt_id.in_(list(attempt_ids))) & (AsyncJob.c.name == job_name)
+                )
+                .all()
+            )
+            return [row.conclusion for row in rows]
 
     async def jobs(self, run: AsyncWorkflowRun) -> list[AsyncJob]:
         """The jobs of a run's current attempt, steps already loaded.
@@ -924,7 +971,8 @@ class RunData:
         Only the latest attempt: GitHub's own ``/jobs`` endpoint returns just
         that, and mixing attempts would report the same job twice.
         """
-        return await run.jobs_of_attempt()
+        async with self.connection():
+            return await run.jobs_of_attempt()
 
     async def steps(self, job: AsyncJob) -> list[AsyncStep]:
         """A job'"'"'s steps, in step order.
@@ -934,20 +982,22 @@ class RunData:
         re-synced the job (the healing paths do) would then be handed the rows
         from before the write.
         """
-        if job.id is None:
-            return []
-        return await (
-            AsyncStep.query()
-            .where(AsyncStep.c.job_id == job.id)
-            .order_by((AsyncStep.c.number, "ASC"))
-            .all()
-        )
+        async with self.connection():
+            if job.id is None:
+                return []
+            return await (
+                AsyncStep.query()
+                .where(AsyncStep.c.job_id == job.id)
+                .order_by((AsyncStep.c.number, "ASC"))
+                .all()
+            )
 
     async def step_count(self, job_ids: Sequence[int]) -> int:
         """How many steps are stored under these jobs."""
-        if not job_ids:
-            return 0
-        return await AsyncStep.query().where(AsyncStep.c.job_id.in_(list(job_ids))).count()
+        async with self.connection():
+            if not job_ids:
+                return 0
+            return await AsyncStep.query().where(AsyncStep.c.job_id.in_(list(job_ids))).count()
 
     async def log(self, job: AsyncJob, attempt: AsyncRunAttempt) -> str | None:
         """A job'"'"'s stored log, or ``None`` when it was never fetched or was purged.
@@ -957,10 +1007,11 @@ class RunData:
         the authority for that time and the caller already holds it (a read starts
         from the run), so it is passed rather than re-derived.
         """
-        if job.id is None or attempt.github_created_at is None:
-            return None
-        stored = await AsyncJobLog.find_for_job(job.id, attempt.github_created_at)
-        return None if stored is None else stored.log_content
+        async with self.connection():
+            if job.id is None or attempt.github_created_at is None:
+                return None
+            stored = await AsyncJobLog.find_for_job(job.id, attempt.github_created_at)
+            return None if stored is None else stored.log_content
 
     async def store_log(self, job: AsyncJob, content: str, attempt: AsyncRunAttempt) -> None:
         """Store a job'"'"'s whole log, filed under the month its execution was triggered.
@@ -970,10 +1021,13 @@ class RunData:
         disagree about which month this text belongs to. That month'"'"'s partition is
         ensured first, for the same reason :meth:`store_step_log` does.
         """
-        if job.id is None or attempt.github_created_at is None:
-            return
-        await _ensure_partition(attempt)
-        await AsyncJobLog.store_for_job(job, content, attempt_created_at=attempt.github_created_at)
+        async with self.connection():
+            if job.id is None or attempt.github_created_at is None:
+                return
+            await _ensure_partition(attempt)
+            await AsyncJobLog.store_for_job(
+                job, content, attempt_created_at=attempt.github_created_at
+            )
 
     # ---- step logs -----------------------------------------------------------
 
@@ -989,22 +1043,23 @@ class RunData:
         The execution'"'"'s trigger time addresses the partition, so this is one
         addressed query rather than a scan over every month the table has.
         """
-        if not steps or attempt.github_created_at is None:
-            return {}
-        ids = [step.id for step in steps if step.id is not None]
-        if not ids:
-            return {}
-        rows = (
-            await AsyncStepLog.in_attempt(attempt.github_created_at)
-            .where(AsyncStepLog.c.step_id.in_(ids))
-            .all()
-        )
-        by_step_id = {row.step_id: row.log_content for row in rows}
-        return {
-            step.number: by_step_id[step.id]
-            for step in steps
-            if step.id is not None and step.id in by_step_id
-        }
+        async with self.connection():
+            if not steps or attempt.github_created_at is None:
+                return {}
+            ids = [step.id for step in steps if step.id is not None]
+            if not ids:
+                return {}
+            rows = (
+                await AsyncStepLog.in_attempt(attempt.github_created_at)
+                .where(AsyncStepLog.c.step_id.in_(ids))
+                .all()
+            )
+            by_step_id = {row.step_id: row.log_content for row in rows}
+            return {
+                step.number: by_step_id[step.id]
+                for step in steps
+                if step.id is not None and step.id in by_step_id
+            }
 
     async def step_log_sizes(
         self, steps: Sequence[AsyncStep], attempt: AsyncRunAttempt
@@ -1016,30 +1071,32 @@ class RunData:
         time addresses the partition, so the counts come from one partition
         rather than from every month the table has.
         """
-        if not steps or attempt.github_created_at is None:
-            return {}
-        ids = [step.id for step in steps if step.id is not None]
-        if not ids:
-            return {}
-        rows = (
-            await AsyncStepLog.in_attempt(attempt.github_created_at)
-            .where(AsyncStepLog.c.step_id.in_(ids))
-            .all()
-        )
-        return {row.step_id: row.line_count for row in rows}
+        async with self.connection():
+            if not steps or attempt.github_created_at is None:
+                return {}
+            ids = [step.id for step in steps if step.id is not None]
+            if not ids:
+                return {}
+            rows = (
+                await AsyncStepLog.in_attempt(attempt.github_created_at)
+                .where(AsyncStepLog.c.step_id.in_(ids))
+                .all()
+            )
+            return {row.step_id: row.line_count for row in rows}
 
     async def step_log_count(self, steps: Sequence[AsyncStep], attempt: AsyncRunAttempt) -> int:
         """How many of these steps already have a captured log."""
-        if not steps or attempt.github_created_at is None:
-            return 0
-        ids = [step.id for step in steps if step.id is not None]
-        if not ids:
-            return 0
-        return await (
-            AsyncStepLog.in_attempt(attempt.github_created_at)
-            .where(AsyncStepLog.c.step_id.in_(ids))
-            .count()
-        )
+        async with self.connection():
+            if not steps or attempt.github_created_at is None:
+                return 0
+            ids = [step.id for step in steps if step.id is not None]
+            if not ids:
+                return 0
+            return await (
+                AsyncStepLog.in_attempt(attempt.github_created_at)
+                .where(AsyncStepLog.c.step_id.in_(ids))
+                .count()
+            )
 
     async def store_step_log(self, step: AsyncStep, content: str, attempt: AsyncRunAttempt) -> None:
         """Store one step'"'"'s text, filed under the month its execution was triggered.
@@ -1057,17 +1114,18 @@ class RunData:
         failed" and loses the month'"'"'s step logs -- for a reason no read path
         reports.
         """
-        if step.id is None or attempt.github_created_at is None:
-            return
-        await _ensure_partition(attempt)
-        try:
-            await AsyncStepLog.store_for_step(
-                step, content, attempt_created_at=attempt.github_created_at
-            )
-        except ValueError as exc:
-            # The ORM'"'"'s message names the field, not the row. A capture that
-            # writes a whole run needs the row, or the ledger'"'"'s "capture
-            # failed" is all an operator ever learns.
-            raise ValueError(
-                f"step {step.id} (job {step.job_id}, number {step.number}): {exc}"
-            ) from exc
+        async with self.connection():
+            if step.id is None or attempt.github_created_at is None:
+                return
+            await _ensure_partition(attempt)
+            try:
+                await AsyncStepLog.store_for_step(
+                    step, content, attempt_created_at=attempt.github_created_at
+                )
+            except ValueError as exc:
+                # The ORM'"'"'s message names the field, not the row. A capture that
+                # writes a whole run needs the row, or the ledger'"'"'s "capture
+                # failed" is all an operator ever learns.
+                raise ValueError(
+                    f"step {step.id} (job {step.job_id}, number {step.number}): {exc}"
+                ) from exc

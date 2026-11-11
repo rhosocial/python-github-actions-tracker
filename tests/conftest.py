@@ -414,7 +414,7 @@ def make_webhook_service(
     *,
     client: FakeGithub | None = None,
     tracker=None,
-    log_scope=None,
+    database=None,
     credential=None,
     logs=None,
 ):
@@ -439,11 +439,11 @@ def make_webhook_service(
         webhooks=GithubWebhooks(fake, credential=credential),
         readers=readers,
         runs=RunController(runs=readers, runs_data=runs_data),
-        repositories=RepositoryData(),
+        repositories=RepositoryData(database=database),
         runs_data=runs_data,
-        deliveries=DeliveryLedger(),
+        deliveries=DeliveryLedger(database=database),
         tracker=tracker,
-        log_scope=log_scope,
+        database=database,
         logs=logs,
     )
 

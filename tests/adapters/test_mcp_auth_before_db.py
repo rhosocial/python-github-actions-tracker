@@ -156,7 +156,7 @@ def test_without_a_verifier_the_request_passes_through(database: CountingDatabas
     asyncio.run(app(_scope(), _receive, _noop))
 
     assert inner.calls == 1
-    assert database.acquisitions == 1, "the request itself, and nothing else"
+    assert database.acquisitions == 0, "the adapter lends nothing; a tool call borrows its own"
 
 
 def test_a_request_without_a_bearer_is_refused_before_the_pool(database: CountingDatabase) -> None:
@@ -189,7 +189,7 @@ def test_a_request_with_the_right_key_reaches_the_inner_app(database: CountingDa
 
     assert answered == {}, "the inner app answers, not this wrapper"
     assert inner.calls == 1
-    assert database.acquisitions == 1
+    assert database.acquisitions == 0
 
 
 def test_a_malformed_authorization_header_is_refused_before_the_pool(

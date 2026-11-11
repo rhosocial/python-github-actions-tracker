@@ -50,7 +50,7 @@ from .core.interfaces import IGithubClient
 from .core.run_tracker import RunTracker
 from .credentials import AsyncPatCredential, get_provider
 from .credentials.resolver import resolve_for_repository
-from .database import Database
+from .database import Database, no_connection
 from .introspection import CapacityAdvisor
 from .services.github import (
     GithubCredentials,
@@ -140,15 +140,15 @@ class Container:
         Returns:
             The controllers, ready to be handed to an adapter.
         """
-        resolve = None if credential is not None else cls._binding_resolver()
+        resolve = None if credential is not None else cls._binding_resolver(database)
         # One object per capability, handed to every controller that needs it:
         # the grouping is by GitHub resource, not by caller.
         github_runs = GithubRuns(client, credential=credential, resolve=resolve)
         github_repositories = GithubRepositories(client, credential=credential, resolve=resolve)
         github_webhooks = GithubWebhooks(client, credential=credential, resolve=resolve)
-        runs_data = RunData()
-        repositories_data = RepositoryData(runs_data=runs_data)
-        ledger = DeliveryLedger()
+        runs_data = RunData(database=database)
+        repositories_data = RepositoryData(runs_data=runs_data, database=database)
+        ledger = DeliveryLedger(database=database)
         shared_tracker = tracker or RunTracker()
 
         resolved_settings = settings or get_settings()
@@ -199,6 +199,7 @@ class Container:
             # the same second as the rotation would otherwise be verified with
             # the key that was just replaced.
             on_secret_change=authorization.invalidate,
+            database=database,
         )
         return cls(
             settings=resolved_settings,
@@ -226,8 +227,8 @@ class Container:
                 runs_data=runs_data,
                 deliveries=ledger,
                 tracker=shared_tracker,
-                log_scope=database.connection if database is not None else None,
                 logs=logs,
+                database=database,
             ),
             workflow=WorkflowController(repositories=repositories, trigger=trigger),
             capacity=capacity,
@@ -248,18 +249,22 @@ class Container:
     ) -> Container:
         """Build the controllers around the deployment's ambient PAT.
 
-        To be called from inside an open connection scope: reading the PAT row
-        is a query like any other.
+        Reading the PAT row and the schema state are queries; each borrows one
+        connection for itself, so a caller does not have to hold one open for
+        the whole build.
         """
         resolved = settings or get_settings()
-        credential = await cls._ambient_credential(resolved, name)
+        borrow = database.connection if database is not None else no_connection
+        async with borrow():
+            credential = await cls._ambient_credential(resolved, name)
         container = cls.build(
             settings=resolved,
             database=database,
             client=client,
             credential=credential,
         )
-        container.schema_state = await container._schema_state()
+        async with borrow():
+            container.schema_state = await container._schema_state()
         # The webhook secret snapshot, loaded once so the first delivery can be
         # verified from memory. A failure is recorded, not raised: the REST and
         # MCP surfaces answer with the static key regardless, and readiness is
@@ -436,7 +441,7 @@ class Container:
         return credential
 
     @staticmethod
-    def _binding_resolver():
+    def _binding_resolver(database: Any):
         """``repo_full_name -> credential`` through ``ghat_repository_bindings``.
 
         A capability asks this before a GitHub call when the process has no
@@ -445,14 +450,23 @@ class Container:
         binding whose credential is dead raises: that must surface rather than
         degrade to an anonymous read that would report a 404 for a private
         repository.
+
+        The three reads behind one answer borrow one connection and hold it for
+        nothing else: no GitHub call happens inside this block.
         """
-        data = RepositoryData()
+        data = RepositoryData(database=database)
 
         async def resolve(repo_full_name: str):
-            repo = await data.by_name(repo_full_name)
-            if repo is None:
-                return None
-            return await resolve_for_repository(repo)
+            if database is None:
+                repo = await data.by_name(repo_full_name)
+                if repo is None:
+                    return None
+                return await resolve_for_repository(repo)
+            async with database.connection():
+                repo = await data.by_name(repo_full_name)
+                if repo is None:
+                    return None
+                return await resolve_for_repository(repo)
 
         return resolve
 

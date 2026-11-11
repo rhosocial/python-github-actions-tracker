@@ -272,14 +272,20 @@ def test_a_body_that_takes_too_long_is_refused() -> None:
 # -- the accepted delivery ----------------------------------------------------
 
 
-def test_a_real_delivery_is_processed_in_one_connection_of_its_own() -> None:
+def test_a_real_delivery_is_processed_without_a_request_connection() -> None:
+    """The delivery's database work borrows for itself, one operation at a time.
+
+    What the adapter must not do is take a connection for the request: the
+    handler calls GitHub, writes the ledger, and may download a log, and only
+    the writes are database work.
+    """
     webhook = _Webhook()
     container = _container(webhook)
 
     result = _run(_request(), container)
 
     assert result["status"] == "processed"
-    assert container.database.acquisitions == 1
+    assert container.database.acquisitions == 0
     assert webhook.processed and webhook.processed[0]["repository_full_name"] == "acme/demo"
 
 
@@ -312,9 +318,9 @@ def test_with_the_cache_disabled_the_old_lookup_still_verifies() -> None:
 
     assert result["status"] == "processed"
     assert webhook.resolve_calls == 1
-    # Two, not one: the secret read, and then the processing itself. The cached
-    # path needs only the second, and that difference is the whole point.
-    assert container.database.acquisitions == 2
+    # The fallback's secret read is the controller's own borrow, so the route
+    # itself takes nothing. With the cache on, that read does not happen at all.
+    assert container.database.acquisitions == 0
     assert webhook.processed[0]["repository_full_name"] == "acme/demo"
 
 

@@ -73,6 +73,18 @@ MODELS: tuple[type, ...] = (
 )
 
 
+@asynccontextmanager
+async def no_connection() -> AsyncIterator[None]:
+    """Stand-in for a row layer that has no database to borrow from.
+
+    The tests bind the models to a backend directly, so their row layers run in
+    the fixture's context and must not try to borrow anything. Assigning this to
+    a row layer's ``_connection`` keeps that a single line at construction
+    instead of a branch in every method.
+    """
+    yield
+
+
 class Database:
     """The process's connection pool, and the coroutine scope over it.
 
@@ -118,7 +130,7 @@ class Database:
         """The underlying pool, for code that needs the library's own API."""
         return self._pool
 
-    def connection(self) -> Any:
+    def connection(self, *, timeout: float | None = None) -> Any:
         """Make one pooled connection the scope's connection for every model.
 
         The binding is the pool's own connection context (a ``ContextVar``), not
@@ -131,12 +143,17 @@ class Database:
         Nested scopes reuse the outer connection rather than acquiring a second,
         because the pool's own context is already a ``ContextVar`` and a second
         acquire would deadlock against a pool at ``max_size``.
+
+        ``timeout`` is how long to wait for a permit before giving up; the pool's
+        own default applies when it is omitted.
         """
-        return self._connection()
+        return self._connection(timeout)
 
     @asynccontextmanager
-    async def _connection(self) -> AsyncIterator[AsyncPostgresBackend]:
-        async with self._pool.connection() as backend:
+    async def _connection(
+        self, timeout: float | None = None
+    ) -> AsyncIterator[AsyncPostgresBackend]:
+        async with self._pool.connection(timeout) as backend:
             # The session timezone belongs to the server, not to this service:
             # a database configured with Asia/Shanghai hands back
             # `2026-10-26T15:32:41+08:00` and every timestamp this service

@@ -20,7 +20,7 @@ GitHub Actions 运行、作业、步骤与日志的跟踪与自动化服务。�
 | `/livez` | 进程活着、事件循环能响应 | 无 | 重启容器 |
 | `/readyz`、`/healthz`、`/health` | 这个实例能接请求吗 | `Database.ping()`（`SELECT 1`，2 秒上限） | 摘流，不重启 |
 
-- 探针路径豁免 API key，也豁免每请求的连接作用域（否则 liveness 会被连接池饱和连累成重启循环）。
+- 探针路径豁免 API key，也豁免任何数据库连接（探针要么零 I/O，要么自带一次短查询，不借用控制器的连接）。
 - schema 一次性在启动时检查（`missing_tables`），结果写进 `/readyz` 的 body，但**不参与就绪判定**：建表是 `init` 的事，摘流不会把表建出来。
 - ambient PAT 缺失、台账为空都**不算** not-ready：前者是按仓库绑定的正常模式，后者只是还没收到投递。
 - `/readyz` 的 `auth_cache` 只对 **webhook 面**生效：webhook 的每次投签都从内存快照验，快照从未加载说明它无法回答任何投递，因此 webhook 面 503；快照过期但已加载仍 ready（旧的照样能验签），只在 body 里报 `stale: true`。REST / MCP 面只报告快照状态，不因它 not-ready——它们用静态 key，与快照无关。
@@ -176,19 +176,24 @@ get_run_failed_logs(run_id)→ run 内失败 job 的失败 step，按逐字节�
   step 日志之前完全一致。失败 job 的无参读取是**唯一**偏离该默认的路径，且回答自报
   `scoped_to_failed`。
 
-### 连接池：一个请求占一条连接
+### 连接池：一次数据库操作占一条连接
 
-连接作用域是**每请求**的（REST 中间件、MCP 包装层各起一个），所以：
+连接作用域是**每操作**的：控制器持有一个 `ConnectionSource`（`Database` 就是它的实现），
+每个触及数据库的方法在数据库语句外面套 `async with self.connection()`，出块即归还。
 
-- 每个正在处理的请求占 `GHAT_POOL_MAX`（默认 10）里的一个名额；
-- **长轮询也算**：`wait_for_run` 在等待期间一直握着自己的连接，300 秒的等待就是 300 秒的占用；
-- 因此 `GHAT_POOL_MAX` 必须覆盖"并发长轮询 + 并发普通请求"，否则后来者会在 `acquire` 上排队，
-  30 秒后得到 `Failed to acquire connection within 30.0 seconds`。
+- 每个正在执行的**数据库操作**占 `GHAT_POOL_MAX`（默认 10）里的一个名额，而不是每个请求；
+- **长等待不算**：`wait_for_run` 在等 GitHub 的 300 秒里不占连接，只在每轮读库时短暂借用一次；
+  日志下载、重试 `sleep`、空闲的 MCP 会话同理；
+- 因此 `GHAT_POOL_MAX` 只需要覆盖"并发 SQL 数"，不需要覆盖并发请求数或长轮询数。
+
+**这条是可以测出来的**，不是描述：池设 2、10 个并发请求、每个先等 8 秒再读库——
+"先借后等"成功率 8/10、中位 24.6 秒；"先等后借"成功率 10/10、中位 8.6 秒
+（`scripts/probe_connection_scope.py`）。适配层现在**一次都不借**，这也由会计数的假数据库
+守着（`test_mcp_database`、`test_rest_auth_before_db`、`test_webhook_route_wiring`）。
 
 **认证在这一层之前**。`authorization/` 的快照让"请求有没有效"成为一个内存问题：REST 的
-静态 key 与环境变量比较，MCP 在 `database.connection()` 之前比，webhook 从快照验签。所以
-认证失败的请求**不占连接、不写库**——四个适配层测试（`test_rest_auth_before_db`、
-`test_mcp_auth_before_db`、`test_webhook_auth_cache`）用会计数的假数据库守住这条。
+静态 key 与环境变量比较，MCP 在整条请求路径之前比，webhook 从快照验签。所以
+认证失败的请求**不占连接、不写库**——那几个适配层测试用会计数的假数据库守住这条。
 新增的请求路径若先取连接再问"这是谁"，就是退回了这个修复之前的形状。
 
 快照本身每 TTL 最多刷新一次（`GHAT_AUTH_CACHE_TTL_SECONDS`，默认 30；`0` 关掉缓存回退到

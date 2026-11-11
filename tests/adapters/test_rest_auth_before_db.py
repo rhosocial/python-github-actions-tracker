@@ -162,4 +162,6 @@ def test_an_empty_key_is_the_open_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         response = client.get("/api/v1/latest-run", params={"repository": "acme/demo"})
 
     assert response.status_code != 401
-    assert container.database.acquisitions == 1
+    # The adapter no longer owns a connection, so an open-mode request --
+    # like every other one -- leaves the counting seam untouched.
+    assert container.database.acquisitions == 0

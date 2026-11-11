@@ -55,6 +55,7 @@ from ..models.webhook_delivery import (
 from ..models.webhook_secret import AsyncRepoWebhookSecret
 from ..services.github.protocols import RunReader, WebhookManager
 from ..views import ENV_WEBHOOK_URL, _clean_str, _webhook_defaults
+from .mixins import DatabaseConnectionMixin
 from .run import RunController
 
 if TYPE_CHECKING:
@@ -111,7 +112,7 @@ RECORDED_EVENTS = frozenset({"workflow_run", "workflow_job"})
 DEFAULT_WEBHOOK_EVENTS: tuple[str, ...] = ("workflow_run", "workflow_job")
 
 
-class WebhookController:
+class WebhookController(DatabaseConnectionMixin):
     """Manage GitHub webhooks and process incoming deliveries.
 
     Args:
@@ -140,9 +141,11 @@ class WebhookController:
         runs_data: RunData,
         deliveries: DeliveryLedger,
         tracker: RunTracker | None = None,
-        log_scope: Any = None,
         logs: RunLogCapture | None = None,
+        database: Any = None,
     ) -> None:
+        super().__init__(database=database)
+        self._log_scope = database.connection if database is not None else None
         self._webhooks = webhooks
         self._readers = readers
         self._runs = runs
@@ -151,9 +154,6 @@ class WebhookController:
         self._ledger = deliveries
         self._tracker = tracker
         self._log_tasks: set[asyncio.Task[None]] = set()
-        #: How the eager log fetch of a failed job gets a connection. Supplied by
-        #: the application, which owns connections; ``None`` skips the fetch.
-        self._log_scope = log_scope
         #: Step-log capture. A completion delivery is the earliest moment GitHub
         #: still has the per-step files, so it is the moment to take them.
         self._logs = logs
@@ -183,11 +183,11 @@ class WebhookController:
         secret = _clean_str(webhook_secret)
         if not secret:
             repo = await self._repos.by_name(repo_full_name)
-            record = (
-                await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
-                if repo is not None
-                else None
-            )
+            if repo is None:
+                record = None
+            else:
+                async with self.connection():
+                    record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
             secret = record.secret if record is not None else ""
         if not url:
             raise ValidationError(f"A callback URL is required (set {ENV_WEBHOOK_URL})")
@@ -400,7 +400,8 @@ class WebhookController:
         repo = await self._repos.by_name(name)
         if repo is None:
             return None
-        record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
+        async with self.connection():
+            record = await AsyncRepoWebhookSecret.for_repository(repo.id or 0)
         if record is None or not record.secret:
             return None
         return record.secret, repo.full_name
@@ -725,10 +726,8 @@ class WebhookController:
         including the pooled connection the models were bound to -- and would
         keep using it after the response returned that connection to the pool.
         """
-        if self._log_scope is None:
-            logger.debug(
-                "No connection scope configured; skipping the eager log fetch for job %s", job.id
-            )
+        if self._database is None:
+            logger.debug("No database configured; skipping the eager log fetch for job %s", job.id)
             return
 
         def start() -> None:
@@ -744,10 +743,12 @@ class WebhookController:
         contextvars.Context().run(start)
 
     async def _fetch_in_scope(self, run: AsyncWorkflowRun, job: AsyncJob) -> None:
-        """Run the fetch inside a scope of its own, on its own connection."""
-        assert self._log_scope is not None
-        async with self._log_scope():
-            await self._fetch_job_logs(run, job)
+        """Run the fetch in the fresh context ``_schedule_log_fetch`` created.
+
+        No connection is held here: the GitHub download is the long part, and
+        the row writes it produces borrow their own connections one at a time.
+        """
+        await self._fetch_job_logs(run, job)
 
     async def _fetch_job_logs(self, run: AsyncWorkflowRun, job: AsyncJob) -> None:
         """Fetch and store the logs of a failed job (best effort).
@@ -810,7 +811,7 @@ def _capture_note(view: Any) -> str:
 # -- the rows the flows above are built from ------------------------------
 
 
-class DeliveryLedger:
+class DeliveryLedger(DatabaseConnectionMixin):
     """The delivery ledger, one method per question the receiver asks."""
 
     async def is_redelivery(self, delivery_id: str) -> bool:
@@ -819,17 +820,18 @@ class DeliveryLedger:
         A redelivery is GitHub retrying, which is different from two distinct
         deliveries and worth telling apart when diagnosing a duplicate update.
         """
-        if not delivery_id:
-            return False
-        try:
-            count = (
-                await AsyncWebhookDelivery.query()
-                .where(AsyncWebhookDelivery.c.delivery_id == delivery_id)
-                .count()
-            )
-        except Exception:  # noqa: BLE001 - the ledger must never break intake
-            return False
-        return count > 0
+        async with self.connection():
+            if not delivery_id:
+                return False
+            try:
+                count = (
+                    await AsyncWebhookDelivery.query()
+                    .where(AsyncWebhookDelivery.c.delivery_id == delivery_id)
+                    .count()
+                )
+            except Exception:  # noqa: BLE001 - the ledger must never break intake
+                return False
+            return count > 0
 
     async def latest_received(self, event_type: str) -> datetime | None:
         """When this stream's newest delivery arrived, or ``None`` if never.
@@ -838,15 +840,16 @@ class DeliveryLedger:
         the newest delivery, not by its outcome: a delivery this service ignored
         still proves GitHub reached it.
         """
-        row = await (
-            AsyncWebhookDelivery.query()
-            .select(AsyncWebhookDelivery.c.received_at)
-            .where(AsyncWebhookDelivery.c.event_type == event_type)
-            .order_by((AsyncWebhookDelivery.c.received_at, "DESC"))
-            .limit(1)
-            .one()
-        )
-        return None if row is None else row.received_at
+        async with self.connection():
+            row = await (
+                AsyncWebhookDelivery.query()
+                .select(AsyncWebhookDelivery.c.received_at)
+                .where(AsyncWebhookDelivery.c.event_type == event_type)
+                .order_by((AsyncWebhookDelivery.c.received_at, "DESC"))
+                .limit(1)
+                .one()
+            )
+            return None if row is None else row.received_at
 
     async def count(
         self,
@@ -862,12 +865,15 @@ class DeliveryLedger:
             since: Only deliveries at or after this instant.
             redelivered: Only (or only non-) GitHub retries.
         """
-        query = AsyncWebhookDelivery.query().where(AsyncWebhookDelivery.c.event_type == event_type)
-        if since is not None:
-            query = query.where(AsyncWebhookDelivery.c.received_at >= since)
-        if redelivered is not None:
-            query = query.where(AsyncWebhookDelivery.c.is_redelivery == redelivered)
-        return await query.count()
+        async with self.connection():
+            query = AsyncWebhookDelivery.query().where(
+                AsyncWebhookDelivery.c.event_type == event_type
+            )
+            if since is not None:
+                query = query.where(AsyncWebhookDelivery.c.received_at >= since)
+            if redelivered is not None:
+                query = query.where(AsyncWebhookDelivery.c.is_redelivery == redelivered)
+            return await query.count()
 
     async def unhandled_since(self, event_type: str, since: datetime) -> list[AsyncWebhookDelivery]:
         """The deliveries of this stream that arrived and were not handled.
@@ -876,15 +882,16 @@ class DeliveryLedger:
         repository we ignore on purpose" from "our own write failed", and that
         classification is the caller's.
         """
-        return await (
-            AsyncWebhookDelivery.query()
-            .where(
-                (AsyncWebhookDelivery.c.event_type == event_type)
-                & (AsyncWebhookDelivery.c.handled == False)  # noqa: E712
-                & (AsyncWebhookDelivery.c.received_at >= since)
+        async with self.connection():
+            return await (
+                AsyncWebhookDelivery.query()
+                .where(
+                    (AsyncWebhookDelivery.c.event_type == event_type)
+                    & (AsyncWebhookDelivery.c.handled == False)  # noqa: E712
+                    & (AsyncWebhookDelivery.c.received_at >= since)
+                )
+                .all()
             )
-            .all()
-        )
 
     async def record(
         self,
@@ -906,38 +913,39 @@ class DeliveryLedger:
         would turn a valid delivery into a 500, and GitHub would retry it into a
         double-handled event.
         """
-        data = payload if isinstance(payload, Mapping) else {}
-        repository = data.get("repository")
-        repository = repository if isinstance(repository, Mapping) else {}
-        run_data = data.get("workflow_run")
-        run_data = run_data if isinstance(run_data, Mapping) else {}
-        job_data = data.get("workflow_job")
-        job_data = job_data if isinstance(job_data, Mapping) else {}
+        async with self.connection():
+            data = payload if isinstance(payload, Mapping) else {}
+            repository = data.get("repository")
+            repository = repository if isinstance(repository, Mapping) else {}
+            run_data = data.get("workflow_run")
+            run_data = run_data if isinstance(run_data, Mapping) else {}
+            job_data = data.get("workflow_job")
+            job_data = job_data if isinstance(job_data, Mapping) else {}
 
-        action = data.get("action")
-        try:
-            await AsyncWebhookDelivery(
-                delivery_id=delivery_id,
-                event_type=event_type,
-                received_at=datetime.now(timezone.utc),
-                repository_full_name=(
-                    repository_full_name or str(repository.get("full_name") or "")
-                )[:255],
-                action=str(action)[:32] if isinstance(action, str) and action else None,
-                github_run_id=(
-                    _optional_int(run_data.get("id")) or _optional_int(job_data.get("run_id"))
-                ),
-                github_job_id=_optional_int(job_data.get("id")),
-                handled=handled,
-                reason=(f"{reason}: {detail}" if detail else reason)[:64],
-                is_redelivery=await self.is_redelivery(delivery_id),
-            ).save()
-        except Exception:  # noqa: BLE001 - the ledger must never break intake
-            import logging
+            action = data.get("action")
+            try:
+                await AsyncWebhookDelivery(
+                    delivery_id=delivery_id,
+                    event_type=event_type,
+                    received_at=datetime.now(timezone.utc),
+                    repository_full_name=(
+                        repository_full_name or str(repository.get("full_name") or "")
+                    )[:255],
+                    action=str(action)[:32] if isinstance(action, str) and action else None,
+                    github_run_id=(
+                        _optional_int(run_data.get("id")) or _optional_int(job_data.get("run_id"))
+                    ),
+                    github_job_id=_optional_int(job_data.get("id")),
+                    handled=handled,
+                    reason=(f"{reason}: {detail}" if detail else reason)[:64],
+                    is_redelivery=await self.is_redelivery(delivery_id),
+                ).save()
+            except Exception:  # noqa: BLE001 - the ledger must never break intake
+                import logging
 
-            logging.getLogger(__name__).exception(
-                "could not record webhook delivery %s", delivery_id
-            )
+                logging.getLogger(__name__).exception(
+                    "could not record webhook delivery %s", delivery_id
+                )
 
 
 def _optional_int(value: object) -> int | None:

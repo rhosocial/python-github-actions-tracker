@@ -1,15 +1,17 @@
 # tests/core/test_webhook_log_scope.py
-"""A detached log fetch must not borrow the request's connection.
+"""A detached log fetch must not inherit the request's connection.
 
-``asyncio.create_task`` copies the current context, and the request's context
-holds the pooled connection the models were bound to. A task started that way
-keeps using a connection the response has already returned to the pool -- the
-interleaving the ORM warns about for a shared backend, except here it spans two
-requests.
+``asyncio.create_task`` copies the current context, and that context holds the
+pooled connection the models were bound to. A task started that way keeps using
+a connection the response has already returned to the pool -- the interleaving
+the ORM warns about for a shared backend, except here it spans two requests.
 
-So the fetch runs in an empty context and opens a scope of its own. Without a
-scope configured it is skipped, which is honest: there is no connection it may
-safely use.
+So the fetch runs in an empty context. It does not need a connection of its own
+either: the GitHub download is the long part and happens outside any borrow, and
+each row it writes borrows from the pool itself, one operation at a time.
+
+Without a database the fetch is skipped, which is honest: there is nothing it
+could safely write to.
 """
 
 from __future__ import annotations
@@ -25,22 +27,23 @@ from conftest import make_webhook_service
 REQUEST_CONTEXT = contextvars.ContextVar("request_context", default="none")
 
 
-class _Scope:
-    """The connection scope the application hands the service."""
-
-    def __init__(self) -> None:
-        self.seen: list[str] = []
+class _Source:
+    """A connection source: the protocol's one method, and nothing else."""
 
     @asynccontextmanager
-    async def open(self):
-        self.seen.append(REQUEST_CONTEXT.get())
+    async def connection(self):
         yield SimpleNamespace()
 
 
 class TestLogScope:
-    async def test_the_fetch_runs_in_an_empty_context(self, bound) -> None:
-        scope = _Scope()
-        service = make_webhook_service(log_scope=scope.open)
+    async def test_the_fetch_runs_in_an_empty_context(self, bound, monkeypatch) -> None:
+        service = make_webhook_service(database=_Source())
+        seen: list[str] = []
+
+        async def record(run, job) -> None:
+            seen.append(REQUEST_CONTEXT.get())
+
+        monkeypatch.setattr(service, "_fetch_job_logs", record)
         token = REQUEST_CONTEXT.set("the request connection")
         try:
             service._schedule_log_fetch(  # noqa: SLF001 - the seam under test
@@ -51,9 +54,9 @@ class TestLogScope:
         finally:
             REQUEST_CONTEXT.reset(token)
 
-        assert scope.seen == ["none"], "the task inherited the caller's connection"
+        assert seen == ["none"], "the task inherited the caller's connection"
 
-    async def test_without_a_scope_nothing_is_scheduled(self, bound) -> None:
+    async def test_without_a_database_nothing_is_scheduled(self, bound) -> None:
         service = make_webhook_service()
 
         service._schedule_log_fetch(  # noqa: SLF001 - the seam under test

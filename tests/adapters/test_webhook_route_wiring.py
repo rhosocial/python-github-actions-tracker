@@ -201,7 +201,7 @@ async def test_an_accepted_delivery_reaches_the_handler_with_its_repository() ->
 
     assert result["status"] == "processed"
     assert webhook.processed[0]["repository_full_name"] == "acme/demo"
-    assert container.database.acquisitions == 1, "one connection for the delivery itself"
+    assert container.database.acquisitions == 0, "the route lends nothing to the delivery"
 
 
 def _disconnected_request() -> Request:

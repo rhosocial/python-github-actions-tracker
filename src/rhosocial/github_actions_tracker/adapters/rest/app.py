@@ -139,8 +139,10 @@ def create_app(
         current = getattr(app.state, "container", None)
         if current is None or current.database is None:
             return await call_next(request)
-        async with current.database.connection():
-            return await call_next(request)
+        # No request-level connection: the controllers borrow one per database
+        # operation, so a GitHub call, a log download or a retry sleep inside
+        # this request holds no connection.
+        return await call_next(request)
 
     # Authentication: the bearer check is a memory comparison, so it runs
     # before the connection scope and answers 401 without one.
