@@ -12,8 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..views import RunView, RunWaitView
-from .repository import RepositoryController
-from .trigger import TriggerController
+from .protocols import WaitableTrigger, WorkflowLookup
 
 if TYPE_CHECKING:
     from ..models import AsyncWorkflow
@@ -25,8 +24,8 @@ class WorkflowController:
     def __init__(
         self,
         *,
-        repositories: RepositoryController,
-        trigger: TriggerController,
+        repositories: WorkflowLookup,
+        trigger: WaitableTrigger,
     ) -> None:
         self._repositories = repositories
         self._trigger = trigger

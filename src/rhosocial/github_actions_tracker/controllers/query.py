@@ -51,7 +51,7 @@ from ..views import (
     as_utc,
 )
 from .logs import RunLogCapture
-from .run import RunController
+from .protocols import RunRefresh
 
 if TYPE_CHECKING:  # the rows these flows return; only the annotation names them
     from ..models import AsyncJob, AsyncRepository, AsyncStep, AsyncWorkflowRun
@@ -123,7 +123,7 @@ class QueryController:
         *,
         readers: RunReader,
         repositories: RepositoryReader,
-        runs: RunController,
+        runs: RunRefresh,
         runs_data: RunData,
         logs: RunLogCapture | None = None,
     ) -> None:

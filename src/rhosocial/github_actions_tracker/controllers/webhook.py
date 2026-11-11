@@ -56,7 +56,7 @@ from ..models.webhook_secret import AsyncRepoWebhookSecret
 from ..services.github.protocols import RunReader, WebhookManager
 from ..views import ENV_WEBHOOK_URL, _clean_str, _webhook_defaults
 from .mixins import DatabaseConnectionMixin
-from .run import RunController
+from .protocols import ConnectionSource, RunFetch
 
 if TYPE_CHECKING:
     from ..core.run_tracker import RunTracker
@@ -136,13 +136,13 @@ class WebhookController(DatabaseConnectionMixin):
         *,
         webhooks: WebhookManager,
         readers: RunReader,
-        runs: RunController,
+        runs: RunFetch,
         repositories: RepositoryData,
         runs_data: RunData,
         deliveries: DeliveryLedger,
         tracker: RunTracker | None = None,
         logs: RunLogCapture | None = None,
-        database: Any = None,
+        database: ConnectionSource | None = None,
     ) -> None:
         super().__init__(database=database)
         self._log_scope = database.connection if database is not None else None

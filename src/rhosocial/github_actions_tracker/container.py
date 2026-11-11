@@ -189,7 +189,6 @@ class Container:
             repositories=github_repositories,
             webhooks=github_webhooks,
             readers=github_runs,
-            runs=runs,
             data=repositories_data,
             runs_data=runs_data,
             query=query,

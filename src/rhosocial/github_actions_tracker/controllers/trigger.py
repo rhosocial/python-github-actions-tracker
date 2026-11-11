@@ -20,8 +20,7 @@ from typing import TYPE_CHECKING
 
 from ..core.exceptions import TokenPermissionError, ValidationError
 from ..views import DurationSample, RunView, RunWaitView, _elapsed_seconds, _run_url
-from .dispatch import DispatchController
-from .run import RunController
+from .protocols import DispatchVerbs, RunReads
 
 if TYPE_CHECKING:
     from ..models import AsyncWorkflowRun
@@ -35,8 +34,8 @@ class TriggerController:
     def __init__(
         self,
         *,
-        dispatch: DispatchController,
-        runs: RunController,
+        dispatch: DispatchVerbs,
+        runs: RunReads,
     ) -> None:
         """Build the controller.
 

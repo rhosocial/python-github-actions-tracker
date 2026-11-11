@@ -474,7 +474,6 @@ def make_repository_service(client: FakeGithub | None = None, **kwargs: Any):
         repositories=GithubRepositories(fake),
         webhooks=GithubWebhooks(fake),
         readers=readers,
-        runs=runs,
         data=RepositoryData(),
         runs_data=runs_data,
         query=QueryController(

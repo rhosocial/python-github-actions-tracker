@@ -40,11 +40,11 @@ from ..services.github.payloads import GithubPayloads
 from ..services.github.protocols import RepositoryReader, RunReader, WebhookManager
 from ..views import BindingSummary, RunRecord, _clean_str, _webhook_defaults
 from .mixins import DatabaseConnectionMixin
-from .run import RunController, RunData
+from .protocols import ConnectionSource, RecordReader
+from .run import RunData
 
 if TYPE_CHECKING:
     from ..models import AsyncWorkflowRun
-    from .query import QueryController
 
 __all__ = [
     "DEFAULT_WEBHOOK_EVENTS",
@@ -86,20 +86,18 @@ class RepositoryController(DatabaseConnectionMixin):
         repositories: RepositoryReader,
         webhooks: WebhookManager,
         readers: RunReader,
-        runs: RunController,
         data: RepositoryData,
         runs_data: RunData,
-        query: QueryController,
+        query: RecordReader,
         credential: Any | None = None,
         kind: str = CREDENTIAL_KIND,
         on_secret_change: Callable[[], None] | None = None,
-        database: Any = None,
+        database: ConnectionSource | None = None,
     ) -> None:
         super().__init__(database=database)
         self._repositories = repositories
         self._webhooks = webhooks
         self._readers = readers
-        self._runs = runs
         self._store = data
         self._runs_data = runs_data
         self._query = query

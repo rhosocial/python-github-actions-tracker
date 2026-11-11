@@ -52,7 +52,6 @@ def _service(fake: FakeGithub, *, credential=None) -> RepositoryController:
         repositories=GithubRepositories(fake),
         webhooks=GithubWebhooks(fake),
         readers=runs_group,
-        runs=run_service,
         data=RepositoryData(),
         runs_data=runs_data,
         query=query,
