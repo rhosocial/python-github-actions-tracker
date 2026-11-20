@@ -34,9 +34,10 @@ from __future__ import annotations
 
 import logging
 import secrets
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 
 from pydantic import field_validator
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -101,11 +102,19 @@ class RepoWebhookSecret(
     """One repository's webhook secret, synchronous twin."""
 
     __table_name__ = "ghat_repo_webhook_secrets"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     #: The repository this secret signs for. Unique: one secret per repository,
     #: because GitHub has one hook per repository pointing at us.
     repository_id: int = 0
@@ -115,7 +124,9 @@ class RepoWebhookSecret(
     state: str = STATE_PENDING_USER
     #: GitHub's hook id, once we created one. ``None`` when the hook was made by
     #: hand (or not yet made).
-    webhook_id: int | None = None
+    webhook_id: Annotated[
+        int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+    ] = None
 
     #: Owning repository (pairs with :attr:`Repository.webhook_secret`).
     repository: ClassVar[BelongsTo[Repository]] = BelongsTo(
@@ -156,7 +167,9 @@ class RepoWebhookSecret(
         secret: str,
         *,
         state: str = STATE_PENDING_USER,
-        webhook_id: int | None = None,
+        webhook_id: Annotated[
+            int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+        ] = None,
     ) -> RepoWebhookSecret:
         """Store a repository's secret, replacing any previous one.
 
@@ -227,15 +240,25 @@ class AsyncRepoWebhookSecret(
     """
 
     __table_name__ = "ghat_repo_webhook_secrets"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     repository_id: int = 0
     secret: str = ""
     state: str = STATE_PENDING_USER
-    webhook_id: int | None = None
+    webhook_id: Annotated[
+        int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+    ] = None
 
     repository: ClassVar[AsyncBelongsTo[AsyncRepository]] = AsyncBelongsTo(
         foreign_key="repository_id", inverse_of="webhook_secret"
@@ -270,7 +293,9 @@ class AsyncRepoWebhookSecret(
         secret: str,
         *,
         state: str = STATE_PENDING_USER,
-        webhook_id: int | None = None,
+        webhook_id: Annotated[
+            int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+        ] = None,
     ) -> AsyncRepoWebhookSecret:
         """Store a repository's secret, replacing any previous one."""
         value = cls.clean(secret)

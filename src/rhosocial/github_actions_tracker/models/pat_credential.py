@@ -34,9 +34,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 from pydantic import field_validator
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -72,11 +73,19 @@ class PatCredential(_CredentialValues, UtcTimestampMixin, DefaultTimestampMixin,
     """A fine-grained PAT, synchronous twin."""
 
     __table_name__ = "ghat_pat_credentials"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     #: Operator-facing alias; the CLI's primary key.
     name: str = ""
     #: The secret. Plaintext by design for this deployment shape.
@@ -114,11 +123,19 @@ class AsyncPatCredential(
     """
 
     __table_name__ = "ghat_pat_credentials"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     name: str = ""
     token: str = ""
     owner_login: str | None = None

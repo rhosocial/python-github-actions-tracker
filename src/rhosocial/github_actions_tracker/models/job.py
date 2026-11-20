@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Annotated, ClassVar
 
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -54,11 +55,19 @@ class Job(IdentityMixin, UtcTimestampMixin, DefaultTimestampMixin, ActiveRecord)
     """A job within a workflow run, synchronous twin."""
 
     __table_name__ = "ghat_jobs"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     #: GitHub job id. Globally unique -- a re-run issues *new* job ids rather
     #: than reusing the old ones -- so this alone determines the row.
     github_job_id: int = 0
@@ -222,11 +231,19 @@ class AsyncJob(
     """
 
     __table_name__ = "ghat_jobs"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     #: GitHub job id. Globally unique -- a re-run issues *new* job ids rather
     #: than reusing the old ones -- so this alone determines the row.
     github_job_id: int = 0

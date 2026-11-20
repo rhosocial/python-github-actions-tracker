@@ -27,8 +27,9 @@ this table exists to make.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -54,11 +55,19 @@ class WebhookDelivery(DefaultTimestampMixin, ActiveRecord):
     """One delivery, sync twin."""
 
     __table_name__ = "ghat_webhook_delivery"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     #: ``X-GitHub-Delivery``; repeated on a redelivery, so not unique.
     delivery_id: str = ""
     #: ``X-GitHub-Event``: which stream this delivery belongs to.
@@ -70,8 +79,12 @@ class WebhookDelivery(DefaultTimestampMixin, ActiveRecord):
     action: str | None = None
     #: GitHub ids, so a delivery can be traced to the run/job/step it described
     #: without storing the body. A job delivery carries both ids.
-    github_run_id: int | None = None
-    github_job_id: int | None = None
+    github_run_id: Annotated[
+        int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+    ] = None
+    github_job_id: Annotated[
+        int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+    ] = None
     #: Whether the handler accepted it as a change to tracked state.
     handled: bool = False
     reason: str | None = None
@@ -88,18 +101,30 @@ class AsyncWebhookDelivery(DefaultTimestampMixin, AsyncActiveRecord):
     """Async twin of :class:`WebhookDelivery`."""
 
     __table_name__ = "ghat_webhook_delivery"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     delivery_id: str = ""
     event_type: str = ""
     received_at: datetime | None = None
     repository_full_name: str = ""
     action: str | None = None
-    github_run_id: int | None = None
-    github_job_id: int | None = None
+    github_run_id: Annotated[
+        int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+    ] = None
+    github_job_id: Annotated[
+        int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+    ] = None
     handled: bool = False
     reason: str | None = None
     is_redelivery: bool = False

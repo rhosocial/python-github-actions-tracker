@@ -24,8 +24,9 @@ never both answer for the same repository at once.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -43,11 +44,19 @@ class RepositoryBinding(DefaultTimestampMixin, ActiveRecord):
     """Which credential answers for a repository, synchronous twin."""
 
     __table_name__ = "ghat_repository_bindings"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     #: The repository this binding covers. Unique: one credential per repository.
     repository_id: int = 0
     #: Provider registry key (``pat`` today, ``github_app`` later).
@@ -142,11 +151,19 @@ class AsyncRepositoryBinding(DefaultTimestampMixin, AsyncActiveRecord):
     """
 
     __table_name__ = "ghat_repository_bindings"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     repository_id: int = 0
     provider_kind: str = ""
     provider_ref: int = 0

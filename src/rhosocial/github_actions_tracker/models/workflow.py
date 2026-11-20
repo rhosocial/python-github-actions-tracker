@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -148,11 +149,19 @@ class Workflow(
     """GitHub Actions workflow definition, synchronous twin."""
 
     __table_name__ = "ghat_workflows"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     repository_id: int = 0
     #: Numeric GitHub workflow id. This is the **only** identity used for
     #: aggregation and filtering; ``name``/``path`` are attributes that GitHub
@@ -255,7 +264,9 @@ class Workflow(
     def refresh(
         self,
         *,
-        workflow_id: int | None = None,
+        workflow_id: Annotated[
+            int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+        ] = None,
         name: str | None = None,
         path: str | None = None,
         state: str | None = None,
@@ -303,11 +314,19 @@ class AsyncWorkflow(
     """
 
     __table_name__ = "ghat_workflows"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     repository_id: int = 0
     #: Numeric GitHub workflow id. This is the **only** identity used for
     #: aggregation and filtering; see :attr:`Workflow.workflow_id`.
@@ -377,7 +396,9 @@ class AsyncWorkflow(
     async def refresh(
         self,
         *,
-        workflow_id: int | None = None,
+        workflow_id: Annotated[
+            int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))
+        ] = None,
         name: str | None = None,
         path: str | None = None,
         state: str | None = None,

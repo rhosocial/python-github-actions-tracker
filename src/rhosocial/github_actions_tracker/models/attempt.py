@@ -33,9 +33,10 @@ from __future__ import annotations
 import logging
 import sys
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 
 from rhosocial.activerecord.backend.expression.core import Subquery
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.base.fields import DerivedField
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
@@ -259,11 +260,19 @@ class RunAttempt(
     """One execution of a workflow run, synchronous twin."""
 
     __table_name__ = "ghat_run_attempts"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     #: Local run this attempt belongs to. The run id is *reused* across
     #: attempts: only :attr:`attempt_number` tells the executions apart.
     run_id: int = 0
@@ -438,11 +447,19 @@ class AsyncRunAttempt(
     """One execution of a workflow run, asynchronous twin."""
 
     __table_name__ = "ghat_run_attempts"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     run_id: int = 0
     attempt_number: int = 1
     status: str = "queued"

@@ -28,7 +28,7 @@ instead.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Annotated, ClassVar
 
 #: Imported at runtime, not under ``TYPE_CHECKING``: relation loading evaluates
 #: the annotations of every relation on the class, and a name that only exists
@@ -36,6 +36,7 @@ from typing import TYPE_CHECKING, ClassVar
 #: refers back to this module only under ``TYPE_CHECKING``, so the import is not
 #: a cycle.
 from pydantic import field_validator
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
 from rhosocial.activerecord.model import ActiveRecord, AsyncActiveRecord
@@ -83,11 +84,19 @@ class Repository(
     """GitHub repository subscription, synchronous twin."""
 
     __table_name__ = "ghat_repositories"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     github_repo_id: int = 0
     full_name: str = ""
     owner: str = ""
@@ -311,11 +320,19 @@ class AsyncRepository(
     """
 
     __table_name__ = "ghat_repositories"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     github_repo_id: int = 0
     full_name: str = ""
     owner: str = ""

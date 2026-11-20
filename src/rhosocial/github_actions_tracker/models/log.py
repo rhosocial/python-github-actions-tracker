@@ -137,6 +137,12 @@ class JobLog(
     """The whole log text of one job, synchronous twin."""
 
     __table_name__ = "ghat_job_logs"
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
     #: The table's key is the surrogate *and* the partition column, because a
     #: partitioned table requires every key to contain it. Only the surrogate is
     #: the server's (:attr:`LogId`); the trigger time is the caller's, and the ORM
@@ -272,6 +278,12 @@ class AsyncJobLog(
     """The whole log text of one job, asynchronous twin."""
 
     __table_name__ = "ghat_job_logs"
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
     #: ``(id, attempt_created_at)`` -- see :attr:`JobLog.__primary_key__`.
     __primary_key__ = ("id", "attempt_created_at")
 
@@ -369,6 +381,12 @@ class StepLog(
     """
 
     __table_name__ = "ghat_step_logs"
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
     #: ``(id, attempt_created_at)`` -- a partitioned table's key contains the
     #: partition column; see :attr:`JobLog.__primary_key__`.
     __primary_key__ = ("id", "attempt_created_at")
@@ -504,6 +522,12 @@ class AsyncStepLog(
     """What one step printed, asynchronous twin."""
 
     __table_name__ = "ghat_step_logs"
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
     #: ``(id, attempt_created_at)`` -- see :attr:`JobLog.__primary_key__`.
     __primary_key__ = ("id", "attempt_created_at")
 

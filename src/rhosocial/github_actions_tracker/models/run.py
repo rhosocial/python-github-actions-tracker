@@ -37,9 +37,10 @@ from __future__ import annotations
 import logging
 import sys
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar
 
 from rhosocial.activerecord.backend.expression.core import Subquery
+from rhosocial.activerecord.base import IdentityAttribute, UseColumnAttributes
 from rhosocial.activerecord.base.field_proxy import FieldProxy
 from rhosocial.activerecord.base.fields import DerivedField
 from rhosocial.activerecord.field.timestamp import DefaultTimestampMixin, UtcTimestampMixin
@@ -140,11 +141,19 @@ class WorkflowRun(
     """A single workflow run, synchronous twin."""
 
     __table_name__ = "ghat_workflow_runs"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     workflow_id: int = 0
     github_run_id: int = 0
     run_number: int = 0
@@ -515,11 +524,19 @@ class AsyncWorkflowRun(
     """
 
     __table_name__ = "ghat_workflow_runs"
-    __pk_auto_generated__ = True
+
+    @classmethod
+    def table_name(cls) -> str:
+        """The table this model maps (declared on the class)."""
+        return cls.__table_name__
+
+    __primary_key__ = "id"
 
     c: ClassVar[FieldProxy] = FieldProxy()
 
-    id: int | None = None
+    id: Annotated[int | None, UseColumnAttributes(IdentityAttribute(generation="BY DEFAULT"))] = (
+        None
+    )
     workflow_id: int = 0
     github_run_id: int = 0
     run_number: int = 0
