@@ -12,12 +12,12 @@
 # Dependency sources: the three siblings are checked out from source because the
 # versions this project needs are not on PyPI yet.
 #
-#   rhosocial-activerecord, rhosocial-activerecord-postgres  public, each pinned to
-#       its release line (v1.0.0.dev30 / v1.0.0.dev17). The column-constraint work
-#       the models depend on was merged into those lines, so the release refs are
-#       the code the image ships; the old fix/ branch is the same tree, and using
-#       it here would let this job and the Dockerfile drift apart. dev30 also
-#       carries the model CLI `ghat orm` forwards to (#138), so
+#   rhosocial-activerecord, rhosocial-activerecord-postgres  public, both pinned
+#       to feature/activerecord-ddl -- the branch that carries the DDL migration
+#       system this project is about to adopt, on top of the release lines
+#       (v1.0.0.dev30 / v1.0.0.dev17) with the column-constraint fixes and the
+#       model CLI `ghat orm` forwards to (#138). Both siblings must point at the
+#       same kind of ref: a core/postgres version mismatch fails with ImportError.
 #       tests/adapters/test_cli_orm.py runs its live cases here rather than
 #       skipping them.
 #   rhosocial-mcpserver  PUBLIC. The default GITHUB_TOKEN (contents: read) can
@@ -93,7 +93,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord
-          ref: release/v1.0.0.dev30
+          ref: feature/activerecord-ddl
           path: .deps/python-activerecord
 
       - name: Check out the Postgres backend
@@ -101,7 +101,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord-postgres
-          ref: release/v1.0.0.dev17
+          ref: feature/activerecord-ddl
           path: .deps/python-activerecord-postgres
 
       - name: Check out the MCP base layer
@@ -186,7 +186,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord
-          ref: release/v1.0.0.dev30
+          ref: feature/activerecord-ddl
           path: .deps/python-activerecord
 
       - name: Check out the Postgres backend
@@ -194,7 +194,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord-postgres
-          ref: release/v1.0.0.dev17
+          ref: feature/activerecord-ddl
           path: .deps/python-activerecord-postgres
 
       - name: Check out the MCP base layer
@@ -279,14 +279,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord
-          ref: release/v1.0.0.dev30
+          ref: feature/activerecord-ddl
           path: .deps/python-activerecord
 
       - name: Check out the Postgres backend
         uses: actions/checkout@v4
         with:
           repository: rhosocial/python-activerecord-postgres
-          ref: release/v1.0.0.dev17
+          ref: feature/activerecord-ddl
           path: .deps/python-activerecord-postgres
 
       - name: Check out the MCP base layer
