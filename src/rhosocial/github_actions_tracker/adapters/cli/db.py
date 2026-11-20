@@ -697,7 +697,7 @@ def main(argv: list[str] | None = None) -> None:
 
     from .logging_setup import CliLogging
 
-    previous_disable = CliLogging.configure(verbose=False)
+    previous_logging = CliLogging.configure(verbose=False)
     try:
         if args.command == "init":
             _run(cmd_init(args))
@@ -722,7 +722,7 @@ def main(argv: list[str] | None = None) -> None:
         elif args.command == "deliveries":
             _run(cmd_deliveries(args))
     finally:
-        CliLogging.restore(previous_disable)
+        CliLogging.restore(previous_logging)
 
 
 if __name__ == "__main__":

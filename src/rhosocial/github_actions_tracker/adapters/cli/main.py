@@ -527,7 +527,7 @@ def main(argv: list[str] | None = None) -> None:
     # Configure before importing the controllers: the ORM announces every
     # relation at DEBUG while the modules load, and those lines would otherwise
     # be printed before `--verbose` is known.
-    previous_disable = CliLogging.configure(bool(getattr(args, "verbose", False)))
+    previous_logging = CliLogging.configure(bool(getattr(args, "verbose", False)))
     try:
         # The API key guards the protocol endpoints (REST/MCP); no CLI command
         # authenticates with it. Local operation is authorised by database
@@ -548,7 +548,7 @@ def main(argv: list[str] | None = None) -> None:
         else:
             _run_with_db(runner, args)
     finally:
-        CliLogging.restore(previous_disable)
+        CliLogging.restore(previous_logging)
 
 
 if __name__ == "__main__":
