@@ -189,6 +189,29 @@ async def test_a_completed_delivery_does_not_wait_for_capture(bound, monkeypatch
         await service.drain_captures()
 
 
+async def test_shutdown_logs_which_captures_it_cancelled(caplog) -> None:
+    """A cancelled capture names its key, so an operator can go repair it."""
+    import logging
+
+    started = asyncio.Event()
+
+    async def slow(payload: object) -> None:
+        started.set()
+        await asyncio.sleep(5)
+
+    queue = CaptureQueue(_settings(drain_timeout_seconds=0.01), {"run": slow})
+    await queue.start()
+    queue.submit(CaptureRequest("run", "run:77", 77))
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    with caplog.at_level(
+        logging.WARNING, logger="rhosocial.github_actions_tracker.controllers.capture"
+    ):
+        await queue.drain()
+
+    assert "Capture cancelled at shutdown: run:77" in caplog.text
+
+
 async def test_submit_after_drain_is_dropped() -> None:
     async def handler(payload: object) -> None:
         return None

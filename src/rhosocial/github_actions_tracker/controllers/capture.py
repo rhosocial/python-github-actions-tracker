@@ -105,6 +105,12 @@ class CaptureQueue:
             )
 
         self._pending[request.key] = request
+        logger.debug(
+            "Capture queued: %s pending=%d in_flight=%d",
+            request.key,
+            len(self._pending),
+            len(self._in_flight),
+        )
 
         # The drain may be waiting on the event; a fresh context keeps a webhook
         # request's connection binding out of the tasks it creates.
@@ -145,10 +151,15 @@ class CaptureQueue:
         if self._in_flight:
             tasks = list(self._in_flight.values())
             done, pending = await asyncio.wait(tasks, timeout=self._settings.drain_timeout_seconds)
+            cancelled = [key for key, task in self._in_flight.items() if task in pending]
             for task in pending:
                 task.cancel()
             if pending:
                 await asyncio.gather(*pending, return_exceptions=True)
+                logger.warning(
+                    "Capture cancelled at shutdown: %s; deferred to read path",
+                    ", ".join(cancelled),
+                )
             for task in done:
                 task.result() if not task.cancelled() else None
 

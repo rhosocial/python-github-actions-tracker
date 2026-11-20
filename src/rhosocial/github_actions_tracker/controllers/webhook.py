@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -724,6 +725,7 @@ class WebhookController(DatabaseConnectionMixin):
         repo, run = payload
         if self._logs is None:
             return
+        started = time.perf_counter()
         view = await self._logs.ensure(
             repo,
             run,
@@ -732,8 +734,9 @@ class WebhookController(DatabaseConnectionMixin):
             delay=self._capture_settings.retry_delay_seconds,
         )
         logger.info(
-            "Capture of run %s: %s",
+            "Capture of run %s in %.2fs: %s",
             run.github_run_id,
+            time.perf_counter() - started,
             _capture_note(view),
         )
 
