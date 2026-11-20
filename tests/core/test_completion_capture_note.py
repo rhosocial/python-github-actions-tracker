@@ -1,18 +1,17 @@
 # tests/core/test_completion_capture_note.py
-"""A completed delivery says what its capture got, not just that it ran.
+"""What a completed delivery records, and where the capture note went.
 
-The one moment the per-step archive is guaranteed to be near is the instant the
-run finishes: GitHub has just written it, and it stays fetchable for only about
-an hour. A capture attempt at that moment is therefore worth recording -- a
-shortfall is a window running down, which is invisible in a ledger that says only
-"processed".
-
-Seen once: the ledger showed ``processed`` for every completion and nothing else,
-so "the delivery worked" and "we have the step logs" looked identical from the
-outside, and the only way to tell them apart was to read the container's log.
+Capture is now a detached, bounded side effect: the webhook answers while the
+archive download is still running. The delivery ledger therefore says only
+that the delivery was processed -- it cannot carry a capture result it does not
+have yet. The note still exists as a log line and as a view for a caller that
+asks for logs; the numbers live in ``ci_status.health.capture``.
 """
 
 from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
 
 from conftest import make_webhook_service
 
@@ -71,6 +70,14 @@ def _run_payload() -> dict:
     }
 
 
+class _Source:
+    """A connection source: the queue only needs it to know capture is possible."""
+
+    @asynccontextmanager
+    async def connection(self):
+        yield None
+
+
 class _FakeLogs:
     """A capture flow that answers with whatever it was handed."""
 
@@ -78,7 +85,7 @@ class _FakeLogs:
         self._view = view
         self.calls = 0
 
-    async def ensure(self, repository, run, *, job=None, want=None, retry=False):
+    async def ensure(self, repository, run, *, job=None, want=None, retry=False, **kwargs):
         self.calls += 1
         return self._view
 
@@ -87,14 +94,17 @@ class _RaisingLogs:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def ensure(self, repository, run, *, job=None, want=None, retry=False):
+    async def ensure(self, repository, run, *, job=None, want=None, retry=False, **kwargs):
         self.calls += 1
         raise RuntimeError("the archive endpoint is down")
 
 
-def _note_shape(text: str) -> str:
-    """The note's prefix, for assertions that do not want to pin the numbers."""
-    return text.strip()
+async def _wait_for_calls(logs: object, expected: int) -> None:
+    """The capture runs in a task; give the drain a bounded moment to pick it up."""
+    for _ in range(100):
+        if getattr(logs, "calls", 0) >= expected:
+            return
+        await asyncio.sleep(0.01)
 
 
 class TestTheNoteItself:
@@ -112,38 +122,50 @@ class TestTheNoteItself:
 
 
 class TestTheLedgerCarriesIt:
-    async def test_a_completed_delivery_records_what_was_captured(self, bound) -> None:
+    async def test_a_completed_delivery_records_only_itself(self, bound) -> None:
+        """The ledger says 'processed'; the capture result is not available yet."""
         await _tracked_run()
         logs = _FakeLogs(LogCaptureView(run_id=RUN_ID, steps_stored=3, missing_steps=[4]))
-        service = make_webhook_service(logs=logs)
+        service = make_webhook_service(logs=logs, database=_Source())
+        await service.start_captures()
+        try:
+            result = await service.process_webhook(
+                "workflow_run", _run_payload(), delivery_id="run-1"
+            )
+            assert result["handled"] is True
+            rows = await AsyncWebhookDelivery.query().all()
+            assert len(rows) == 1
+            assert rows[0].reason == "processed"
 
-        result = await service.process_webhook("workflow_run", _run_payload(), delivery_id="run-1")
-        assert result["handled"] is True
-        assert logs.calls == 1
+            await _wait_for_calls(logs, 1)
+            assert logs.calls == 1
+        finally:
+            await service.drain_captures()
 
-        rows = await AsyncWebhookDelivery.query().all()
-        assert len(rows) == 1
-        row = rows[0]
-        # The delivery's own verdict is unchanged, and the note rides behind it.
-        assert row.reason == "processed: capture stored=3 missing=1"
-
-    async def test_a_capture_that_failed_still_leaves_a_note(self, bound) -> None:
-        """A failed capture is not a failed delivery -- but it is not nothing."""
+    async def test_a_failed_capture_does_not_fail_the_delivery(self, bound) -> None:
+        """The failure is counted as a capture outcome, not written to the ledger."""
         await _tracked_run()
         logs = _RaisingLogs()
-        service = make_webhook_service(logs=logs)
+        service = make_webhook_service(logs=logs, database=_Source())
+        await service.start_captures()
+        try:
+            result = await service.process_webhook(
+                "workflow_run", _run_payload(), delivery_id="run-1"
+            )
+            assert result["handled"] is True
 
-        result = await service.process_webhook("workflow_run", _run_payload(), delivery_id="run-1")
-        assert result["handled"] is True, "the delivery itself was applied"
-
-        rows = await AsyncWebhookDelivery.query().all()
-        assert rows[0].reason == "processed: capture failed: RuntimeError"
+            await _wait_for_calls(logs, 1)
+            rows = await AsyncWebhookDelivery.query().all()
+            assert rows[0].reason == "processed"
+            assert service.capture_health.outcomes.get("RuntimeError") == 1
+        finally:
+            await service.drain_captures()
 
     async def test_a_job_delivery_carries_no_capture_note(self, bound) -> None:
-        """The capture belongs to the run's completion, and only there."""
+        """Job completions do not queue the run-level capture."""
         await _tracked_run()
         logs = _FakeLogs(LogCaptureView(run_id=RUN_ID, steps_stored=9))
-        service = make_webhook_service(logs=logs)
+        service = make_webhook_service(logs=logs, database=_Source())
 
         payload = {
             "action": "completed",
@@ -159,23 +181,17 @@ class TestTheLedgerCarriesIt:
         }
         result = await service.process_webhook("workflow_job", payload, delivery_id="job-1")
         assert result["handled"] is True
-
         rows = await AsyncWebhookDelivery.query().all()
         assert rows[0].reason == "processed"
-        assert logs.calls == 0
 
-    async def test_the_note_stays_inside_the_ledger_column(self, bound) -> None:
-        """The reason column is 64 characters; a long note must not overflow it.
-
-        ``already_captured`` is the longest declined reason, so the bound is
-        checked with it: the answer is truncated by the writer, never rejected.
-        """
+    async def test_the_reason_stays_short(self, bound) -> None:
+        """The ledger's reason column is 64 characters; no capture note is appended."""
         await _tracked_run()
-        logs = _FakeLogs(LogCaptureView(run_id=RUN_ID, skipped_reason="already_captured"))
-        service = make_webhook_service(logs=logs)
-
+        service = make_webhook_service(
+            logs=_FakeLogs(LogCaptureView(run_id=RUN_ID)), database=_Source()
+        )
         await service.process_webhook("workflow_run", _run_payload(), delivery_id="run-1")
 
         rows = await AsyncWebhookDelivery.query().all()
         assert len(rows[0].reason) <= 64
-        assert rows[0].reason.startswith("processed")
+        assert rows[0].reason == "processed"

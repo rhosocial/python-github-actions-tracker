@@ -115,7 +115,14 @@ GitHub 有两个日志来源，**不是一回事**：
   失败只记日志，不影响投递本身。**不在 `workflow_job` 完成时抓**：归档是 run 级的，
   run 结束前该端点一律 404（实测 12 job 矩阵，每个 job 完成都 404）。
 - 归档文件异步写入，run 刚结束可能只有几份；读取路径重试（每次重新拉取，间隔 60 秒，
-  最多 6 次），404/502/503 视为"还没好"同样重试。webhook 不做重试，免得占住投递。
+  最多 6 次），404/502/503 视为"还没好"同样重试。**webhook 侧的重试与读路径分开**：
+  它只做 3 次 × 5 秒，拿不到就放弃，由窗口内的读请求补采，绝不占住投递。
+- **webhook 触发的采集是异步的**（`controllers/capture.py`）：投递只做验签、落库、入队，
+  然后立刻回 GitHub；下载归档与写 step 日志交给一个进程内、事件驱动、有界、可丢的
+  合并执行器。它按 run/job 去重、并发数受 `GHAT_CAPTURE_CONCURRENCY` 限制、等待集合
+  超限时丢最旧的并计数，随 webhook app 的 lifespan 启停。没有表、不轮询、不承诺重启后继续：
+  事实在投递台账里，采集结果丢了由读路径补。`ci_status.health.capture` 报 pending /
+  in_flight / dropped / 各种终止原因。投递台账不再记 `capture` note——异步任务拿不到同步结果。
 - 重试用尽后仍缺时，`get_job(refresh_logs=true)` 是显式的再试入口（同样 6 次预算）；
   `get_job` 的 `capture` 计数是**日志文件数**（`expected_logs` / `captured_logs`），不是 step 数：
   skipped 与从未开始的 step 在 GitHub 侧也没有文件。

@@ -161,6 +161,42 @@ class LogSettings:
 
 
 @dataclass(frozen=True)
+class CaptureSettings:
+    """The webhook-triggered log capture executor.
+
+    This is deliberately separate from :class:`LogSettings`: the latter budgets
+    a *read* that asked for logs (6 attempts, 60 seconds apart), while these
+    numbers bound a best-effort side effect that must never hold the webhook
+    response. A failed capture here is dropped and repaired by that read path.
+    """
+
+    #: How many captures may be downloading/writing at once.
+    concurrency: int = 4
+    #: Upper bound on pending + in-flight requests. Excess is dropped, counted,
+    #: and left to the read path rather than growing without limit.
+    max_pending: int = 1000
+    #: How long shutdown waits for in-flight captures before cancelling them.
+    drain_timeout_seconds: float = 5.0
+    #: Retries inside one webhook-triggered capture.
+    retries: int = 3
+    #: Seconds between those retries.
+    retry_delay_seconds: float = 5.0
+
+    @classmethod
+    def from_env(cls) -> CaptureSettings:
+        """Build settings from the ``GHAT_CAPTURE_*`` variables."""
+        return cls(
+            concurrency=max(1, _int_env("GHAT_CAPTURE_CONCURRENCY", 4)),
+            max_pending=max(1, _int_env("GHAT_CAPTURE_MAX_PENDING", 1000)),
+            drain_timeout_seconds=max(0.0, _float_env("GHAT_CAPTURE_DRAIN_TIMEOUT_SECONDS", 5.0)),
+            retries=max(1, _int_env("GHAT_CAPTURE_WEBHOOK_RETRIES", 3)),
+            retry_delay_seconds=max(
+                0.0, _float_env("GHAT_CAPTURE_WEBHOOK_RETRY_DELAY_SECONDS", 5.0)
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class AuthSettings:
     """Authorization snapshot and webhook body limits.
 
@@ -305,6 +341,7 @@ class Settings:
     pool: PoolSettings = field(default_factory=PoolSettings.from_env)
     service: ServiceSettings = field(default_factory=ServiceSettings.from_env)
     logs: LogSettings = field(default_factory=LogSettings.from_env)
+    capture: CaptureSettings = field(default_factory=CaptureSettings.from_env)
     auth: AuthSettings = field(default_factory=AuthSettings.from_env)
 
 

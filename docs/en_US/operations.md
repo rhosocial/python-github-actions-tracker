@@ -13,6 +13,22 @@ the one thing that answers "is the deployment the commit I pushed?" — `version
 is a source constant and cannot tell two images apart. A `null` build means the
 image was not stamped (locally built), not that it is old.
 
+## Connections and webhook capture
+
+Connections are borrowed per database operation, not per request: each controller
+method wraps its SQL in `async with self.connection()` and returns the permit on
+exit. `GHAT_POOL_MAX` (default 10) only has to cover concurrent SQL, not concurrent
+requests. Waiting on GitHub, log downloads, retry sleeps and idle MCP sessions hold
+no connection at all. Check `ci_status.health.pool` before enlarging the pool.
+
+Webhook-triggered log capture is a separate, bounded in-process executor:
+`GHAT_CAPTURE_CONCURRENCY` (default 4) caps simultaneous downloads,
+`GHAT_CAPTURE_MAX_PENDING` (default 1000) caps the waiting set — overflow is dropped
+and counted rather than queued forever, and a read inside the archive window repairs
+it. `ci_status.health.capture` reports pending, in-flight, dropped and terminal
+reasons. It starts and drains with the webhook app; a restart does not resume it,
+but the delivery ledger already recorded that GitHub was heard, so no fact is lost.
+
 ## Stop, restart, upgrade
 
 | Action | Containers | init runs again | Data |

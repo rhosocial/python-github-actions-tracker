@@ -27,14 +27,13 @@ controller writes; the model only stores them."""
 
 from __future__ import annotations
 
-import asyncio
-import contextvars
 import json
 import logging
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from ..config import CaptureSettings
 from ..core.exceptions import (
     GhatError,
     RepositoryNotFoundError,
@@ -55,6 +54,7 @@ from ..models.webhook_delivery import (
 from ..models.webhook_secret import AsyncRepoWebhookSecret
 from ..services.github.protocols import RunReader, WebhookManager
 from ..views import ENV_WEBHOOK_URL, _clean_str, _webhook_defaults
+from .capture import CaptureQueue, CaptureRequest
 from .mixins import DatabaseConnectionMixin
 from .protocols import ConnectionSource, RunFetch
 
@@ -143,9 +143,16 @@ class WebhookController(DatabaseConnectionMixin):
         tracker: RunTracker | None = None,
         logs: RunLogCapture | None = None,
         database: ConnectionSource | None = None,
+        capture: CaptureSettings | None = None,
+        captures: CaptureQueue | None = None,
     ) -> None:
         super().__init__(database=database)
-        self._log_scope = database.connection if database is not None else None
+        self._capture_settings = capture or CaptureSettings()
+        self._captures = captures or CaptureQueue(
+            self._capture_settings,
+            {"run": self._capture_run, "job": self._capture_job},
+            enabled=database is not None,
+        )
         self._webhooks = webhooks
         self._readers = readers
         self._runs = runs
@@ -153,7 +160,6 @@ class WebhookController(DatabaseConnectionMixin):
         self._store = runs_data
         self._ledger = deliveries
         self._tracker = tracker
-        self._log_tasks: set[asyncio.Task[None]] = set()
         #: Step-log capture. A completion delivery is the earliest moment GitHub
         #: still has the per-step files, so it is the moment to take them.
         self._logs = logs
@@ -531,29 +537,11 @@ class WebhookController(DatabaseConnectionMixin):
             # Terminal state: stop tracking, so the tracker stays bounded.
             self._tracker.remove(github_run_id)
         if run.latest_status == "completed" and self._logs is not None:
-            # Best effort, and deliberately not fatal: the delivery is already
-            # stored, and a capture that fails now can still be retried by a
-            # read while the archive is hot. Turning it into an exception would
-            # mark the delivery unhandled for something the read path repairs.
-            try:
-                view = await self._logs.ensure(repo, run)
-            except Exception as exc:  # noqa: BLE001 - a delivery must not fail on this
-                logger.warning(
-                    "Step-log capture for run %s failed: %s: %s",
-                    github_run_id,
-                    type(exc).__name__,
-                    exc,
-                )
-                if notes is not None:
-                    notes["capture"] = f"capture failed: {type(exc).__name__}"
-            else:
-                # The one moment the per-step archive is guaranteed to be near:
-                # GitHub has just finished the run. What this attempt got is
-                # worth the ledger's while, because a shortfall here is a window
-                # that keeps running down, not a state a later read discovers
-                # for free.
-                if notes is not None:
-                    notes["capture"] = _capture_note(view)
+            # The per-step archive is freshest now, but downloading it must not
+            # hold GitHub's response. The queue coalesces redeliveries, bounds
+            # concurrency and drops overflow; any of those is repairable by a
+            # read while the archive window is still open.
+            self._captures.submit(CaptureRequest("run", f"run:{run.id}", (repo, run)))
         return True
 
     async def handle_workflow_job(self, payload: Mapping[str, Any]) -> bool:
@@ -718,37 +706,45 @@ class WebhookController(DatabaseConnectionMixin):
         )
         return run
 
-    def _schedule_log_fetch(self, run: AsyncWorkflowRun, job: AsyncJob) -> None:
-        """Fetch the logs of a failed job without blocking the delivery.
+    async def start_captures(self) -> None:
+        """Start the single drain task. Called by the webhook app's lifespan."""
+        await self._captures.start()
 
-        The task starts in a **fresh context** and gets its own connection
-        scope. A task created inside the request would inherit its ContextVars --
-        including the pooled connection the models were bound to -- and would
-        keep using it after the response returned that connection to the pool.
-        """
-        if self._database is None:
-            logger.debug("No database configured; skipping the eager log fetch for job %s", job.id)
+    async def drain_captures(self) -> None:
+        """Let in-flight captures finish before the pool closes."""
+        await self._captures.drain()
+
+    @property
+    def capture_health(self) -> Any:
+        """Numbers for ``ci_status.health.capture``."""
+        return self._captures.snapshot()
+
+    async def _capture_run(self, payload: Any) -> None:
+        """Handler for a completed run; the short retry budget lives here."""
+        repo, run = payload
+        if self._logs is None:
             return
+        view = await self._logs.ensure(
+            repo,
+            run,
+            retry=True,
+            attempts=self._capture_settings.retries,
+            delay=self._capture_settings.retry_delay_seconds,
+        )
+        logger.info(
+            "Capture of run %s: %s",
+            run.github_run_id,
+            _capture_note(view),
+        )
 
-        def start() -> None:
-            try:
-                task = asyncio.create_task(self._fetch_in_scope(run, job))
-            except RuntimeError:  # pragma: no cover - no running loop
-                logger.debug("No running loop; skipping log fetch for job %s", job.id)
-                return
-            self._log_tasks.add(task)
-            task.add_done_callback(self._log_tasks.discard)
-
-        # ``Context.run`` makes ``create_task`` capture the empty context.
-        contextvars.Context().run(start)
-
-    async def _fetch_in_scope(self, run: AsyncWorkflowRun, job: AsyncJob) -> None:
-        """Run the fetch in the fresh context ``_schedule_log_fetch`` created.
-
-        No connection is held here: the GitHub download is the long part, and
-        the row writes it produces borrow their own connections one at a time.
-        """
+    async def _capture_job(self, payload: Any) -> None:
+        """Handler for one failed job's log."""
+        run, job = payload
         await self._fetch_job_logs(run, job)
+
+    def _schedule_log_fetch(self, run: AsyncWorkflowRun, job: AsyncJob) -> None:
+        """Queue a failed job's log fetch without blocking the delivery."""
+        self._captures.submit(CaptureRequest("job", f"job:{job.id}", (run, job)))
 
     async def _fetch_job_logs(self, run: AsyncWorkflowRun, job: AsyncJob) -> None:
         """Fetch and store the logs of a failed job (best effort).

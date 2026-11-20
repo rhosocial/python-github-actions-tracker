@@ -102,6 +102,8 @@ class RunLogCapture:
         job: AsyncJob | None = None,
         want: set[int] | None = None,
         retry: bool = False,
+        attempts: int | None = None,
+        delay: float | None = None,
     ) -> LogCaptureView:
         """Capture step files, for one finished job or for a finished run.
 
@@ -204,8 +206,12 @@ class RunLogCapture:
             report.skipped_reason = SKIP_ALREADY
             return report
 
-        attempts = max(1, self._settings.capture_retry_attempts) if retry else 1
-        delay = max(0.0, self._settings.capture_retry_delay_seconds)
+        attempts = (
+            max(1, attempts if attempts is not None else self._settings.capture_retry_attempts)
+            if retry
+            else 1
+        )
+        delay = max(0.0, delay if delay is not None else self._settings.capture_retry_delay_seconds)
         missing: set[int] = set()
         archive = None
         for try_number in range(1, attempts + 1):

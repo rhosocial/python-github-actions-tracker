@@ -83,9 +83,17 @@ def create_app(
             async with owned.connection():
                 ready = await Container.start(owned)
         app.state.container = ready
+        # Webhook-triggered log capture runs in this process only. Start its
+        # bounded drain with the app and let in-flight writes finish before the
+        # pool closes; nothing else in this service starts it.
+        webhook = getattr(ready, "webhook", None)
+        if getattr(webhook, "capture_health", None) is not None:
+            await webhook.start_captures()
         try:
             yield
         finally:
+            if getattr(webhook, "capture_health", None) is not None:
+                await webhook.drain_captures()
             if owned is not None:
                 await owned.close()
 

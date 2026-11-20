@@ -124,14 +124,19 @@
 - 部署后确认镜像版本：执行 `curl -k https://127.0.0.1:18080/readyz | jq .build`，与
   `git rev-parse HEAD` 对比。如果不一致，说明 `latest` 没有更新，或容器没有重建。
 
-## 连接池：一个请求占用一条连接
+## 连接池：一次数据库操作占用一条连接
 
-连接作用域是**每请求**的，REST 中间件与 MCP 包装层各创建一个，因此：
+连接作用域是**每操作**的：控制器在读写数据库的那几行外 `async with self.connection()`，
+出块即还，适配层不再开请求级作用域。因此：
 
-- 每个正在处理的请求占用 `GHAT_POOL_MAX` 中的一个名额，默认值为 10；
-- **长轮询同样占用连接**：`wait_for_run` 在等待期间持续占用自己的连接；300 秒的等待就是 300 秒的占用；
-- `GHAT_POOL_MAX` 必须覆盖“并发长轮询 + 并发普通请求”。配置不足时，后续请求会在 `acquire` 上排队，
-  30 秒后返回 `Failed to acquire connection within 30.0 seconds`。
+- `GHAT_POOL_MAX`（默认 10）只需覆盖**并发 SQL 数**，不必覆盖并发请求数；
+- **等待 GitHub 不占连接**：`wait_for_run` 的 300 秒、日志下载、重试 sleep、空闲的 MCP 会话都不持连接；
+- 池饱和时先在 `ci_status.health.pool` 看 `acquire_timeouts` 是否增长，再决定是否调大池子。
+
+Webhook 触发的日志采集走一个独立的进程内有界执行器：`GHAT_CAPTURE_CONCURRENCY`（默认 4）
+限制同时下载数，`GHAT_CAPTURE_MAX_PENDING`（默认 1000）是等待上限，超出就丢并计数，
+由窗口内的读请求补采。`ci_status.health.capture` 报 pending / in_flight / dropped 和终止原因。
+它随 webhook app 启停，重启不续作——投递台账已经记下"收到"，事实不会丢。
 
 该错误的判读方式：
 

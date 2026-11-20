@@ -55,6 +55,7 @@ async def _health_snapshot(container: Any) -> dict[str, Any]:
     """
     snapshot = await container.status.snapshot()
     pool = _pool_payload(container)
+    capture = _capture_payload(container)
 
     if not snapshot.counts_available:
         return {
@@ -62,6 +63,7 @@ async def _health_snapshot(container: Any) -> dict[str, Any]:
             "ledger_available": False,
             "error": snapshot.error,
             "pool": pool,
+            "capture": capture,
         }
 
     if not snapshot.ledger_available:
@@ -69,6 +71,7 @@ async def _health_snapshot(container: Any) -> dict[str, Any]:
             "available": True,
             "ledger_available": False,
             "pool": pool,
+            "capture": capture,
             "repository_count": snapshot.repository_count,
             "runs_tracked": snapshot.runs_tracked,
             "error": snapshot.error,
@@ -111,6 +114,7 @@ async def _health_snapshot(container: Any) -> dict[str, Any]:
         "repository_count": snapshot.repository_count,
         "runs_tracked": snapshot.runs_tracked,
         "pool": pool,
+        "capture": capture,
         "alerts": alerts,
         # Kept for callers written against the earlier shape. Both are now
         # derived from the ledger: the run-level one from the workflow_run
@@ -125,6 +129,20 @@ async def _health_snapshot(container: Any) -> dict[str, Any]:
         "stale_data_hint": (
             "If a run looks missing, call find_runs; that path " "does not depend on webhooks."
         ),
+    }
+
+
+def _capture_payload(container: Any) -> dict[str, Any] | None:
+    """The webhook capture executor's numbers, or ``None`` where it does not run."""
+    webhook = getattr(container, "webhook", None)
+    health = getattr(webhook, "capture_health", None)
+    if health is None:
+        return None
+    return {
+        "pending": health.pending,
+        "in_flight": health.in_flight,
+        "dropped": health.dropped,
+        "outcomes": dict(health.outcomes),
     }
 
 

@@ -228,6 +228,7 @@ class Container:
                 tracker=shared_tracker,
                 logs=logs,
                 database=database,
+                capture=resolved_settings.capture,
             ),
             workflow=WorkflowController(repositories=repositories, trigger=trigger),
             capacity=capacity,

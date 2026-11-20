@@ -1,24 +1,16 @@
 # tests/core/test_webhook_log_scope.py
-"""A detached log fetch must not inherit the request's connection.
+"""A detached capture must not inherit the request's context.
 
-``asyncio.create_task`` copies the current context, and that context holds the
-pooled connection the models were bound to. A task started that way keeps using
-a connection the response has already returned to the pool -- the interleaving
-the ORM warns about for a shared backend, except here it spans two requests.
-
-So the fetch runs in an empty context. It does not need a connection of its own
-either: the GitHub download is the long part and happens outside any borrow, and
-each row it writes borrows from the pool itself, one operation at a time.
-
-Without a database the fetch is skipped, which is honest: there is nothing it
-could safely write to.
+``asyncio.create_task`` copies the current context, which holds the pooled
+connection the models were bound to. A task started inside the request would
+keep using a connection the response had already returned to the pool. The
+capture queue creates its tasks in a fresh context, so the work runs with no
+binding and borrows its own connections for the rows it writes.
 """
 
 from __future__ import annotations
 
-import asyncio
 import contextvars
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 from conftest import make_webhook_service
@@ -30,9 +22,14 @@ REQUEST_CONTEXT = contextvars.ContextVar("request_context", default="none")
 class _Source:
     """A connection source: the protocol's one method, and nothing else."""
 
-    @asynccontextmanager
     async def connection(self):
-        yield SimpleNamespace()
+        from contextlib import asynccontextmanager
+
+        @asynccontextmanager
+        async def cm():
+            yield None
+
+        return cm()
 
 
 class TestLogScope:
@@ -50,7 +47,8 @@ class TestLogScope:
                 SimpleNamespace(workflow_id=1, id=1),
                 SimpleNamespace(id=1, github_job_id=2),
             )
-            await asyncio.gather(*service._log_tasks)  # noqa: SLF001
+            await service.start_captures()
+            await service.drain_captures()
         finally:
             REQUEST_CONTEXT.reset(token)
 
@@ -64,4 +62,5 @@ class TestLogScope:
             SimpleNamespace(id=1, github_job_id=2),
         )
 
-        assert service._log_tasks == set()  # noqa: SLF001
+        assert service.capture_health.pending == 0
+        assert service.capture_health.dropped == 1
