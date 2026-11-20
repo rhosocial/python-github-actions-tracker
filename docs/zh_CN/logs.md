@@ -61,6 +61,20 @@ get_run_failed_logs(run_id)          整个 run 中失败 job 的失败 step，�
 `get_job(job_id, refresh_logs=true)`；该调用只在 GitHub 仍提供 step 分片期间有意义
 （`capture.window_closes_at` 之前）。
 
+## 两套重试预算
+
+采集由两条不同的路径触发，重试预算互不混用：
+
+| 路径 | 何时触发 | 重试 | 拿不到时 |
+|---|---|---|---|
+| **读路径** | 窗口内的读取请求、`get_job(refresh_logs=true)` | 6 次，间隔 60 秒（404/502/503 视为"归档还没好"同样重试） | 如实报告 `steps_without_logs` 与原因 |
+| **webhook 采集** | run 完成的投递 | 3 次，间隔 5 秒（`GHAT_CAPTURE_WEBHOOK_RETRIES` / `..._DELAY_SECONDS`） | 放弃并入队计数，**交给窗口内的读请求补采** |
+
+webhook 采集是进程内、有界、可丢的异步执行器（`ci_status.health.capture` 报 pending / in_flight / dropped）：
+投递只验签、落库、入队就回 GitHub，下载归档与写 step 日志在后台进行。等待集合超过
+`GHAT_CAPTURE_MAX_PENDING` 时丢最旧的并计数；进程重启不续作——投递台账已经记下"收到"，
+事实不会丢，采集结果丢了由读路径补。措辞上"过期"的是 GitHub 的提供窗口，不是已存下来的行。
+
 ## 容量与清理
 
 - `db usage` 报告数据库当前占用；

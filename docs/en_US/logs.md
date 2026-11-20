@@ -81,6 +81,23 @@ at them is wrong for every other project.
 `get_job(job_id, refresh_logs=true)` — meaningful only while GitHub still serves
 the split (before `capture.window_closes_at`).
 
+## The two retry budgets
+
+Capture is triggered by two different paths, and their retry budgets are not shared:
+
+| Path | When it runs | Retries | When it fails |
+|---|---|---|---|
+| **Read path** | a read inside the window, `get_job(refresh_logs=true)` | 6 attempts, 60 s apart (404/502/503 count as "archive not ready" and retry too) | reports `steps_without_logs` and the reason honestly |
+| **Webhook capture** | a `workflow_run` completion delivery | 3 attempts, 5 s apart (`GHAT_CAPTURE_WEBHOOK_RETRIES` / `..._RETRY_DELAY_SECONDS`) | gives up and counts the drop — a read inside the window repairs it |
+
+Webhook capture is a bounded, lossy in-process executor (`ci_status.health.capture`
+reports pending / in-flight / dropped): the delivery verifies, stores and enqueues,
+then answers GitHub; the download and the step-log writes happen in the background.
+When the waiting set exceeds `GHAT_CAPTURE_MAX_PENDING` the oldest is dropped and
+counted. A restart does not resume it — the delivery ledger already recorded that
+GitHub was heard, so no fact is lost and a read repairs the capture. What "expires"
+is GitHub's serving window, not rows we already stored.
+
 ## Capacity and cleanup
 
 - `db usage` reports what the database holds;

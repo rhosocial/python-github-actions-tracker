@@ -23,9 +23,75 @@ One database volume; `down` keeps it, `down -v` deletes it.
 
 ## First boot (`init.d`)
 
-`10-schema.sh` creates the database and the tables (`CREATE DATABASE` +
-`CREATE TABLE IF NOT EXISTS`), `20-pat.sh` ensures the credential. Both are
-idempotent; **initialisation never clears existing data**.
+Table structure and PATs are **operational data**, not code baked into the image. The
+image ships a generic runner; the real init scripts live in `docker/init.d/`, mounted
+read-only at `/docker-entrypoint-init.d` — the same mechanism as the MySQL image's
+`/docker-entrypoint-initdb.d`.
+
+| Script | Role |
+|---|---|
+| `docker/init.d/10-schema.sh` | runs `rhosocial-github-actions-tracker-db init`: creates the database if absent, then all tables; idempotent |
+| `docker/init.d/20-pat.sh` | when a PAT is configured, runs `credential pat ensure`: adds the credential or rotates it in place |
+
+"First" is decided by database state, not the container filesystem. The runner first
+calls `rhosocial-github-actions-tracker-db is-initialized`: if every `ct_*` table exists
+it skips the scripts, otherwise it runs them in filename order. Container recreation and
+image upgrades never re-initialise. **Any script failing fails `init`**, and `web` and
+`mcp` do not start against an uninitialised database.
+
+`20-pat.sh` reads these from `docker/stack.env`:
+
+```dotenv
+GHAT_BOOTSTRAP_PAT=github_pat_xxx
+GHAT_BOOTSTRAP_PAT_NAME=work
+GHAT_BOOTSTRAP_PROBE_REPO=owner/repo
+```
+
+`credential pat ensure` is idempotent: absent credentials are added; existing ones rotate
+in place, keeping their id and every repository binding (no re-subscribe). Both paths ask
+GitHub to verify the token first — a bad token fails startup and is never written. With
+`GHAT_BOOTSTRAP_PROBE_REPO` set, it also probes that repository's Actions write access and
+records `can_write_actions`, the prerequisite for triggering CI. Required scopes are
+`Actions: Read and write` and `Metadata: Read`, plus `Administration: Read and write` if
+the CLI should create webhooks for you.
+
+To keep the token out of `docker inspect`, use the file form: place the token in a
+directory, mount that directory into `init`, and set `GHAT_BOOTSTRAP_PAT_FILE` — for
+example `/run/secrets/github-actions-tracker-pat`. Both scripts and CLI accept
+`--token-file` and `--token-stdin`, so the token never appears in process arguments.
+
+> **Mount a directory, never a single file.** On Docker Desktop's Hyper-V backend, a
+> single-file bind mount whose host path is unreachable puts the container into a state
+> where it cannot be removed: `docker rm -f`, `docker compose down` and `docker start`
+> all block, and only restarting the engine clears it. A directory mount has no such
+> failure mode. This repo's local override mounts a directory:
+>
+> ```yaml
+> volumes:
+>   - ./docker/secrets:/run/secrets:ro      # the directory, not ./docker/secrets/github-actions-tracker-pat
+> ```
+
+### Re-running initialisation
+
+After first boot the scripts do not run again. If you changed a script, or configured the
+PAT only after the first boot, run:
+
+```bash
+docker compose run --rm -e GHAT_INITDB=force init
+```
+
+You can also drop your own `*.sh` scripts into `docker/init.d/`; they run in filename
+order and any failure stops the sequence. They are deployment data and are not packed
+into the image.
+
+Manual mode (without init.d):
+
+```bash
+docker compose exec web rhosocial-github-actions-tracker credential pat add \
+  --name work --token <PAT> --probe-repo owner/repo
+docker compose exec web rhosocial-github-actions-tracker credential pat list
+docker compose exec web rhosocial-github-actions-tracker credential pat show --name work --probe-repo owner/repo
+```
 
 Startup order is guaranteed by `depends_on`; the database does not have to sit
 next to the application.

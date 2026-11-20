@@ -291,7 +291,7 @@ default prefix for the webhook callback URL.
 | `GHAT_DB_HOST/PORT` | `localhost:5432` (`postgres:5432` in compose) | PostgreSQL coordinates |
 | `GHAT_DB_USER/PASSWORD/NAME` | `root` / `password` / `test_db` | database account and name |
 | `GHAT_DB_SSLMODE` | `prefer` | libpq sslmode |
-| `GHAT_POOL_MIN/MAX` | `1` / `10` | pool; one connection per request in flight, long polls included; see [the pool](operations.md#the-pool-one-connection-per-request) |
+| `GHAT_POOL_MIN/MAX` | `1` / `10` | pool scoped per database operation; long waits hold none; see [the pool](operations.md#connections-and-webhook-capture) |
 | `GHAT_API_KEY` | empty | Bearer for REST / MCP; empty means no auth (warns at startup), mandatory on the public internet |
 | `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST listener |
 | `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP listener |
@@ -305,6 +305,13 @@ default prefix for the webhook callback URL.
 | `GHAT_LOG_CAPTURE` | `1` | whether to capture step logs; `0/false/no/off` reads the merged job text instead |
 | `GHAT_LOG_CAPTURE_WINDOW_MINUTES` | `60` | how long after completion a capture is still attempted. The value is **measured**, not promised by GitHub; a larger value only retrieves more |
 | `GHAT_LOG_LEVEL` | `INFO` | log level; logs go to stdout/stderr |
+
+> **Credentials never reach the logs**: redaction is the ORM's job. SQL parameter lines are
+> written only at `DEBUG` (invisible at `INFO`), and unnamed positional parameters render as
+> `<N params: types>` rather than their values. So at the production default of `INFO`, PATs
+> and webhook secrets do not appear in logs. Raising the level to `DEBUG` does print parameter
+> values — that is a deliberate diagnostic switch, not a production default. Each write's SQL
+> line carries the model, table and operation, so it is clear which row was written.
 | `GHAT_INITDB` | `auto` | whether first boot runs the init.d scripts: `auto` (when tables are missing) / `force` / `skip` |
 | `GHAT_INITDB_DIR` | `/docker-entrypoint-init.d` | init.d directory; compose read-only mounts `./docker/init.d` |
 | `GHAT_LEGACY` | `0` | `1` equals `GHAT_INITDB=skip` (legacy deployment) |

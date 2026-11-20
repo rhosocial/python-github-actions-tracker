@@ -5,10 +5,13 @@
 ```
 services/github/
 ├── protocols.py    RunReader / RunControl / RepositoryReader / WebhookManager / CredentialProbe
+├── client.py       REST 客户端：GithubClient / AsyncGithubClient（同步版只用于调试命令）
+├── base.py         一个资源组的令牌从哪来，构造时决定一次
 ├── runs.py         /actions/runs：读取，以及三个花 CI 额度的动作
 ├── repositories.py /repos：元数据、workflow 列表、凭据作用域内的发现
 ├── webhooks.py     /hooks：建、删、ping
 ├── credentials.py  令牌探测（PAT 的权限与可访问范围）
+├── logs.py         run 日志归档：判定形态、解析分片，作为数据返回
 └── payloads.py     GitHub JSON → 模型列名的语义值（Pydantic 模型 + 校验）
 ```
 

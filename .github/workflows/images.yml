@@ -80,7 +80,7 @@ jobs:
       # every build until this was noticed in a log (2026-10-31).
       - name: Guard against proxy configuration in the image
         run: |
-          if grep -nEi -- 'https?_proxy|all_proxy|no_proxy|pip_index_url|pip_trusted_host|mirrors\.aliyun\.com|127\.0.0.1:7897' \
+          if grep -nEi -- 'https?_proxy|all_proxy|no_proxy|pip_index_url|pip_trusted_host|mirrors\.aliyun\.com' \
             Dockerfile docker/entrypoint.sh .dockerignore docker-compose.yml docker-compose.bundled.yml; then
             echo "::error::proxy or mirror configuration must stay runtime-only"
             exit 1

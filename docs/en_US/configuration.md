@@ -10,8 +10,14 @@ values follow the session time zone, which is the server's setting.
 | `GHAT_DB_HOST/PORT` | `localhost:5432` (in compose: `postgres:5432`) | PostgreSQL coordinates |
 | `GHAT_DB_USER/PASSWORD/NAME` | `root` / `password` / `test_db` | database account |
 | `GHAT_DB_SSLMODE` | `prefer` | libpq sslmode |
-| `GHAT_POOL_MIN/MAX` | `1` / `10` | pool; **each request holds one connection**, and `wait_for_run` holds one for its whole wait |
+| `GHAT_POOL_MIN/MAX` | `1` / `10` | pool; scoped **per database operation** — a controller wraps each SQL statement in `async with self.connection()`. `wait_for_run` holds no connection while waiting on GitHub; only concurrent SQL needs a slot |
 | `GHAT_API_KEY` | empty | Bearer for REST / MCP; empty means no auth (warns at startup) |
+| `GHAT_AUTH_CACHE_TTL_SECONDS` | `30` | lifetime of the auth snapshot. `0` disables the cache and falls back to the per-request lookup (a rollback switch); see the [probes section of operations](operations.md#probes) |
+| `GHAT_AUTH_CACHE_MAX_ENTRIES` | `50000` | cap on repositories in the snapshot; exceeding it is reported, not silently dropped |
+| `GHAT_AUTH_CACHE_REFRESH_BACKOFF_SECONDS` | `5` | how long a failed refresh waits before another request may retry |
+| `GHAT_WEBHOOK_MAX_BODY_BYTES` | `26214400` | max delivery body (25 MB); larger is refused |
+| `GHAT_WEBHOOK_READ_TIMEOUT_SECONDS` | `10` | timeout for reading one delivery body; overtime is refused |
+| `GHAT_PAT_NAME` | `default` | default credential alias |
 | `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST listener |
 | `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP listener |
 | `GHAT_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook listener |
@@ -37,7 +43,12 @@ values follow the session time zone, which is the server's setting.
 | `GHAT_LOG_CAPTURE` | `1` | capture step logs at all; `0` falls back to merged job logs |
 | `GHAT_LOG_CAPTURE_WINDOW_MINUTES` | `60` | how long after completion a capture is still attempted (measured: GitHub stops the split between 56 and 70 minutes) |
 | `GHAT_LOG_CAPTURE_RETRIES` | `6` | attempts while the archive is still filling |
-| `GHAT_LOG_CAPTURE_RETRY_DELAY_SECONDS` | `60` | seconds between them |
+| `GHAT_LOG_CAPTURE_RETRY_DELAY_SECONDS` | `60` | seconds between them. These four are the **read path** budget; webhook capture is separate — 3 attempts × 5 seconds, see the `GHAT_CAPTURE_*` rows below |
+| `GHAT_CAPTURE_CONCURRENCY` | `4` | max simultaneous downloads in the webhook capture executor |
+| `GHAT_CAPTURE_MAX_PENDING` | `1000` | cap on queued captures; overflow drops the oldest, counts it, and leaves repair to a read inside the archive window |
+| `GHAT_CAPTURE_DRAIN_TIMEOUT_SECONDS` | `5` | how long shutdown waits for in-flight captures before cancelling them, which is counted in `ci_status.health.capture` |
+| `GHAT_CAPTURE_WEBHOOK_RETRIES` | `3` | retries for a webhook capture (distinct from the read path's 6) |
+| `GHAT_CAPTURE_WEBHOOK_RETRY_DELAY_SECONDS` | `5` | seconds between webhook-capture retries |
 | `GHAT_INITDB` | `auto` | `auto` / `force` / `skip` |
 | `GHAT_INITDB_DIR` | `/docker-entrypoint-init.d` | where the init scripts live |
 | `GHAT_LEGACY` | `0` | `1` = `GHAT_INITDB=skip` |
@@ -48,6 +59,6 @@ values follow the session time zone, which is the server's setting.
 | `GHAT_IMAGE` | published image | the image compose uses |
 | `GHAT_WEBHOOK_PORT_HOST` | `18080` | host-published webhook port |
 | `GHAT_MCP_PORT_HOST` | `8001` | host-published MCP port |
-| `GHAT_BUILD_REVISION` | empty | written by the image build; reported by `/readyz` and `ci_status` |
+| `GHAT_BUILD_REVISION` | empty | written by the image build; reported by `/livez`, `/readyz` and `ci_status` |
 | `GHAT_BUILD_NUMBER` | empty | the publishing workflow's run number |
 | `GHAT_BUILD_BUILT_AT` | empty | build timestamp, ISO 8601 UTC |

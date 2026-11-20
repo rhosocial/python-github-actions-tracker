@@ -18,6 +18,21 @@ get_run_failed_logs(run_id)  → 整个 run 中失败 job 的失败 step，按�
 - 失败 job 在不指定作用域时，从失败的 step 读起，并带 `scoped_to_failed: true`。作用域由 step 的结论决定，不由日志文本决定。
 - 全部通过的 job 不会被催促读取日志：`has_log` 仍然如实为 `true`，数据已经存在，只是提示不会主动推荐读取。
 
+## 一条 run 自己说清楚是谁
+
+同一个提交上常常有两条 run（`test.yml` 与 `changelog-check.yml`），所以 `find_runs` / `recent_runs` / `get_run`
+的返回都带四组身份信息，缺一组调用方就可能做错决定：
+
+| 组 | 字段 | 回答什么 |
+|---|---|---|
+| 哪个 workflow | `workflow: {name, path}` | 同一 sha 上的两条 run 靠它区分 |
+| 哪个提交 | `commit: {sha, message, author, committed_at}` | `author` 是写代码的人，`actor` 是触发这次 run 的人 |
+| 哪个 PR | `pr_number`、`base_ref` | 从 run 反查所属 PR 与目标分支 |
+| 代码从哪来 | `head_repo`、`display_title` | fork PR 的代码不在本仓库；标题是 GitHub 对这次 run 的一句话 |
+
+`base_ref` 是补出来的，不是 run 自带的：GitHub 在 PR 关闭后就不再随 run 返回 `base.ref`，于是会出现
+`pr_number` 有值而 `base_ref` 为空。读单条 run 时会向该 PR 查一次并写回，之后不再产生调用。
+
 ## 两个日志来源
 
 | 来源 | 内容 | 可得性 |
@@ -33,6 +48,9 @@ get_run_failed_logs(run_id)  → 整个 run 中失败 job 的失败 step，按�
 
 例如，`vistart/Dockerfiles` 的 `build_and_deploy.yml` 就同时使用过 "php - Build and Deploy"、
 "vlmcsd - Build and Deploy" 和 "ubuntu - Build and Deploy" 这几个名字。
+
+`ghat_workflows.workflow_id = 0` 表示**未解析**，永远不等于"全部 workflow"：按 workflow 过滤时会回源解析并
+写回；解析不到就报 `workflow_not_found`。静默去掉过滤会让调用方拿到全量还以为筛选成功。
 
 ## 失败判定
 

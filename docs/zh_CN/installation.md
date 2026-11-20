@@ -273,7 +273,7 @@ DSM 7.2 上的 Container Manager（DS223、DS423 等 `aarch64` 机型；低端 `
 | `GHAT_DB_HOST/PORT` | `localhost:5432`（compose 内为 `postgres:5432`） | PostgreSQL 坐标 |
 | `GHAT_DB_USER/PASSWORD/NAME` | `root` / `password` / `test_db` | 数据库账号与库名 |
 | `GHAT_DB_SSLMODE` | `prefer` | libpq sslmode |
-| `GHAT_POOL_MIN/MAX` | `1` / `10` | 连接池。每个在处理的请求占一条连接，长轮询也算，见[连接池](operations.md#连接池一个请求占用一条连接) |
+| `GHAT_POOL_MIN/MAX` | `1` / `10` | 连接池。作用域是每次数据库操作，长等待不占连接，见[连接池](operations.md#连接池一次数据库操作占用一条连接) |
 | `GHAT_API_KEY` | 空 | REST / MCP 的 Bearer；空表示不鉴权（启动告警），公网必须设置 |
 | `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听 |
 | `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听 |
@@ -287,6 +287,11 @@ DSM 7.2 上的 Container Manager（DS223、DS423 等 `aarch64` 机型；低端 `
 | `GHAT_LOG_CAPTURE` | `1` | 是否采集 step 日志。`0/false/no/off` 关闭后，所有日志读取都走整 job 的合并文本 |
 | `GHAT_LOG_CAPTURE_WINDOW_MINUTES` | `60` | run 结束后多久之内仍然尝试采集 step 分片。该值是**实测结果**，不是官方承诺；调大不会产生负面影响，调小会减少采集范围 |
 | `GHAT_LOG_LEVEL` | `INFO` | 日志级别；日志一律走 stdout/stderr |
+
+> **凭据不会进日志**：掩码由 ORM 库负责。SQL 参数行只在 `DEBUG` 记录（`INFO` 看不到），且未命名位置参数
+> 渲染为 `<N params: types>` 而不打印值。因此在生产默认的 `INFO` 下，PAT 与 webhook secret 不会出现在日志里。
+> 把级别调到 `DEBUG` 会显示参数值——那是有意的排障开关，不要在生产长期开启。每条写入的 SQL 行自带
+> 模型名、表名与操作类型，便于定位是哪张表的哪次写。
 | `GHAT_INITDB` | `auto` | 首次启动是否执行 init.d 脚本：`auto`（表不存在时执行）/ `force` / `skip` |
 | `GHAT_INITDB_DIR` | `/docker-entrypoint-init.d` | init.d 脚本目录；compose 只读挂载 `./docker/init.d` |
 | `GHAT_LEGACY` | `0` | `1` 等价于 `GHAT_INITDB=skip`（legacy 部署） |

@@ -30,4 +30,6 @@
 * [开发](development.md)
 * [测试](testing.md)
 
+## 隐私说明
+
 * [隐私说明](privacy.md)

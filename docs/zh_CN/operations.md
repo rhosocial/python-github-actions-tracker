@@ -90,11 +90,13 @@
 | `/readyz` | 当前实例能否接收请求 | 一次数据库往返，执行 `SELECT 1`，上限 2 秒 | 从负载均衡中摘除，**不重启** |
 
 `/health` 与 `/healthz` 是 `/readyz` 的别名，供旧部署与外部监控使用。四个路径都不要求 API key，
-也不占用每请求的连接作用域。
+也不借用控制器的数据库连接（`/livez` 零 I/O，`/readyz` 自带一次短查询）。
 
 - `docker-compose.yml` 的 healthcheck 请求 `/readyz`，两个常驻容器各有一份配置；
 - 数据库不可达时返回 `503 {"status":"not_ready","checks":{...}}`；数据库恢复后会自动回到 200，不需要重启容器；
 - 缺少表不参与就绪判定：`checks.schema` 会写出 `missing: ...`，该检查在启动时执行一次；建表是 `init` 的职责；
+- `checks.auth_cache` 只对 **webhook 面**生效：验签密钥的快照从未加载过时，webhook 面返回 503（它无法验任何投递）；快照过期但已加载仍然 ready（旧密钥照样能验签），只在 body 里报 `stale: true`。REST / MCP 面只报告快照状态，不因它 not-ready——它们用静态 API key，与快照无关；
+- 台账为空、ambient PAT 缺失都**不算** not-ready：前者只是还没收到投递，后者是按仓库绑定的正常模式；
 - `ci_status.health` 面向人和 agent，提供投递流、回填速率与写入失败等运维信息，**不是编排器探针**。
 
 ### 当前进程对应哪个构建：`build` 块
@@ -142,10 +144,15 @@ Webhook 触发的日志采集走一个独立的进程内有界执行器：`GHAT_
 
 | `Pool stats` | 含义 | 处理 |
 |---|---|---|
-| `in_use` 接近 `max_size` | **饱和**：并发确实超过了连接池容量 | 调大 `GHAT_POOL_MAX`，或减少并发长轮询 |
-| `available=0, in_use=0` | **连接许可泄漏** | 重启容器；这是 1.0.0.dev1 之前版本的缺陷，`python-activerecord` 的 `a55ebbd9` 已修复 |
+| `in_use` 接近 `max_size` | **饱和**：并发 SQL 确实超过了连接池容量 | 调大 `GHAT_POOL_MAX`，或减少并发数据库操作 |
+| `available=0` 且 `in_use ≤ 1` | **连接许可泄漏**：等待不会恢复，只能重启 | 重启容器；读这个指标的调用自身占一条连接，所以 `in_use=0` 永远不会成立。这是 1.0.0.dev1 之前版本的缺陷，`python-activerecord` 的 `a55ebbd9` 已修复 |
 
 ## 更新或替换 PAT
+
+每个用户提供自己的 Fine-grained PAT，服务加密存储，不维护中心令牌池。进程没有 ambient 凭据时，
+按 `ghat_repository_bindings` **逐仓库解析**；某个仓库没有绑定就匿名读——匿名读可能触发 GitHub 的
+404 或速率限制，但这是正常模式，不是故障。webhook 的验签密钥与 PAT 分开存放（前者是按仓库的
+`ghat_repo_webhook_secrets`，见认证缓存一节）。
 
 令牌有两种存放形式，更新步骤不同，但都以 `force init` 收尾。
 
@@ -320,21 +327,21 @@ docker compose run --rm -e GHAT_INITDB=force init
 
 ## 运行时代理（仅中国大陆）
 
-镜像本身不包含代理配置。需要代理的部署应在**运行时**注入，例如写入本地覆盖文件：
+镜像本身不包含代理配置——这是**只在运行时**处理的事。需要代理的部署通过本地覆盖文件注入，
+该文件**不提交**到本仓库，因此源码树中不出现任何代理地址：
 
 ```yaml
 services:
   web:
     environment:
-      HTTP_PROXY: http://host.docker.internal:7897
-      HTTPS_PROXY: http://host.docker.internal:7897
-      NO_PROXY: localhost,127.0.0.1,::1,host.docker.internal,192.168.1.3
+      HTTP_PROXY: http://<主机>:<端口>
+      HTTPS_PROXY: http://<主机>:<端口>
+      NO_PROXY: <数据库主机>,localhost,127.0.0.1,::1
 ```
 
-- Docker Desktop 会把宿主代理以 `127.0.0.1:7897` 注入容器，但容器内的 `127.0.0.1` 指向容器自身，
-  因此必须覆盖为 `host.docker.internal`。
+- 代理主机必须能从容器内访问。只绑定在宿主 loopback 的代理通常不行：应指向容器可路由的主机名或地址。
 - `NO_PROXY` 必须包含数据库主机，否则数据库连接也会经过代理。
-- 全球用户不需要这些变量；不设置时即为直连。
+- 不需要代理的部署什么也不设；不设置时即为直连。
 
 ## 验证
 

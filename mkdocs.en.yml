@@ -5,9 +5,9 @@
 # theme.language -- and share everything else by being written twice. A shared include
 # would be one more mechanism to debug for a three-line saving.
 #
-# Navigation comes from the page's own SUMMARY.md (mkdocs-literate-nav), so the site has
-# no second table of contents to drift from the one tests/app/test_documentation.py
-# already guards.
+# Navigation is written by hand in `nav` below, and tests/app/test_docs_site.py fails
+# when it drifts from the page's own SUMMARY.md. The two must stay in step; there is no
+# plugin deriving one from the other.
 site_name: GitHub Actions Tracker
 site_description: Track GitHub Actions runs, jobs, steps and logs — over MCP, REST and a CLI.
 site_url: https://rhosocial.github.io/python-github-actions-tracker/

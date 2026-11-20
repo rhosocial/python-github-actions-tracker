@@ -8,8 +8,14 @@
 | `GHAT_DB_HOST/PORT` | `localhost:5432`（compose 内为 `postgres:5432`） | PostgreSQL 地址与端口 |
 | `GHAT_DB_USER/PASSWORD/NAME` | `root` / `password` / `test_db` | 数据库账号 |
 | `GHAT_DB_SSLMODE` | `prefer` | libpq 的 sslmode |
-| `GHAT_POOL_MIN/MAX` | `1` / `10` | 连接池。每个正在处理的请求占用一条连接；`wait_for_run` 在等待期间持续占用 |
+| `GHAT_POOL_MIN/MAX` | `1` / `10` | 连接池。作用域是**每次数据库操作**：控制器只在数据库语句外套 `async with self.connection()`，出块即还；`wait_for_run` 等 GitHub 时不占连接，只需覆盖并发 SQL 数 |
 | `GHAT_API_KEY` | 空 | REST / MCP 的 Bearer 凭据。为空表示不鉴权，启动时会告警；面向公网时必须设置 |
+| `GHAT_AUTH_CACHE_TTL_SECONDS` | `30` | 认证快照的缓存时长。`0` 关闭缓存、回退到按请求短查询（回滚开关）；见[运维文档的探针一节](operations.md#探针livez-与-readyz) |
+| `GHAT_AUTH_CACHE_MAX_ENTRIES` | `50000` | 快照缓存的仓库上限；超出会报告而非静默丢弃 |
+| `GHAT_AUTH_CACHE_REFRESH_BACKOFF_SECONDS` | `5` | 刷新失败后，下一次请求多久才允许再试 |
+| `GHAT_WEBHOOK_MAX_BODY_BYTES` | `26214400` | 投递正文上限（25 MB）；超过直接拒绝 |
+| `GHAT_WEBHOOK_READ_TIMEOUT_SECONDS` | `10` | 读取一次投递正文的超时；超时则拒绝该请求 |
+| `GHAT_PAT_NAME` | `default` | 默认使用的凭据别名 |
 | `GHAT_REST_HOST/PORT` | `0.0.0.0:8000` | REST 监听地址 |
 | `GHAT_MCP_HOST/PORT` | `0.0.0.0:8001` | MCP 监听地址 |
 | `GHAT_WEBHOOK_HOST/PORT` | `0.0.0.0:18080` | webhook 监听地址 |
@@ -32,7 +38,12 @@
 | `GHAT_LOG_CAPTURE` | `1` | 是否采集 step 日志。设为 `0` 时全部退回整 job 合并文本 |
 | `GHAT_LOG_CAPTURE_WINDOW_MINUTES` | `60` | run 结束后多久之内仍然尝试采集。实测 GitHub 在 56–70 分钟之间压平分片 |
 | `GHAT_LOG_CAPTURE_RETRIES` | `6` | 归档仍在写入期间的重试次数 |
-| `GHAT_LOG_CAPTURE_RETRY_DELAY_SECONDS` | `60` | 重试间隔，单位为秒 |
+| `GHAT_LOG_CAPTURE_RETRY_DELAY_SECONDS` | `60` | 重试间隔，单位为秒。以上四个是**读路径**预算；webhook 侧的采集是另一套：3 次 × 5 秒，见下方 `GHAT_CAPTURE_*` |
+| `GHAT_CAPTURE_CONCURRENCY` | `4` | webhook 触发的采集执行器同时下载的上限 |
+| `GHAT_CAPTURE_MAX_PENDING` | `1000` | 等待中的采集数上限；超出则丢最旧的、计数并交给窗口内的读请求补采 |
+| `GHAT_CAPTURE_DRAIN_TIMEOUT_SECONDS` | `5` | 退出时等待在途采集完成的时长，超时则取消并记入 `ci_status.health.capture` |
+| `GHAT_CAPTURE_WEBHOOK_RETRIES` | `3` | webhook 采集的重试次数（与读路径的 6 次分开） |
+| `GHAT_CAPTURE_WEBHOOK_RETRY_DELAY_SECONDS` | `5` | webhook 采集的重试间隔，单位为秒 |
 | `GHAT_INITDB` | `auto` | 可选 `auto` / `force` / `skip` |
 | `GHAT_INITDB_DIR` | `/docker-entrypoint-init.d` | init.d 目录位置 |
 | `GHAT_LEGACY` | `0` | 设为 `1` 等价于 `GHAT_INITDB=skip` |
@@ -43,6 +54,6 @@
 | `GHAT_IMAGE` | 发布镜像 | compose 使用的镜像 |
 | `GHAT_WEBHOOK_PORT_HOST` | `18080` | 宿主发布的 webhook 端口 |
 | `GHAT_MCP_PORT_HOST` | `8001` | 宿主发布的 MCP 端口 |
-| `GHAT_BUILD_REVISION` | 空 | 镜像构建时写入；`/readyz` 与 `ci_status` 会回报该值 |
+| `GHAT_BUILD_REVISION` | 空 | 镜像构建时写入；`/livez`、`/readyz` 与 `ci_status` 都会回报该值 |
 | `GHAT_BUILD_NUMBER` | 空 | 发布工作流的构建号 |
 | `GHAT_BUILD_BUILT_AT` | 空 | 构建时间，ISO 8601 UTC |

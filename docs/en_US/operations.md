@@ -13,6 +13,14 @@ the one thing that answers "is the deployment the commit I pushed?" — `version
 is a source constant and cannot tell two images apart. A `null` build means the
 image was not stamped (locally built), not that it is old.
 
+`checks.auth_cache` matters **only on the webhook surface**: if the signing-secret
+snapshot was never loaded, webhook readiness is 503 (it cannot verify any delivery).
+A stale but loaded snapshot is still ready — old secrets still verify — with
+`stale: true` in the body. REST / MCP only report the snapshot's status; they use
+the static API key and do not go not-ready over it. An empty delivery ledger or a
+missing ambient PAT are likewise not not-ready: the first just means no delivery
+has arrived, the second is the normal per-repository binding mode.
+
 ## Connections and webhook capture
 
 Connections are borrowed per database operation, not per request: each controller
@@ -97,6 +105,13 @@ For a local check no registry is involved:
 
 ## Replacing a PAT
 
+Each user brings their own fine-grained PAT; the service stores it encrypted and keeps
+no central token pool. With no ambient credential in the process, tokens are resolved
+**per repository** via `ghat_repository_bindings`; a repository with no binding is read
+anonymously — which may hit GitHub's 404 or rate limit, but is the normal mode, not a
+fault. Webhook signing secrets are stored separately from PATs (one per repository in
+`ghat_repo_webhook_secrets`; see the auth-cache note under Probes).
+
 1. Edit the token file the compose stack mounts read-only (or the
    `GHAT_BOOTSTRAP_PAT` value).
 2. Re-run init: `docker compose --env-file docker/stack.env run --rm -e GHAT_INITDB=force init`.
@@ -168,36 +183,82 @@ Remember: PostgreSQL does not return space to the filesystem on `DELETE` alone.
 With the log tables partitioned, dropping a month is one `DROP TABLE` and needs
 no vacuum at all.
 
-### The pool: one connection per request
+### Reading `ci_status.health.pool`
 
-A connection scope is per request (REST middleware and the MCP wrapper each open
-one), so:
-
-- every request in flight holds one of the `GHAT_POOL_MAX` slots, default 10;
-- **long polls count too**: `wait_for_run` holds its connection for the whole
-  wait, so a 300-second wait is a 300-second hold;
-- `GHAT_POOL_MAX` must cover “concurrent long polls + concurrent normal
-  requests”. Otherwise late arrivals queue on `acquire` and then fail after 30
-  seconds with `Failed to acquire connection within 30.0 seconds`.
+The connection model is above; this table is only for interpreting the numbers:
 
 | `Pool stats` | Meaning | Action |
 |---|---|---|
-| `in_use` near `max_size` | saturation: concurrency exceeds the pool | raise `GHAT_POOL_MAX`, or reduce concurrent long polls |
-| `available=0, in_use=0` | a pool permit leak | restart the container; fixed in `python-activerecord`'s `a55ebbd9` |
+| `in_use` near `max_size` | saturation: concurrent SQL exceeds the pool | raise `GHAT_POOL_MAX`, or reduce concurrent database work |
+| `available=0` and `in_use ≤ 1` | a pool permit leak — waiting will not recover, restart | restart the container. The call reading this metric itself holds one connection, so `in_use=0` can never occur. Fixed in `python-activerecord`'s `a55ebbd9` |
+
+## How the service learns CI is running
+
+**The only condition is whether the repository is subscribed.** The service does not
+care who triggered the run: a push, a PR, a maintainer clicking Run workflow in the UI,
+`gh workflow run`, and a trigger from this service are all accepted. There is no
+"do I need to notify the tracker?" question.
+
+| Scenario | How the service learns | Operator action |
+|---|---|---|
+| 1. An agent commits and pushes; `on: push` runs | GitHub delivers `workflow_run` to the configured hook; the run lands at once | none |
+| 2. A manual Run workflow after a push | same, with `event` recorded as `workflow_dispatch` | none |
+| 3. A trigger through this service (`trigger_workflow` / CLI) | registered at trigger time, then completed by webhooks | one call |
+| 4. `gh workflow run` directly | same as 1: the hook arrives and is accepted | none — the tracker does not know the operator triggered it, and will not do their idempotence check |
+| 5. A PR triggers `on: pull_request` | same as 1, and `pr_number` is recorded | none |
+
+Two prerequisites are both required:
+
+1. **The repository is subscribed** — `repo subscribe` was run. Deliveries for an
+   unsubscribed repository arrive but are refused, leaving one `handled=false` row in
+   the ledger.
+2. **The repository has a hook pointing here** — `webhook_url` and `webhook_secret`
+   are configured. Create one with `webhook create --name owner/repo` or configure it
+   on GitHub. Without a hook no delivery arrives at all.
+
+Scenarios 1–5 can all occur on a repository that is **not yet subscribed** — then no
+run lands. If a registered fine-grained PAT can reach that repository or its
+organization, adding a `repo subscribe` starts tracking; historical runs can be
+pulled with `find_runs` or `--sync-runs` without waiting for a new trigger.
+
+Only scenario 3 needs care: `trigger_workflow` and `rerun_run` are not idempotent. If
+a response is ambiguous, check with `find_runs` first — retrying starts a second run.
+
+## When a PAT is invalid or lacks permission
+
+The symptoms differ by timing:
+
+| When | Situation | Symptom and remedy |
+|---|---|---|
+| First init | token invalid, revoked or expired | `credential pat ensure` asks GitHub to verify first; failure means **init fails**, `web` and `mcp` do not start, and the bad token is never written. Replace it and re-run `force init` |
+| Runtime | token expired or revoked | the service **does not stop**. GitHub-touching calls return `credential_expired` / `credential_invalid` with an `action_url`; database-only tools such as `ci_status` keep working; `find_runs` and `get_run` return the same error. Rotate the token; do not retry with the same one |
+| Runtime | token lacks access to a repository | calls for that repository return `github_not_found` — GitHub returns 404 for both "missing" and "no access". `repo subscribe` fails because GitHub cannot see it. Grant access and re-enter; `credential pat ensure` rotates in place |
+| Runtime | token lacks Actions write permission | reads work fine; `trigger_workflow` and `rerun_run` are refused and `ci_status.can_trigger` is `false`. Grant the permission and re-test with `credential pat show --probe-repo <repo>` |
+| Any time | webhooks still arrive | the hook lives on the repository, independent of the token, so stored run status keeps updating. Only GitHub-touching actions fail — `find_runs`, `get_run`, capture repair — and the ledger's `unhandled` may rise |
+
+In short, **the token decides what you can actively do; the hook decides what you passively
+receive**. An invalid token does not silence the push channel, but it does block an
+operator who needs to backfill data.
 
 ## Runtime proxy (mainland China only)
 
-The image carries no proxy configuration. A deployment in mainland China injects
-it at runtime:
+The image carries no proxy configuration — a runtime-only concern. A deployment that
+needs one injects it through a local override file that is **not committed** to this
+repository, so no proxy address appears in the source tree:
 
 ```yaml
 services:
   web:
     environment:
-      HTTP_PROXY: http://proxy:7897
-      HTTPS_PROXY: http://proxy:7897
-      NO_PROXY: 127.0.0.1,localhost,::1
+      HTTP_PROXY: http://<host>:<port>
+      HTTPS_PROXY: http://<host>:<port>
+      NO_PROXY: <database-host>,localhost,127.0.0.1,::1
 ```
+
+- The proxy host must be reachable from inside the container. A proxy bound only to the
+  host loopback generally is not: point it at a host name or an address the container can route to.
+- `NO_PROXY` must include the database host, or database connections go through the proxy too.
+- Deployments that need no proxy set none; unset means direct.
 
 ## Verify
 
@@ -280,4 +341,45 @@ Reading it:
   at all, means a run, a job or a step is missing from the rows. The next read
   repairs it — GitHub is the source of truth — so this is an alert about the
   push channel, not data loss.
+
+Those failures are promoted to a top-level alert:
+
+```json
+"alerts": [{
+  "code": "webhook_write_failed",
+  "stream": "workflow_job",
+  "count": 7,
+  "last": {"delivery_id": "...", "received_at": "...", "repository": "...",
+           "run_id": 40378123978, "job_id": 121746271630, "reason": "IntegrityError: ..."},
+  "hint": "The delivery arrived but storing what it described failed ... call find_runs, which reads GitHub ..."
+}]
+```
+
+An alert carries the `delivery_id` and the target run or job, so it names a specific
+delivery and a specific run:
+
+```bash
+# list deliveries that were not stored, with id, run, job and reason
+docker compose exec web rhosocial-github-actions-tracker-db deliveries --unhandled --limit 20
+docker compose exec web rhosocial-github-actions-tracker-db deliveries --stream workflow_job --limit 50
+```
+
+The repair is to re-pull with `find_runs`; the pull channel does not depend on webhooks.
+
+**One delivery is a write sequence, not an atomic unit.** A `workflow_job` event writes
+the run (if absent), the job and its steps. This project has no unit of work and no
+cross-model transaction: when one step fails, writing stops there and the ledger records
+the reason. Rows that were written are complete; the missing part is repaired by the next
+read from GitHub. Treating the write as one transaction would leave a plausible-looking
+half state — "job exists but has no steps" — that nobody would ever repair until the next
+comparison with GitHub. That is why the ledger must record the failure rather than disguise
+it as success.
+
+The ledger keeps only associations and outcomes, **never the payload**. GitHub's own
+Recent Deliveries retains them for 30 days and can return the body by `delivery_id`, so
+the ledger can be cleaned on a schedule without touching stored run data:
+
+```bash
+docker compose exec web rhosocial-github-actions-tracker-db cleanup --deliveries-before 30d
+```
 

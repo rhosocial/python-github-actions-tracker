@@ -23,7 +23,7 @@ services/      能力，按协议封装；github/ 里有唯一的 payload 翻译
 models/        叶子：表映射、关系、状态机、行级校验
 views.py       适配层最终输出的数据结构
 config.py      从 GHAT_* 环境变量读设置
-database.py    连接池与每请求的连接作用域
+database.py    连接池与每次数据库操作的连接作用域
 container.py   组合根
 ```
 

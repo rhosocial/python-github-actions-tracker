@@ -82,7 +82,7 @@ REST 返回完整日志文本，不按模型上下文窗口截断；窗口由调
 | `GET /readyz`、`/healthz`、`/health` | 一次数据库往返；`503` 表示当前实例不能接请求 |
 | `GET /metrics` | Prometheus 文本格式的计数器 |
 
-探针不需要 API key，也不占用每请求的连接作用域。
+探针不需要 API key，也不借用控制器的数据库连接（`/livez` 零 I/O，`/readyz` 自带一次短查询）。
 
 ## 示例
 

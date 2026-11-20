@@ -86,7 +86,7 @@ text.
 | `GET /readyz`, `/healthz`, `/health` | one database round trip; `503` means this instance cannot serve |
 | `GET /metrics` | Prometheus text counters |
 
-Probes need no API key and do not occupy a per-request connection scope.
+Probes need no API key and borrow no controller connection (`/livez` is zero-I/O; `/readyz` brings its own short query).
 
 ## Examples
 

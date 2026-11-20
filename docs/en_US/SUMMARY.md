@@ -30,4 +30,6 @@
 * [Development](development.md)
 * [Testing](testing.md)
 
+## Privacy
+
 * [Privacy](privacy.md)

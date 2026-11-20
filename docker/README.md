@@ -212,6 +212,5 @@ docker compose run --rm -e GHAT_INITDB=force init
   一律超时。绕法是让 Windows 自己持有一个 Docker **没有**发布的端口，用
   `scripts/tcp_relay.py --port 18444 --target 127.0.0.1:18080` 转发；证书只看域名不看端口。
 - **REST 的 8000 不对外发布**：本机探测走 `scripts/rest_check.ps1`（打 18080，同一个 FastAPI 应用）。
-- **代理只在运行时**：中国大陆部署自行注入 `HTTP(S)_PROXY`；Docker Desktop 注入的
-  `127.0.0.1:7897` 在容器里指向容器自身，需要覆盖为 `host.docker.internal:7897`，并把数据库
-  主机加入 `NO_PROXY`。
+- **代理只在运行时**：需要代理的部署通过本地覆盖文件（不提交到仓库）注入 `HTTP(S)_PROXY`；
+  代理主机必须能从容器内路由到，并把数据库主机加入 `NO_PROXY`。具体地址只写在不提交的本地配置里。

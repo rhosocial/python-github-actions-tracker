@@ -19,6 +19,7 @@ models/                         每个模型封装自己的数据行为
 |---|---|
 | `TriggerController`、`QueryController`、`DispatchController`、`RepositoryController`、`RunController`、`WebhookController`、`WorkflowController`、`TokenController`、`StatusController` | 流程本身：一个方法就是一次完整的"问一次 / 触发一次 / 投递一次" |
 | `RunData`、`RepositoryData`、`DeliveryLedger` | 流程内部的行层：唯一构造 ORM 查询的地方，跟拥有它的流程放在同一个文件里，免得每个调用方重新推导顺序 |
+| `CaptureQueue`（`capture.py`） | 流程拥有的副作用执行器：webhook 投递只 `submit()` 就返回，一个有界、去重、可丢的 drain 在后台取日志。它没有表、不轮询、不承诺重启续作——事实在投递台账里，丢了由读路径补 |
 
 `RunData` / `RepositoryData` 的 `store_*` 也负责**父级解析与写序**：先让
 `GithubPayloads` 把 payload 翻译成值，再决定是哪一行（`workflow_id` 还是 `path`、
