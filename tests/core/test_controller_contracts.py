@@ -23,11 +23,15 @@ import ast
 import inspect
 from pathlib import Path
 
-import pytest
-
 from rhosocial.github_actions_tracker.controllers import dispatch, protocols
 
-CONTROLLERS = Path(__file__).resolve().parents[2] / "src" / "rhosocial" / "github_actions_tracker" / "controllers"
+CONTROLLERS = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "rhosocial"
+    / "github_actions_tracker"
+    / "controllers"
+)
 
 #: Names that may appear in a controller constructor even though they are classes.
 ROW_LAYERS = {"RunData", "RepositoryData", "DeliveryLedger"}

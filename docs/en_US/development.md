@@ -35,7 +35,7 @@ PYTHONPATH=tests python -m pytest tests -q
 
 # or use the shared postgres_scenarios.yaml
 GHAT_TEST_PG_SCENARIO_FILE=../python-activerecord-postgres/tests/config/postgres_scenarios.yaml \
-GHAT_TEST_PG_SCENARIO=postgres_18 \
+GHAT_TEST_PG_SCENARIO=postgres_exts_19 \
 PYTHONPATH=tests python -m pytest tests -q
 ```
 
