@@ -33,7 +33,6 @@ from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnecti
 
 from rhosocial.github_actions_tracker.core.exceptions import GithubAPIError
 from rhosocial.github_actions_tracker.credentials import AsyncPatCredential
-from rhosocial.github_actions_tracker.database import SET_TIME_ZONE
 from rhosocial.github_actions_tracker.models import (
     AsyncJob,
     AsyncJobLog,
@@ -835,10 +834,15 @@ async def bound_schema(
             scenario = dict(resolved or {})
         from pg import TEST_DATABASE
 
-        scenario = {**scenario, "database": TEST_DATABASE}
+        # Pin UTC at connect time, the same way Database.connection_config()
+        # does, so the fixture's timestamptz reads match production.
+        scenario = {
+            **scenario,
+            "database": TEST_DATABASE,
+            "options": {"timezone": "UTC"},
+        }
         backend = AsyncPostgresBackend(connection_config=PostgresConnectionConfig(**scenario))
         await backend.connect()
-        await backend.execute(SET_TIME_ZONE)
         await backend.introspect_and_adapt()
 
         # Prove the isolation instead of trusting it: a schema that survived the

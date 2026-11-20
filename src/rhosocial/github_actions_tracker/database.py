@@ -46,11 +46,27 @@ from .models import (
     AsyncWorkflowRun,
 )
 
-#: The session timezone every connection runs in. UTC, because that is the only
-#: zone this service speaks: a column is ``timestamptz``, and a value comes back
-#: in whatever zone the connection session uses -- which on a database the
-#: operator did not configure is the server's local zone.
-SET_TIME_ZONE = "SET TIME ZONE 'UTC'"
+
+class TrackerConnectionConfig(PostgresConnectionConfig):
+    """A config whose libpq `options` survive the library's own `clone()`.
+
+    `BaseConfig.to_dict()` flattens `options` into top-level keys, and `clone()`
+    rebuilds via `type(config)(**to_dict())`. With a plain config, our
+    `options={"timezone": "UTC"}` would come back as a `timezone=` constructor
+    argument the postgres config does not accept — which is exactly what the
+    `ghat orm` CLI hits when it applies a `--config sslrootcert=...` override.
+    Keeping `options` nested in `to_dict()` makes the round trip lossless while
+    leaving the backend's view (`config.options`) unchanged.
+    """
+
+    def to_dict(self) -> dict[str, Any]:
+        data = super().to_dict()
+        if self.options:
+            for key in self.options:
+                data.pop(key, None)
+            data["options"] = dict(self.options)
+        return data
+
 
 #: Every model bound inside a :meth:`Database.connection` scope: the async twins
 #: the service actually uses. The sync twins exist for parity and stay unbound.
@@ -116,13 +132,20 @@ class Database:
     def connection_config(settings: Settings) -> PostgresConnectionConfig:
         """The psycopg coordinates of one settings object."""
         db = settings.database
-        return PostgresConnectionConfig(
+        return TrackerConnectionConfig(
             host=db.host,
             port=db.port,
             username=db.username,
             password=db.password,
             database=db.database,
             sslmode=db.sslmode,
+            # Pin the session zone at connect time, as a libpq startup option.
+            # `timestamptz` values come back in the session's zone, so leaving
+            # this to the server hands callers Asia/Shanghai on an unconfigured
+            # database. libpq forwards `options` as `-c timezone=UTC`, which
+            # applies once per physical connection instead of a SET on every
+            # borrowed one -- the pool's reset never issues SQL, so it persists.
+            options={"timezone": "UTC"},
         )
 
     @property
@@ -154,14 +177,10 @@ class Database:
         self, timeout: float | None = None
     ) -> AsyncIterator[AsyncPostgresBackend]:
         async with self._pool.connection(timeout) as backend:
-            # The session timezone belongs to the server, not to this service:
-            # a database configured with Asia/Shanghai hands back
-            # `2026-10-26T15:32:41+08:00` and every timestamp this service
-            # publishes is supposed to be UTC with the offset stated. Pin it per
-            # connection rather than normalising value by value -- a value read
-            # through any path the views do not cover would otherwise leak the
-            # server's zone to a caller that compares it against another UTC one.
-            await backend.execute(SET_TIME_ZONE)
+            # The session zone is pinned at connect time by `options` in
+            # connection_config(), not here. Issuing a SET on every borrow would
+            # add a round trip to every database operation for a fact that is
+            # already true of the physical connection.
             yield backend
 
     async def ping(self, *, timeout: float = 2.0) -> None:
@@ -319,4 +338,4 @@ class PostgresServer:
         return name
 
 
-__all__ = ["MODELS", "Database", "PostgresServer"]
+__all__ = ["MODELS", "Database", "PostgresServer", "TrackerConnectionConfig"]

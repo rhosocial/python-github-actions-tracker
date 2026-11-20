@@ -30,6 +30,7 @@ from ..core.exceptions import (
 )
 from ..models import AsyncRepository, AsyncWorkflow
 from ..models.binding import AsyncRepositoryBinding
+from ..models.pat_credential import PROVIDER_KIND
 from ..models.webhook_secret import (
     STATE_PENDING_USER,
     STATE_PUSHED,
@@ -58,9 +59,10 @@ logger = logging.getLogger(__name__)
 #: Events a webhook subscribes to by default.
 DEFAULT_WEBHOOK_EVENTS: tuple[str, ...] = ("workflow_run", "workflow_job")
 
-#: Provider kind this service binds repositories to. A second provider gets its
-#: own service rather than a branch here.
-CREDENTIAL_KIND = "pat"
+#: Provider kind this service binds repositories to. Aliased to the credential
+#: model's canonical value so the string lives in one place; a second provider
+#: gets its own service rather than a branch here.
+CREDENTIAL_KIND = PROVIDER_KIND
 
 
 class RepositoryController(DatabaseConnectionMixin):
