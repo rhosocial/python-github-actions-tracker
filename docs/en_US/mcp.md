@@ -91,6 +91,29 @@ get_run_failed_logs(run_id)   → failed steps grouped by byte-identical text
 model's context. Window arguments, the capture window and missing-step reasons are in
 [Logs and windows](logs.md).
 
+## Multi-branch repositories: filter by branch, not by workflow
+
+`find_runs`'s `branch` filters on the run's `head_branch` — the right answer to "what did this
+branch run recently". For repositories whose branches evolve independently and never merge —
+`vistart/Dockerfiles` is one, with `postgres` / `common-images-transition` / `php` / `vlmcsd`
+each building on their own — the branch is the genuinely independent dimension:
+
+```
+find_runs(repository="vistart/Dockerfiles", branch="postgres", latest=true)
+find_runs(repository="vistart/Dockerfiles", branch="php", status="failure")
+```
+
+In such repositories **several branches can share one workflow file** (`php` and `vlmcsd` both
+use `build_and_deploy.yml`, whose display name even changed per branch). Filtering by
+`workflow` then mixes the two lines; to follow one independent build line, use `branch`. Where
+branch and workflow correspond one-to-one (`postgres`↔`postgres.yml`), the two filters are
+equivalent, but `branch` is the safer choice.
+
+Without `branch`, `latest=true` returns the newest run of the **whole repository**, on any
+branch — in a multi-branch repo that is just whichever line happened to trigger last, not the
+one you care about. When triggering such a repo, pass the branch name explicitly as
+`trigger_workflow`'s `ref`.
+
 ## Waiting and budgets
 
 `wait_for_run` is a bounded long poll: 45 seconds by default, capped by `GHAT_WAIT_MAX_SECONDS`

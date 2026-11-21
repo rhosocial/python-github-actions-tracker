@@ -82,6 +82,19 @@ get_run_failed_logs(run_id)   → 按逐字节相同文本分组的失败 step
 
 `get_run` 不返回 steps；`get_job` 才返回 steps。这是刻意的分层，避免一次调用灌满模型上下文。日志窗口参数、采集窗口与缺失原因见[日志与窗口](logs.md)。
 
+## 多分支仓库：按分支查，而不是按 workflow 查
+
+`find_runs` 的 `branch` 按 run 的 `head_branch` 过滤，是"某个分支最近跑了什么"的正确答案。对分支各自独立发展、互不合并的仓库——例如 `vistart/Dockerfiles`，它的 `postgres` / `common-images-transition` / `php` / `vlmcsd` 各跑各的——分支才是真正独立的维度：
+
+```
+find_runs(repository="vistart/Dockerfiles", branch="postgres", latest=true)
+find_runs(repository="vistart/Dockerfiles", branch="php", status="failure")
+```
+
+这类仓库里**多个分支可能共用同一个 workflow 文件**（`php` 与 `vlmcsd` 都用 `build_and_deploy.yml`，而该文件的显示名还随分支变过）。因此按 `workflow` 过滤会把两条线混在一起；要沿着某条独立发展的构建线查，用 `branch`。当分支与 workflow 一一对应时（`postgres`↔`postgres.yml`），两种过滤等价，但 `branch` 更稳。
+
+不带 `branch` 时 `latest=true` 返回的是**整个仓库**最新一次 run，不限分支——多分支仓库里那只是碰巧最后触发的那条线，不代表你关心的分支。触发这类仓库的构建时，`trigger_workflow` 的 `ref` 要明确传分支名。
+
 ## 等待与预算
 
 `wait_for_run` 是一次有界长轮询，单次默认 45 秒，上限由 `GHAT_WAIT_MAX_SECONDS` 控制，默认 300 秒。`timed_out` 表示仍在运行，不是失败。
