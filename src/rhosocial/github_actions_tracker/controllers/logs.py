@@ -47,16 +47,23 @@ if TYPE_CHECKING:  # the rows these flows return; only the annotations name them
 logger = logging.getLogger(__name__)
 
 
-async def _attempt_of(job: Any) -> Any:
+async def _attempt_of(job: Any, borrow: Any) -> Any:
     """The execution a job belongs to, or ``None`` when it cannot be named.
 
     The job'"'"'s own ``attempt`` relation is the authority for the month a log row
     lands in, and it is one query -- the alternative was a month copied onto
     every step, which had to be healed whenever the job finished after the step
     row was written.
+
+    ``borrow`` is the row layer's connection context factory. Relation loading
+    goes through ``Model.backend()``, which reads the pool's ContextVar; the
+    caller (a capture task on an empty context, or a request outside a scope)
+    must open a scope for the load or it fails with "No backend configured".
+    The caller passes ``self._store.connection`` — the layer that owns the pool.
     """
     try:
-        return await job.attempt()
+        async with borrow():
+            return await job.attempt()
     except Exception as exc:  # noqa: BLE001 - a missing attempt is not a crash
         logger.debug("could not resolve the attempt of job %s: %s", job.id, exc)
         return None
@@ -184,7 +191,9 @@ class RunLogCapture:
             steps = await self._store.steps(item)
             if not steps:
                 continue
-            texts = await self._store.step_log_texts(steps, await _attempt_of(item))
+            texts = await self._store.step_log_texts(
+                steps, await _attempt_of(item, self._store.connection)
+            )
             captured.update(texts)
             steps_by_job.append((item, {step.number: step for step in steps}))
             # What the job metadata says must have a file: a step that started
@@ -306,7 +315,9 @@ class RunLogCapture:
             for step in steps
             if step.started_at is not None and (step.conclusion or "") != "skipped"
         ]
-        sizes = await self._store.step_log_sizes(expected, await _attempt_of(job))
+        sizes = await self._store.step_log_sizes(
+            expected, await _attempt_of(job, self._store.connection)
+        )
         captured = sum(1 for step in expected if (step.id or 0) in sizes)
         if not expected:
             state = "none"
@@ -346,7 +357,9 @@ class RunLogCapture:
         different answers, and only the first one is a row.
         """
         steps = await self._store.steps(job)
-        texts = await self._store.step_log_texts(steps, await _attempt_of(job))
+        texts = await self._store.step_log_texts(
+            steps, await _attempt_of(job, self._store.connection)
+        )
         sections: list[StepSection] = []
         for step in steps:
             content = texts.get(step.number)
@@ -368,7 +381,9 @@ class RunLogCapture:
         steps = await self._store.steps(job)
         if not steps:
             return False
-        return await self._store.step_log_count(steps, await _attempt_of(job)) >= len(steps)
+        return await self._store.step_log_count(
+            steps, await _attempt_of(job, self._store.connection)
+        ) >= len(steps)
 
 
 def _past_deadline(finished: datetime, window_minutes: int) -> bool:
