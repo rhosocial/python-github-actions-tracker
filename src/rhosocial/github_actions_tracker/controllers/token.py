@@ -20,6 +20,8 @@ from typing import Any
 from ..core.exceptions import TokenNotFoundError
 from ..services.github.protocols import CredentialProbe
 from ..views import TokenRecord, as_utc
+from .mixins import DatabaseConnectionMixin
+from .protocols import ConnectionSource
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +29,21 @@ logger = logging.getLogger(__name__)
 PROVIDER_KIND = "pat"
 
 
-class TokenController:
+class TokenController(DatabaseConnectionMixin):
     """Manage credentials: add, verify, list, rotate, delete.
 
     Args:
         probe: The GitHub probe used to verify a raw token and to measure a
             stored credential's capabilities.
+        database: What to borrow a connection from for each provider call. The
+            provider reads and writes credential models directly, so like every
+            other controller this one must open a connection scope around them.
+            Omitted only where the caller already bound the models (a test under
+            ``bound``), in which case :meth:`connection` is a no-op.
     """
 
-    def __init__(self, *, probe: CredentialProbe) -> None:
+    def __init__(self, *, probe: CredentialProbe, database: ConnectionSource | None = None) -> None:
+        super().__init__(database=database)
         self._probe = probe
 
     async def add_token(
@@ -61,15 +69,16 @@ class TokenController:
             TokenAlreadyExistsError: The name or the value is already stored.
             TokenInvalidError: GitHub rejected the token.
         """
-        record = await self._provider().add(
-            token=token,
-            name=name,
-            client=self._probe,
-            scope=scope,
-            verify=True,
-            probe_repo=probe_repo,
-            github_name=github_name,
-        )
+        async with self.connection():
+            record = await self._provider().add(
+                token=token,
+                name=name,
+                client=self._probe,
+                scope=scope,
+                verify=True,
+                probe_repo=probe_repo,
+                github_name=github_name,
+            )
         return self._view(record)
 
     async def ensure_token(
@@ -102,6 +111,8 @@ class TokenController:
                 github_name=github_name,
             )
             return record, True
+        # add_token / _rotate each open their own scope; nested borrows reuse the
+        # same connection, so _find_ref above and the rotation below cost one.
         return (
             await self._rotate(ref=ref, token=token, probe_repo=probe_repo),
             False,
@@ -109,7 +120,8 @@ class TokenController:
 
     async def list_tokens(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """List credentials without exposing the token values."""
-        return await self._provider().list_metadata(limit=limit, offset=offset)
+        async with self.connection():
+            return await self._provider().list_metadata(limit=limit, offset=offset)
 
     async def verify_token(self, name: str) -> dict[str, Any]:
         """Probe what a stored credential can do.
@@ -155,7 +167,8 @@ class TokenController:
         Raises:
             TokenInUseError: Repositories still bind to it.
         """
-        await self._provider().delete(await self._find_ref(name))
+        async with self.connection():
+            await self._provider().delete(await self._find_ref(name))
 
     # -- internals -------------------------------------------------------------
 
@@ -167,7 +180,8 @@ class TokenController:
 
     async def _find_ref(self, name: str) -> int:
         """Resolve a credential alias to its provider id, or raise."""
-        record = await self._provider().find_by_name(name)
+        async with self.connection():
+            record = await self._provider().find_by_name(name)
         if record is None or record.id is None:
             raise TokenNotFoundError(f"Credential '{name}' not found")
         return record.id
@@ -181,14 +195,15 @@ class TokenController:
         probe_repo: str | None = None,
     ) -> TokenRecord:
         """Rotate a credential, keeping its rows out of the query log."""
-        record = await self._provider().rotate(
-            ref=ref,
-            new_token=token,
-            client=self._probe,
-            expires_at=expires_at,
-            verify=True,
-            probe_repo=probe_repo,
-        )
+        async with self.connection():
+            record = await self._provider().rotate(
+                ref=ref,
+                new_token=token,
+                client=self._probe,
+                expires_at=expires_at,
+                verify=True,
+                probe_repo=probe_repo,
+            )
         return self._view(record)
 
     async def refresh_token(self, name: str, probe_repo: str | None = None) -> TokenRecord:
@@ -199,7 +214,8 @@ class TokenController:
         was true on the day it was registered. This is the way to ask again.
         """
         ref = await self._find_ref(name)
-        record = await self._provider().refresh(ref, client=self._probe, probe_repo=probe_repo)
+        async with self.connection():
+            record = await self._provider().refresh(ref, client=self._probe, probe_repo=probe_repo)
         return self._view(record)
 
     @staticmethod
@@ -230,9 +246,10 @@ class TokenController:
         probe_repo: str | None = None,
     ) -> dict[str, Any]:
         """Measure a credential's capabilities and label the answer."""
-        measured = await self._provider().capabilities(
-            ref, refresh=refresh, client=self._probe, probe_repo=probe_repo
-        )
+        async with self.connection():
+            measured = await self._provider().capabilities(
+                ref, refresh=refresh, client=self._probe, probe_repo=probe_repo
+            )
         answer = measured.as_dict()
         answer["credential"] = f"{PROVIDER_KIND}/{name}"
         return answer

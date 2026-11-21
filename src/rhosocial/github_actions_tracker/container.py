@@ -209,7 +209,9 @@ class Container:
                 runs=runs_data,
                 deliveries=ledger,
             ),
-            token=TokenController(probe=GithubCredentials(client, credential=credential)),
+            token=TokenController(
+                probe=GithubCredentials(client, credential=credential), database=database
+            ),
             repository=repositories,
             webhook=WebhookController(
                 # The shared instance, not a second one: a fresh
