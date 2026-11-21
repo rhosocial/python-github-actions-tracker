@@ -95,7 +95,16 @@ async def create_all(backend) -> None:
     ``db init`` therefore produces a schema that is writable the moment it
     returns, and the write path's own ``ensure_month`` covers the months after
     that -- each side does its own job rather than assuming the other's.
+
+    Partition maintenance is delegated to the library, whose DDL is gated on the
+    server version. The dialect only learns that version in
+    ``introspect_and_adapt``; a fresh backend that merely ``connect()``-ed still
+    reports the 9.6 default and the partition DDL raises UnsupportedFeatureError.
+    Make the precondition this function's own: introspect here rather than rely
+    on every caller (CLI, first-boot script, tests) to remember it. The call is
+    idempotent, so callers that already introspected pay only an extension recheck.
     """
+    await backend.introspect_and_adapt()
     await ensure_extensions(backend)
     await ddl_postgres.create_all(backend, SCHEMA)
     await ensure_accelerator_indexes(backend)

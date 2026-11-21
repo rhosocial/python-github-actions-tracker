@@ -217,7 +217,7 @@ class TestTheGate:
 
 @needs_cli
 class TestAgainstALiveDatabase:
-    def test_a_count_travels_the_whole_chain(self, pg_database) -> None:
+    def test_a_count_travels_the_whole_chain(self, pg_database, bound_models) -> None:
         """Model completion, backend inference, connection, query, output.
 
         Run as a subprocess, not in-process: the library's CLI calls
@@ -227,10 +227,11 @@ class TestAgainstALiveDatabase:
         ``tests/conftest.py`` exists to prevent. As a subprocess it is also the
         real operator path -- a separate process, reading ``GHAT_DB_*``.
 
-        Depends on ``pg_database``, not bare ``pg_scenario``: on a fresh runner
-        the ``ghat_test`` database does not exist yet, and only that fixture
-        creates it. Taking the name from the fixture rather than hardcoding it
-        keeps the subprocess pointed at the database the suite prepared.
+        Depends on ``pg_database`` for the coordinates (it creates ``ghat_test``
+        on a fresh runner) and on ``bound_models`` so the schema actually exists
+        in it — a bare database has no ``ghat_repositories`` to count. Taking the
+        name from the fixture rather than hardcoding it keeps the subprocess
+        pointed at the database the suite prepared.
         """
         import os
         import subprocess
