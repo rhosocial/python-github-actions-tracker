@@ -38,8 +38,19 @@ def _touch(root: Path, relative: str) -> Path:
 
 @pytest.fixture
 def shared_project(tmp_path: Path) -> Path:
-    """A directory laid out like the sibling that owns the scenarios file."""
-    project = tmp_path / "python-activerecord-postgres"
+    """A directory laid out like the sibling that owns the scenarios file.
+
+    Padding keeps the decoy in ``test_a_match_further_up_than_the_bound_is_refused``
+    *inside* tmp_path. On a CI runner tmp_path sits just a few levels under ``/``,
+    so walking ``FILE_SEARCH_DEPTH + 1`` parents of a shallow fixture would land
+    on the filesystem root, where the test cannot create the decoy. The number of
+    pad directories is an implementation detail of the test, not of the resolver.
+    """
+    root = tmp_path
+    for _level in range(FILE_SEARCH_DEPTH + 2):
+        root = root / "pad"
+    root.mkdir(parents=True)
+    project = root / "python-activerecord-postgres"
     project.mkdir()
     (project / "tests" / "config").mkdir(parents=True)
     return project

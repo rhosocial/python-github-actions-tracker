@@ -68,6 +68,11 @@ async def cmd_init(args: argparse.Namespace) -> None:
     backend = AsyncPostgresBackend(connection_config=config)
     try:
         await backend.connect()
+        # DDL creation — partition maintenance in particular — is gated on the
+        # server version, which the dialect only knows after introspection.
+        # The test fixture does this too; a bare connect() leaves the version
+        # unknown and partition DDL fails with UnsupportedFeatureError.
+        await backend.introspect_and_adapt()
         await create_all(backend)
         print("Database initialized successfully.")
     finally:
@@ -84,6 +89,8 @@ async def cmd_reset(args: argparse.Namespace) -> None:
     backend = AsyncPostgresBackend(connection_config=get_connection_config())
     try:
         await backend.connect()
+        # reset_all rebuilds partitions, whose DDL needs the server version.
+        await backend.introspect_and_adapt()
         if not args.yes:
             print("This drops every ghat_* table and all stored CI history.")
             print("Re-run with --yes to confirm.")
@@ -221,6 +228,8 @@ async def cmd_partitions(args: argparse.Namespace) -> None:
     dropped: list[str] = []
     try:
         await backend.connect()
+        # Partition tree queries and DDL are gated on the server version.
+        await backend.introspect_and_adapt()
 
         if getattr(args, "ensure", None) is not None:
             created = await partitions.ensure_through(backend, args.ensure)

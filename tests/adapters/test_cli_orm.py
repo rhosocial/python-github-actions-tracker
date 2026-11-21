@@ -217,7 +217,7 @@ class TestTheGate:
 
 @needs_cli
 class TestAgainstALiveDatabase:
-    def test_a_count_travels_the_whole_chain(self, pg_scenario) -> None:
+    def test_a_count_travels_the_whole_chain(self, pg_database) -> None:
         """Model completion, backend inference, connection, query, output.
 
         Run as a subprocess, not in-process: the library's CLI calls
@@ -226,6 +226,11 @@ class TestAgainstALiveDatabase:
         into every later test in it, which is precisely the order dependence
         ``tests/conftest.py`` exists to prevent. As a subprocess it is also the
         real operator path -- a separate process, reading ``GHAT_DB_*``.
+
+        Depends on ``pg_database``, not bare ``pg_scenario``: on a fresh runner
+        the ``ghat_test`` database does not exist yet, and only that fixture
+        creates it. Taking the name from the fixture rather than hardcoding it
+        keeps the subprocess pointed at the database the suite prepared.
         """
         import os
         import subprocess
@@ -233,19 +238,19 @@ class TestAgainstALiveDatabase:
         env = dict(os.environ)
         env.update(
             {
-                "GHAT_DB_HOST": str(pg_scenario["host"]),
-                "GHAT_DB_PORT": str(pg_scenario["port"]),
-                "GHAT_DB_USER": str(pg_scenario["username"]),
-                "GHAT_DB_PASSWORD": str(pg_scenario["password"]),
-                "GHAT_DB_NAME": "ghat_test",
-                "GHAT_DB_SSLMODE": str(pg_scenario.get("sslmode", "prefer")),
+                "GHAT_DB_HOST": str(pg_database["host"]),
+                "GHAT_DB_PORT": str(pg_database["port"]),
+                "GHAT_DB_USER": str(pg_database["username"]),
+                "GHAT_DB_PASSWORD": str(pg_database["password"]),
+                "GHAT_DB_NAME": str(pg_database["database"]),
+                "GHAT_DB_SSLMODE": str(pg_database.get("sslmode", "prefer")),
             }
         )
         # The tracker's settings carry no certificate path, so a verify-full
         # scenario supplies one as the documented --config override.
-        if pg_scenario.get("sslrootcert"):
-            env["GHAT_DB_SSLMODE"] = str(pg_scenario["sslmode"])
-            extra = ["--config", f"sslrootcert={pg_scenario['sslrootcert']}"]
+        if pg_database.get("sslrootcert"):
+            env["GHAT_DB_SSLMODE"] = str(pg_database["sslmode"])
+            extra = ["--config", f"sslrootcert={pg_database['sslrootcert']}"]
         else:
             extra = []
 
