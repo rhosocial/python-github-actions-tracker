@@ -17,8 +17,8 @@ The families, and what each answers:
   where a caller's latency *comes from* (run state is read from GitHub every
   time), and where the quota is spent.
 * **tool calls** -- every MCP/REST tool, by protocol and outcome. ``wait_for_run``
-  carries its own bucket scale because it holds a connection for as long as it
-  waits.
+  carries its own bucket scale because its latency is minutes where other tools
+  are milliseconds.
 
 Labels are chosen for the questions that actually get asked, not for every
 dimension available: ``status_code`` rather than ``ok``/``error`` (403 and 404
@@ -125,9 +125,10 @@ TOOL_CALLS_TOTAL = metrics().counter(
     ("tool", "protocol", "outcome"),
 )
 
-#: How long each took. Two bucket scales: ``wait_for_run`` holds a connection
-#: for the whole wait, so its latency is minutes where every other tool is
-#: milliseconds, and one bucket set covering both would flatten the small half.
+#: How long each took. Two bucket scales: ``wait_for_run``'s latency is minutes
+#: where every other tool is milliseconds, and one bucket set covering both
+#: would flatten the small half. (It no longer holds a connection while waiting;
+#: the reason for the split is purely the latency magnitude.)
 TOOL_SECONDS = metrics().histogram(
     "ghat_tool_seconds",
     "MCP and REST tool latency, by tool, protocol and outcome",

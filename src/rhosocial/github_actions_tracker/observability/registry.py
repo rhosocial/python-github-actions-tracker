@@ -53,9 +53,9 @@ _DECLARED = False
 #: than a single default: a bucket set that spans six orders of magnitude says
 #: nothing about any of them.
 HTTP_BUCKETS: tuple[float, ...] = (0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
-#: ``wait_for_run`` holds a connection for as long as it waits, so its latency
-#: lives on a different scale from every other tool -- and a bucket set that has
-#: to cover both would flatten the small half.
+#: ``wait_for_run``'s latency lives on a different scale from every other tool
+#: (minutes vs milliseconds) -- a bucket set that has to cover both would flatten
+#: the small half. The split is about latency magnitude, not connection holding.
 WAIT_BUCKETS: tuple[float, ...] = (0.1, 0.5, 1.0, 5.0, 30.0, 60.0, 120.0, 300.0)
 
 

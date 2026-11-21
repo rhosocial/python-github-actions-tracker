@@ -188,9 +188,10 @@ def _pool_payload(container: Any) -> dict[str, Any] | None:
         )
     elif max_size and stats.current_in_use >= max_size:
         payload["hint"] = (
-            f"Every one of the {max_size} connections is checked out. Long waits "
-            "hold a connection for their whole duration, so new requests will "
-            "queue and eventually time out at acquire."
+            f"Every one of the {max_size} connections is checked out by an in-flight "
+            "database operation. Concurrent SQL has exceeded the pool; new requests "
+            "will queue and eventually time out at acquire. Waiting on GitHub does "
+            "not hold a connection, so look at concurrent DB work, not long polls."
         )
     return payload
 
