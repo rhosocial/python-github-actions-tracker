@@ -456,7 +456,10 @@ class RepositoryController(DatabaseConnectionMixin):
             )
             if pull_base_ref and not run.base_ref:
                 run.base_ref = pull_base_ref
-                await run.save()
+                # The run came from a store read whose scope has already closed;
+                # borrow one for the write so the model has a backend.
+                async with self.connection():
+                    await run.save()
 
             if sync_jobs:
                 jobs = await self._readers.get_run_jobs(repository, github_run_id)
@@ -492,7 +495,9 @@ class RepositoryController(DatabaseConnectionMixin):
             return None
         from ..credentials import get_provider
 
-        return await get_provider(self._kind).resolve(ref)
+        # provider.resolve() reads a credential model; borrow a scope for it.
+        async with self.connection():
+            return await get_provider(self._kind).resolve(ref)
 
     async def _bind(self, repo: AsyncRepository, credential: Any, ref: int | None) -> None:
         """Record that ``credential`` answers for ``repo``.

@@ -1009,7 +1009,12 @@ class QueryController:
         record.base_ref = ref
         run.base_ref = ref
         try:
-            await run.save()
+            # The model was loaded inside one of the store's scoped reads, but
+            # that scope has closed by now. Borrow one around the write so the
+            # model has a backend; otherwise save() raises "No backend
+            # configured" and this backfill silently never lands.
+            async with self._store.connection():
+                await run.save()
         except Exception:  # noqa: BLE001 - the answer is already correct in memory
             logger.warning("could not store base_ref for run %s", run.github_run_id)
 

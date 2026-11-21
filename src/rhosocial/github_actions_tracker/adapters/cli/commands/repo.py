@@ -32,11 +32,17 @@ def _fail(message: str) -> NoReturn:
     raise SystemExit(1)
 
 
-async def _resolve_credential(value: str) -> tuple[str, int]:
+async def _resolve_credential(value: str, service: object) -> tuple[str, int]:
     """Resolve ``kind/name`` to ``(kind, provider_ref)``.
+
+    The provider query reads a model directly, so it needs a connection scope.
+    The caller passes the repository controller, which owns one; without the
+    scope the model has no backend and raises "No backend configured" — a bug
+    that only shows up when a command actually resolves a credential name.
 
     Args:
         value: A ``kind/name`` reference, for example ``pat/work``.
+        service: The controller whose connection scope to borrow.
 
     Returns:
         The opaque pair a binding row stores.
@@ -48,7 +54,12 @@ async def _resolve_credential(value: str) -> tuple[str, int]:
     from ....credentials import get_provider, parse_credential_ref
 
     kind, name = parse_credential_ref(value)
-    record = await get_provider(kind).find_by_name(name)
+    borrow = getattr(service, "connection", None)
+    if borrow is None:
+        record = await get_provider(kind).find_by_name(name)
+    else:
+        async with borrow():
+            record = await get_provider(kind).find_by_name(name)
     if record is None or record.id is None:
         raise LookupError(f"credential '{value}' not found")
     return kind, record.id
@@ -63,7 +74,7 @@ async def _subscribe(args: argparse.Namespace, service: object) -> None:
     """
     kind = ref = None
     if args.credential:
-        kind, ref = await _resolve_credential(args.credential)
+        kind, ref = await _resolve_credential(args.credential, service)
 
     supplied = _secret_from(args)
     repo = await service.subscribe_repository(  # type: ignore[attr-defined]
@@ -111,7 +122,7 @@ async def _unsubscribe(args: argparse.Namespace, service: object) -> None:
 
 async def _bind(args: argparse.Namespace, service: object) -> None:
     """Point a subscribed repository at a credential, replacing any previous one."""
-    kind, ref = await _resolve_credential(args.credential)
+    kind, ref = await _resolve_credential(args.credential, service)
     await service.bind_credential(args.name, kind, ref)  # type: ignore[attr-defined]
     print(f"Bound '{args.name}' to {args.credential}.")
 
@@ -126,23 +137,36 @@ async def _list(args: argparse.Namespace, service: object) -> None:
     """List subscriptions with the credential each answers to."""
     from ....credentials.resolver import credential_summary
 
-    rows = []
-    for repo in await service.list_repositories():  # type: ignore[attr-defined]
-        summary = await credential_summary(repo)
-        rows.append(
-            {
-                "full_name": repo.full_name,
-                "private": repo.is_private,
-                "default_branch": repo.default_branch,
-                "credential": summary["credential"] if summary else None,
-                # Whether this credential may trigger, straight from the probe.
-                "can_write": (
-                    summary.get("capabilities", {}).get("can_write_actions")
-                    if summary and summary.get("available")
-                    else None
-                ),
-            }
-        )
+    # credential_summary reads binding and credential models directly, so the
+    # whole loop needs one connection scope. Without it the models have no
+    # backend and `repo list` dies with "No backend configured".
+    borrow = getattr(service, "connection", None)
+
+    async def collect(repos) -> list:
+        out = []
+        for repo in repos:
+            summary = await credential_summary(repo)
+            out.append(
+                {
+                    "full_name": repo.full_name,
+                    "private": repo.is_private,
+                    "default_branch": repo.default_branch,
+                    "credential": summary["credential"] if summary else None,
+                    "can_write": (
+                        summary.get("capabilities", {}).get("can_write_actions")
+                        if summary and summary.get("available")
+                        else None
+                    ),
+                }
+            )
+        return out
+
+    repos = await service.list_repositories()  # type: ignore[attr-defined]
+    if borrow is None:
+        rows = await collect(repos)
+    else:
+        async with borrow():
+            rows = await collect(repos)
     print(format_output({"repositories": rows}, args.format, args.verbose))
 
 
