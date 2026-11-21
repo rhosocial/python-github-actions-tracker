@@ -79,8 +79,11 @@ def create_app(
         if ready is None:
             owned = database if database is not None else await Database.create(get_settings())
             # The controllers are built once, inside a bound connection:
-            # resolving the ambient PAT is a query like any other.
-            async with owned.connection():
+            # resolving the ambient PAT is a query like any other. A database
+            # that is not reachable yet is reported as one actionable line
+            # rather than a backend traceback.
+            startup = getattr(owned, "startup_connection", None) or owned.connection
+            async with startup():
                 ready = await Container.start(owned)
         app.state.container = ready
         # Webhook-triggered log capture runs in this process only. Start its

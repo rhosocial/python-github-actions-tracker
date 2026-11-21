@@ -431,8 +431,10 @@ class _DatabaseBoundApp:
             if not self._services.bound:
                 # The PAT lookup is the only database work of a cold start, so
                 # it borrows one connection and releases it before any request
-                # is served.
-                async with database.connection():
+                # is served. An unreachable database is reported as one clear
+                # line instead of the backend's connect traceback.
+                startup = getattr(database, "startup_connection", None) or database.connection
+                async with startup():
                     self._services.bind(await Container.start(database))
 
     def _tap_shutdown(self, send: Any) -> Any:

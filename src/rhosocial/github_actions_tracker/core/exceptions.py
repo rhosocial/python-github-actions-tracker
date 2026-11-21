@@ -222,6 +222,16 @@ class ValidationError(GhatError):
     pass
 
 
+class DatabaseUnavailableError(GhatError):
+    """The database could not be reached during application startup.
+
+    Raised by the cold-start connection helper in :mod:`database` so the message
+    is one actionable line instead of the backend's raw connection traceback.
+    """
+
+    pass
+
+
 #: Phrases GitHub uses when it refuses a run operation because of the run's
 #: state rather than the caller's permission. Rerunning a run that is still
 #: going is the common one: "This workflow is already running".

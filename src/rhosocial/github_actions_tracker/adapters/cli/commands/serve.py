@@ -57,6 +57,11 @@ def run(args: argparse.Namespace, api_key: str) -> None:
     settings = resolved.service
     _resolve_bind_defaults(args, settings)
 
+    # A listener cannot start without its database. Prove the connection before
+    # uvicorn owns startup: a failure in a lifespan is printed by uvicorn as a
+    # stack trace, while here it becomes one actionable line and a clean exit.
+    _preflight_database(resolved)
+
     if args.service == "rest":
         _serve_rest(args, settings)
     elif args.service == "mcp":
@@ -65,6 +70,47 @@ def run(args: argparse.Namespace, api_key: str) -> None:
         _serve_webhook(args, settings)
     elif args.service == "all":
         _serve_all(args, settings)
+
+
+def _preflight_database(settings: Any) -> None:
+    """Fail fast, and clearly, when the database is not reachable at startup.
+
+    Every listener needs the database before it can serve: the controllers read
+    the PAT and the webhook secrets from it while the app is starting. Trying
+    that connection here -- before uvicorn installs its lifespan handlers --
+    keeps an unreachable database from becoming a wall of psycopg traceback with
+    a generic "Application startup failed" at the end. The operator gets the
+    coordinates that failed and the usual causes instead.
+    """
+    from rhosocial.activerecord.backend.errors import ConnectionError as BackendConnectionError
+
+    from ....database import connection_failure_message
+
+    async def probe() -> None:
+        from rhosocial.activerecord.backend.impl.postgres.backend import AsyncPostgresBackend
+
+        from ....database import Database
+
+        # One direct connection, not a pool: the pool warms min_size backends
+        # eagerly with the driver's own long timeout, which would hang the
+        # preflight for minutes before reporting an unreachable database.
+        config = Database.connection_config(settings)
+        config.connect_timeout = 5
+        backend = AsyncPostgresBackend(connection_config=config)
+        try:
+            await backend.connect()
+        finally:
+            await backend.disconnect()
+
+    try:
+        run_coroutine(probe())
+    except BackendConnectionError as exc:
+        # One message, on stderr, no traceback: the failure is external to the
+        # process, so a stack trace adds nothing the operator can act on.
+        import sys
+
+        print(connection_failure_message(settings, exc), file=sys.stderr)
+        raise SystemExit(1) from None
 
 
 def _resolve_bind_defaults(args: argparse.Namespace, settings: Any) -> None:
@@ -216,7 +262,9 @@ def _serve_all(args: argparse.Namespace, settings: Any) -> None:
         # its own while the first server is serving.
         database = await Database.create()
         try:
-            async with database.connection():
+            # A cold start cannot serve without its database; report an
+            # unreachable one as one actionable line, not a backend traceback.
+            async with database.startup_connection():
                 container = await Container.start(database)
             rest_config = uvicorn.Config(
                 create_app(container),

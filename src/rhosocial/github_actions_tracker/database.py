@@ -27,12 +27,13 @@ from contextlib import asynccontextmanager
 from dataclasses import replace
 from typing import Any
 
+from rhosocial.activerecord.backend.errors import ConnectionError as BackendConnectionError
 from rhosocial.activerecord.backend.impl.postgres.backend import AsyncPostgresBackend
 from rhosocial.activerecord.backend.impl.postgres.config import PostgresConnectionConfig
 from rhosocial.activerecord.connection.pool import AsyncBackendPool, PoolConfig
 
 from .config import Settings, get_settings
-from .core.exceptions import ValidationError
+from .core.exceptions import DatabaseUnavailableError, ValidationError
 from .credentials import PROVIDER_MODELS
 from .models import (
     AsyncJob,
@@ -101,6 +102,21 @@ async def no_connection() -> AsyncIterator[None]:
     yield
 
 
+def connection_failure_message(settings: Settings, exc: BaseException) -> str:
+    """Render a backend connect error as one actionable diagnosis."""
+    db = settings.database
+    return (
+        f"Cannot connect to database {db.host}:{db.port}/{db.database}.\n"
+        f"  Backend said: {exc}\n"
+        "  This service will not start without its database. Check that the\n"
+        f"  database '{db.database}' is running and reachable as "
+        f"'{db.host}:{db.port}'\n"
+        "  from this container, that the name resolves (Docker DNS needs\n"
+        "  the container on the same network), and that the credentials\n"
+        "  and TLS settings are correct."
+    )
+
+
 class Database:
     """The process's connection pool, and the coroutine scope over it.
 
@@ -110,8 +126,9 @@ class Database:
     backend at all -- which is the correct answer, not an accident.
     """
 
-    def __init__(self, pool: AsyncBackendPool) -> None:
+    def __init__(self, pool: AsyncBackendPool, settings: Settings | None = None) -> None:
         self._pool = pool
+        self._settings = settings
 
     @classmethod
     async def create(cls, settings: Settings | None = None) -> Database:
@@ -126,7 +143,7 @@ class Database:
                 ),
             )
         )
-        return cls(pool)
+        return cls(pool, resolved)
 
     @staticmethod
     def connection_config(settings: Settings) -> PostgresConnectionConfig:
@@ -171,6 +188,28 @@ class Database:
         own default applies when it is omitted.
         """
         return self._connection(timeout)
+
+    @asynccontextmanager
+    async def startup_connection(self, *, timeout: float | None = None) -> AsyncIterator[None]:
+        """Borrow one connection for a cold start, with an actionable error.
+
+        A listener cannot serve until it has built its container, and building
+        the container reads the PAT row — a query. The backend's connect failure
+        is a verbose traceback naming psycopg internals; at startup that is the
+        one failure an operator is least likely to diagnose from a stack trace,
+        because the cause is almost always outside the process: the database
+        container not up yet, a wrong container name, or a missing DNS route.
+
+        Wrap only the cold-start borrow (not every request). A request that
+        fails mid-life keeps the backend's own error; turning a transient blip
+        into a startup diagnosis there would be misleading.
+        """
+        try:
+            async with self.connection(timeout=timeout):
+                yield
+        except BackendConnectionError as exc:
+            source = self._settings or get_settings()
+            raise DatabaseUnavailableError(connection_failure_message(source, exc)) from exc
 
     @asynccontextmanager
     async def _connection(
