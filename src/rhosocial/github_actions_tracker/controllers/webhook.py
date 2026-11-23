@@ -623,11 +623,13 @@ class WebhookController(DatabaseConnectionMixin):
     async def ensure_parent_run(self, event_type: str, payload: Mapping[str, Any]) -> None:
         """Make sure the run a ``workflow_job`` event belongs to is stored.
 
-        Called by the receiver *before* it writes the job, because the adoption is
-        a network call. Idempotent and cheap when the run exists: one indexed
-        lookup. A run that cannot be adopted simply stays unknown, and the
-        delivery is recorded as unhandled; ``find_runs`` (which reads GitHub)
-        repairs it later.
+        Called by the receiver *before* it writes the job, because adoption is a
+        network call. Idempotent and cheap when the run exists: one indexed
+        lookup. Adoption uses a full GitHub payload that names the workflow, so
+        it creates the workflow and the run together with the right identity --
+        which is why a trigger no longer persists a run from its ids-only answer.
+        A run that cannot be adopted simply stays unknown, and the delivery is
+        recorded as unhandled; ``find_runs`` (which reads GitHub) repairs it later.
         """
         if event_type != "workflow_job":
             return

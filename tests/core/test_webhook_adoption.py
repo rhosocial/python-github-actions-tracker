@@ -12,9 +12,13 @@ still refused, and only appears in the delivery ledger as unhandled.
 
 from __future__ import annotations
 
-from conftest import make_webhook_service
+from conftest import FakeGithub, make_webhook_service, subscribe
 
-from rhosocial.github_actions_tracker.models import AsyncRepository, AsyncWorkflowRun
+from rhosocial.github_actions_tracker.models import (
+    AsyncRepository,
+    AsyncWorkflow,
+    AsyncWorkflowRun,
+)
 
 REPO = "acme/demo"
 RUN_ID = 7777
@@ -107,3 +111,58 @@ class TestAdoption:
         second = await AsyncWorkflowRun.find_by_github_id(RUN_ID, derived=True)
         assert second is not None and second.latest_conclusion == "success"
         assert await AsyncWorkflowRun.query().count() == 1
+
+    async def test_a_job_event_materializes_a_triggered_run_under_the_real_workflow(
+        self, bound
+    ) -> None:
+        """A trigger leaves no row; the first job delivery fills in workflow + run.
+
+        The dispatch answer names only the run, so storage is deferred. A job
+        event carries `run_id` and the full GitHub read it triggers names the
+        workflow -- the run must be filed under that workflow, not a ghost row
+        whose `workflow_id` equals the run id.
+        """
+        fake = FakeGithub()
+        fake.repo_info = {"id": 91, "full_name": "acme/demo", "private": False}
+        fake.runs = [
+            {
+                "id": RUN_ID,
+                "run_number": 12,
+                "run_attempt": 1,
+                "status": "in_progress",
+                "conclusion": None,
+                "head_branch": "main",
+                "head_sha": "a" * 40,
+                "event": "workflow_dispatch",
+                "workflow_id": 7,
+                "path": ".github/workflows/ci.yml",
+                "name": "CI",
+            }
+        ]
+        await subscribe(fake, full_name="acme/demo")
+        handler = make_webhook_service(client=fake)
+
+        handled = await handler.handle_event(
+            "workflow_job",
+            {
+                "action": "in_progress",
+                "repository": {"id": 1, "full_name": "acme/demo"},
+                "workflow_job": {
+                    "id": 900,
+                    "run_id": RUN_ID,
+                    "name": "build",
+                    "status": "in_progress",
+                    "steps": [],
+                },
+            },
+        )
+
+        assert handled is True
+        run = await AsyncWorkflowRun.find_by_github_id(RUN_ID)
+        assert run is not None
+        # Exactly one workflow exists, and the run points at it -- not at a row
+        # whose workflow_id is the run id with a blank name/path.
+        workflows = await AsyncWorkflow.query().all()
+        assert len(workflows) == 1
+        assert run.workflow_id == workflows[0].id
+        assert workflows[0].workflow_id != RUN_ID

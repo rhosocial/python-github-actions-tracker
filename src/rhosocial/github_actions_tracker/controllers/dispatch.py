@@ -32,11 +32,12 @@ from ..core.exceptions import (
     ValidationError,
     map_api_error,
 )
+from ..models import AsyncWorkflowRun
 from ..services.github.protocols import RunControl, RunReader
 
 if TYPE_CHECKING:  # the rows these flows return; only the annotation names them
     from ..core.run_tracker import RunTracker
-    from ..models import AsyncRepository, AsyncWorkflow, AsyncWorkflowRun
+    from ..models import AsyncRepository, AsyncWorkflow
     from .run import RunData
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,42 @@ def _describes_workflow(payload: Mapping[str, Any], workflow: AsyncWorkflow) -> 
         return path == workflow.path
     name = str(payload.get("name") or "").strip().lower()
     return bool(workflow.name) and name == workflow.name.strip().lower()
+
+
+def _has_workflow_identity(payload: Mapping[str, Any]) -> bool:
+    """Whether a run payload names the workflow the run belongs to.
+
+    A full run object carries ``workflow_id``, ``name`` and ``path``. A dispatch
+    response carries only the run's own ``id``/``run_id``. Adopting the latter
+    is what wrote a workflow row whose ``workflow_id`` equalled the run id --
+    ``GithubPayloads.workflow`` falls back to ``workflow.id`` when the real
+    identity is absent. Materializing is deferred to the webhook or the next
+    read whenever that identity is missing.
+    """
+    return bool(
+        _as_int(payload.get("workflow_id"))
+        or str(payload.get("path") or "").strip()
+        or str(payload.get("name") or "").strip()
+    )
+
+
+def _pending_run(workflow: AsyncWorkflow, github_run_id: int) -> AsyncWorkflowRun:
+    """An in-memory run reference for a dispatch whose row is not materialized.
+
+    The trigger response needs a run id, a status, an attempt and the local
+    workflow id (for the timing sample). None of those require a stored run.
+    Returning a transient object keeps the ``AsyncWorkflowRun`` return contract
+    while leaving the real row to the webhook (or the next read), which adopts
+    from a full GitHub payload and therefore names the workflow correctly.
+    """
+    run = AsyncWorkflowRun(
+        workflow_id=workflow.id or 0,
+        github_run_id=github_run_id,
+    )
+    run.__dict__["latest_status"] = "queued"
+    run.__dict__["latest_attempt"] = 1
+    run.__dict__["latest_conclusion"] = None
+    return run
 
 
 class DispatchController:
@@ -189,7 +226,7 @@ class DispatchController:
                 status_code=202,
             )
 
-        return await self._adopt_triggered(repo, payload, github_run_id)
+        return await self._adopt_triggered(repo, record, payload, github_run_id)
 
     async def run_for_head(
         self,
@@ -509,25 +546,35 @@ class DispatchController:
         return run
 
     async def _adopt_triggered(
-        self, repo: AsyncRepository, payload: Mapping[str, Any], github_run_id: int
+        self,
+        repo: AsyncRepository,
+        workflow: AsyncWorkflow,
+        payload: Mapping[str, Any],
+        github_run_id: int,
     ) -> AsyncWorkflowRun:
-        """Store the run GitHub created, then note it as ours.
+        """Materialize the dispatched run when we can name its workflow, else defer.
 
         The tracker entry is what lets a webhook delivery be attributed to this
-        process's dispatch rather than to an unrelated run.
+        process's dispatch rather than to an unrelated run; it is made either way.
+
+        Storage is conditional on the payload naming the workflow. A dispatch
+        answer carries only ids, so a read-back is attempted first. When that
+        read fails (or still returns no workflow identity), adopting would
+        mistake the run id for a workflow id and write a ghost workflow row.
+        Instead we return a transient reference and leave the real row to the
+        webhook or the next read -- both carry a full payload that names the
+        workflow. The caller keeps the same run-shaped response either way.
         """
         run = await self._store.run(github_run_id)
-        if run is None:
-            if not payload.get("status") or not payload.get("conclusion"):
-                # A dispatch response carries ids only; read the run so the
-                # stored row has a real status rather than a guess.
-                try:
-                    payload = await self._readers.get_run(repo.full_name, github_run_id)
-                except GhatError:
-                    pass
+        if run is None and not _has_workflow_identity(payload):
+            try:
+                payload = await self._readers.get_run(repo.full_name, github_run_id)
+            except GhatError:
+                payload = {}
+        if run is None and _has_workflow_identity(payload):
             run = await self._store.adopt_run(repo, payload)
         self._track(github_run_id)
-        return run
+        return run if run is not None else _pending_run(workflow, github_run_id)
 
     def _track(self, github_run_id: int) -> None:
         """Note a run this service started, when a tracker was given."""

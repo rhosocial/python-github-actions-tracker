@@ -173,6 +173,55 @@ class TestDispatch:
         assert await AsyncWorkflowRun.query().count() == 1
 
 
+class TestThinDispatch:
+    """A dispatch answer names a run but not its workflow.
+
+    GitHub's ``POST .../dispatches`` may answer with only a run id, and the
+    follow-up read can fail transiently. Adopting that thin payload used to write
+    a workflow row whose ``workflow_id`` equalled the run id (a ghost). Now the
+    dispatch returns an in-memory reference and leaves materialization to a full
+    payload, which always names the workflow.
+    """
+
+    async def test_a_thin_answer_writes_no_ghost_workflow(self, bound) -> None:
+        await _tracked()
+        fake = FakeGithub()
+
+        async def thin_list(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            # The discovered run carries the id but no workflow identity.
+            return [{"id": RUN_ID, "status": "queued"}]
+
+        async def missing(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+            raise GithubAPIError("missing", status_code=404)
+
+        fake.list_runs = thin_list  # type: ignore[method-assign]
+        fake.get_run = missing  # type: ignore[method-assign]
+
+        run = await _service(fake).dispatch(REPO, "ci.yml", "main")
+
+        # The caller still gets the ids it needs, without a stored row.
+        assert run.github_run_id == RUN_ID
+        assert run.latest_status == "queued"
+        assert run.latest_attempt == 1
+        # The local workflow row id is carried for the timing sample, not the
+        # GitHub workflow id and not 0 (which would mean "unresolved").
+        assert run.workflow_id > 0
+        assert run.workflow_id != RUN_ID
+        # No ghost workflow and no run row were persisted.
+        assert await AsyncWorkflow.query().count() == 1
+        assert await AsyncWorkflowRun.query().count() == 0
+
+    async def test_a_full_answer_still_materializes_the_run(self, bound) -> None:
+        """The common case is unchanged: a full payload stores the run."""
+        await _tracked()
+        fake = FakeGithub()
+        # FakeGithub's discovered run names the workflow, so adoption proceeds.
+        await _service(fake).dispatch(REPO, "ci.yml", "main")
+
+        assert await AsyncWorkflow.query().count() == 1
+        assert await AsyncWorkflowRun.query().count() == 1
+
+
 class TestRerun:
     async def test_a_rerun_advances_the_attempt_and_keeps_the_run_id(self, bound) -> None:
         await _tracked()
